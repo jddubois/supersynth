@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+native/target/
+
+# Compiled native addon
+supersynth.node
+*.dylib
+*.so
+*.dll
+
+# Large data files (audio, analysis, MIDI)
+data/
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

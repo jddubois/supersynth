@@ -1,0 +1,23 @@
+# Source (dist/ is already the compiled output included via "files" in package.json)
+src/
+native/
+test/
+bench/
+scripts/
+examples/
+
+# Data
+data/
+
+# Config
+tsconfig*.json
+jest.config.js
+
+# Dev artifacts
+node_modules/
+native/target/
+
+# OS / Editor
+.DS_Store
+.vscode/
+.idea/
