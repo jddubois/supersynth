@@ -7,6 +7,7 @@ native/target/
 
 # Compiled native addon
 supersynth.node
+supersynth.*.node
 *.dylib
 *.so
 *.dll
