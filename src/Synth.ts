@@ -19,11 +19,18 @@ export const kOrgan = Symbol('supersynth.organ');
 
 function loadNative(): { SynthEngine: new (config: object) => NativeEngine } {
   const require = createRequire(import.meta.url);
-  const addonPath = path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    '../supersynth.node',
-  );
-  return require(addonPath);
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  // Try platform-specific binary first (e.g. supersynth.linux-arm64.node),
+  // then fall back to the generic supersynth.node for backward compatibility.
+  const platformName = `supersynth.${process.platform}-${process.arch}.node`;
+  for (const name of [platformName, 'supersynth.node']) {
+    try {
+      return require(path.resolve(dir, '..', name));
+    } catch {
+      // try next
+    }
+  }
+  throw new Error(`No supersynth native binary found for ${process.platform}-${process.arch}`);
 }
 
 let _native: ReturnType<typeof loadNative> | null = null;

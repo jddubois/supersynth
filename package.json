@@ -13,12 +13,14 @@
   },
   "files": [
     "dist",
-    "supersynth.node"
+    "supersynth.node",
+    "supersynth.*.node"
   ],
   "scripts": {
     "build:native": "cd native && cargo build --release && cp target/release/libsupersynth_native.dylib ../supersynth.node 2>/dev/null || cp target/release/libsupersynth_native.so ../supersynth.node 2>/dev/null",
+    "build:native:pi": "cd native && cross build --release --target aarch64-unknown-linux-gnu && cp target/aarch64-unknown-linux-gnu/release/libsupersynth_native.so ../supersynth.linux-arm64.node",
     "build:ts": "tsc -p tsconfig.build.json",
-    "build": "npm run build:native && npm run build:ts",
+    "build": "npm run build:native && npm run build:native:pi && npm run build:ts",
     "test": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.js",
     "test:rust": "cd native && cargo test",
     "bench": "node --import tsx bench/oscillators.bench.ts",
