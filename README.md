@@ -1,24 +1,56 @@
 # supersynth
 
-[![npm](https://img.shields.io/npm/v/supersynth)](https://www.npmjs.com/package/supersynth)
-[![GitHub](https://img.shields.io/badge/github-jddubois%2Fsupersynth-blue)](https://github.com/jddubois/supersynth)
+Real instrument sounds for Node.js — a concert grand, a complete Swedish church organ, an orchestra
+of strings, winds, brass and mallets — synthesised in real time by a native Rust engine.
 
-High-performance audio synthesis for Node.js, Bun, and Deno — backed by native Rust bindings via [CPAL](https://github.com/RustAudio/cpal).
+```ts
+import { Synth } from 'supersynth';
 
-- **12 waveforms** — sine, square, sawtooth, triangle, principal, trumpet, flute, pulse, noise, plucked, struck, electric
-- **Expressive oscillators** — exponential ADSR, pitch/amplitude LFOs, chiff pipe-attack transients
-- **Organ engine** — stops, presets, mixture ranks, drawbar control, key-click
-- **Effects** — Freeverb reverb, overdrive, Leslie rotary speaker, limiter
-- **MIDI input** — hardware device support via [midir](https://github.com/Boddlnagg/midir)
-- **Multi-backend** — CoreAudio, WASAPI, ALSA, PulseAudio, PipeWire, JACK
-- **Offline rendering** — generate audio without hardware for testing and file export
-- **TypeScript-first** — full type definitions throughout
+const synth = new Synth();
+const piano = synth.add('grand-piano');
+await synth.start();
 
-## Status
+piano.play(['C4', 'E4', 'G4'], { velocity: 80, duration: 2 });
+```
 
-> **The organ engine is the current focus of active development and is the most polished part of the library.** The baroque pipe organ simulation — including the `principal` waveform, mixture ranks, breaking stops, drawbar control, key-click, and Leslie rotary speaker — is production-quality.
->
-> All other instrument classes (`Piano`, `Guitar`, `Flute`, `Trumpet`, etc.) are **works in progress**. They produce sound and are usable, but their voices have not been tuned to the same standard. Expect rough edges.
+## How it sounds real
+
+Every instrument is a **spectral model analysed from real recordings** (all freely licensed, see
+[NOTICE.md](NOTICE.md)). For each recorded note and dynamic level the analysis measures:
+
+- the frequency and amplitude envelope of every partial (up to 128), including **string stiffness**
+  (piano inharmonicity), **vibrato and pitch drift**, and the start phases that shape the attack;
+- stable **inharmonic components** — sympathetic and duplex resonances in a piano, the modes of a bell
+  or marimba bar;
+- the **noise** the instrument makes — breath, bow, hammer, wind, key action — as a time-varying spectrum;
+- for struck and plucked instruments, the first milliseconds of the **real attack**, which the engine
+  cross-fades phase-coherently into the synthesised tone;
+- sustain loops, release behaviour and each pipe's or string's own tuning.
+
+The engine resynthesises this with an oscillator bank (vectorised complex rotators) and spectral
+noise shaping, morphing smoothly between recorded pitches and dynamics. Notes that were never
+recorded are interpolated — with formant preservation for bowed strings and winds — rather than
+pitch-shifted like a sampler. Every aspect can be tweaked live: brightness, attack, decay, release,
+vibrato, inharmonicity, noise, stereo spread, and more.
+
+**Validated against the recordings.** For each instrument, held-out notes (left out of the model)
+are synthesised and compared with the real recordings. The synthesiser is typically closer to the
+missing recording than a conventional sampler pitch-shifting its nearest recording, and independent
+blind listening tests (see `tools/ssm/blind.py`) are used to hunt down any remaining tells.
+
+## Instruments
+
+| Family | Instruments (ids) |
+|---|---|
+| Keyboards | `grand-piano`, `upright-piano`, `harpsichord` |
+| Organs | `organ()` — the full Bureå church organ (40 stops, 4 divisions); `pipe-organ`, `chamber-organ` |
+| Strings | `violin`, `violins`, `violas`, `cellos`, `contrabass`, `strings` (full section), `harp`, `violin-pizzicato`, `cello-pizzicato`, `contrabass-pizzicato` |
+| Woodwinds | `flute`, `oboe`, `clarinet`, `bassoon`, `tenor-sax` |
+| Brass | `trumpet`, `french-horn`, `trombone`, `tuba`, `brass` (section) |
+| Percussion | `marimba`, `vibraphone`, `xylophone`, `glockenspiel`, `tubular-bells` |
+
+Each comes with presets (`synth.add('grand-piano', { preset: 'felt' })`); list everything with
+`Synth.instruments()`.
 
 ## Install
 
@@ -26,121 +58,137 @@ High-performance audio synthesis for Node.js, Bun, and Deno — backed by native
 npm install supersynth
 ```
 
-> **Prerequisites:** Rust and Cargo must be installed to build the native addon.
-> Install from [rustup.rs](https://rustup.rs).
+Building from source needs Rust ([rustup.rs](https://rustup.rs)): `npm run build`.
 
-## Quick start
+## Usage
 
-```ts
-import { Synth } from 'supersynth';
-
-// Play a note through your speakers
-const synth = new Synth({ masterVolume: 0.5 });
-await synth.start();
-
-synth.noteOn(69, 100);                          // A4, velocity 100
-await new Promise(r => setTimeout(r, 2000));
-synth.noteOff(69);
-synth.stop();
-```
-
-Use a pre-built instrument class for a specific sound:
+### Playing notes
 
 ```ts
-import { Organ, Piano, Flute } from 'supersynth';
+const synth = new Synth({ reverb: 'concert-hall' });
+const violin = synth.add('violin', { preset: 'expressive' });
+const cellos = synth.add('cellos');
 
-const organ = new Organ({ masterVolume: 0.7 });
-await organ.start();
-organ.activatePreset('principal');
-organ.noteOn(60, 100).noteOn(64, 100).noteOn(67, 100); // C major chord
+violin.play('A4', { velocity: 90, duration: 2 });          // names or MIDI numbers
+cellos.play(['C3', 'G3'], { delay: 0.5, duration: 3 });     // chords, relative timing
+violin.sequence([['E5', 1], ['D5', 0.5], ['C5', 0.5], ['B4', 2]], { bpm: 80 });
+
+piano.noteOn('C4', 100); /* … */ piano.noteOff('C4');      // manual control
+piano.sustain(true);                                        // pedal
+violin.pitchBend(0.5); violin.modWheel(0.3); violin.expression(0.6); // swells
 ```
 
-Configure voice directly for custom synthesis:
+All note methods accept `{ at }` (absolute seconds on `synth.currentTime`) for sample-accurate
+scheduling.
+
+### Tweaks
 
 ```ts
-import { Synth } from 'supersynth';
-
-const synth = new Synth({
-  voice: {
-    oscillators: [{ waveform: 'sawtooth', attackTime: 0.1, releaseTime: 0.4 }],
-  },
-  reverb: { roomSize: 0.8, wet: 0.3 },
-  masterVolume: 0.6,
-});
+piano.set({ brightness: 1.5, release: 2, reverbSend: 0.3 });
+violin.set({ vibrato: 8, vibratoRate: 5.8, naturalVibrato: 0.5 });
+synth.add('grand-piano', { preset: 'honky-tonk', params: { volume: -3 } });
 ```
 
-## Documentation
+| Parameter | Meaning |
+|---|---|
+| `brightness` | spectral tilt, dB/octave (+ brighter, − darker) |
+| `attack`, `decay`, `release` | time scales (2 = twice as long) |
+| `vibrato`, `vibratoRate`, `vibratoDelay`, `naturalVibrato` | added vibrato; how much recorded vibrato to keep |
+| `noise` | breath / bow / hammer noise, dB |
+| `inharmonicity`, `evenHarmonics`, `formant` | timbre structure |
+| `spread`, `pan`, `volume`, `reverbSend` | placement and level |
+| `legato`, `glide` | slurred melodies: notes connect without re-attacking |
+| `humanize`, `velocitySensitivity`, `transpose`, `tune`, `bendRange`, `mono` | playing |
+| `tremolo`, `jitter` | synchronous pulsation; per-partial micro-fluctuation |
+| `eqLow/Mid/High…`, `lowCut`, `highCut`, `chorus`, `drive`, `leslie` | effects |
 
-| Topic | Description |
-|-------|-------------|
-| [Synth](docs/synth.md) | Core class — constructor, methods, events |
-| [Voice & Oscillators](docs/voice.md) | `VoiceConfig`, `OscillatorTemplate`, `VelocityCurve` |
-| [Waveforms](docs/waveforms.md) | All 12 waveforms with parameters and implementation notes |
-| [Instruments](docs/instruments.md) | 20 pre-built instrument classes |
-| [Organ](docs/organ.md) | Organ engine — stops, presets, drawbars, mixture ranks |
-| [Effects](docs/effects.md) | Reverb, overdrive, Leslie, limiter |
-| [MIDI](docs/midi.md) | Hardware input, events, raw MIDI bytes |
-| [Errors](docs/errors.md) | Error classes and handling |
+### The church organ
+
+```ts
+const organ = synth.organ({ registration: 'plenum' });
+organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
+organ.pedal.play('C2', { duration: 4 });
+
+organ.great.pull("Trumpet 8'");           // draw a stop, even while notes are held
+organ.swell.pull("Salicional 8'", "Voix céleste 8'");
+organ.couple('swell>great');
+organ.swell.expression(0.4);              // swell pedal
+organ.tremulant(true);
+Organ.registrations;                       // plenum, flutes, cornet, trumpet, krummhorn, celeste, full, …
+```
+
+### Offline rendering and MIDI files
+
+```ts
+const synth = new Synth();
+synth.add('harpsichord').play(['D4', 'F4', 'A4'], { duration: 2 });
+synth.renderToFile('chord.wav', 3);                     // no audio device needed
+const audio = synth.render(3);                          // { sampleRate, left, right }
+
+synth.renderMidi('bach.mid', { instrument: 'harpsichord' });
+await synth.playMidi('song.mid', { channels: { 1: 'violin', 2: 'cellos' } });
+```
+
+### Hardware MIDI
+
+```ts
+synth.add('grand-piano', { channel: 0 });   // MIDI channel 1
+await synth.enableMidi('Keystation');      // played directly by the engine, no JS latency
+synth.on('midi', (e) => console.log(e));
+```
 
 ## Examples
 
 ```bash
-npm run example:tone    # 440 Hz sine for 2 seconds
-npm run example:chord   # C major chord with reverb
-npm run example:midi    # Bach BWV 532 MIDI file through organ
+npm run example:tour          # every instrument family
+npm run example:piano         # pedal, dynamics, presets
+npm run example:organ         # hymn in four parts across registrations
+npm run example:orchestra     # strings, harp, oboe, horn, pizzicato bass
+npm run example:midi          # a Bach organ work from a MIDI file
+npm run demos -- demos/       # render every instrument × preset to WAV
 ```
 
-Play any MIDI file:
-```bash
-node --import tsx examples/midi-file.ts /path/to/your.mid
-```
+Append `-- out.wav` to the first four to render to a file instead of the speakers.
 
-See the [`examples/`](examples/) directory for 20+ instrument demonstrations.
+## Performance
 
-## Benchmarks
+The engine runs on its own audio thread, outside Node's event loop and garbage collector; the API
+talks to it through a lock-free queue. Measured with `npm run bench` (Apple M1 Max, one core,
+48 kHz stereo including reverb):
 
-```bash
-npm run bench           # throughput vs node-web-audio-api and web-audio-api
-npm run bench:realtime  # real-time callback timing under GC pressure
-```
-
-### Why native Rust?
-
-- **Real-time reliability** — the CPAL audio thread runs outside Node's event loop, never paused by V8's garbage collector
-- **JACK support** — direct low-latency connection to JACK audio graph for professional Linux setups
-- **Synthesis features** — mixture ranks, Freeverb, Leslie rotary, and Karplus-Strong have no equivalent in standard Web Audio API node graphs
-
-## Tests
-
-```bash
-npm test            # TypeScript integration tests (no hardware required)
-npm run test:rust   # Rust unit tests
-```
-
-## Building from source
-
-```bash
-git clone https://github.com/jddubois/supersynth
-cd supersynth
-npm install
-npm run build
-npm test
-```
+| Scenario | CPU |
+|---|---|
+| 16 held piano notes with pedal | 5.5 % |
+| 8-note string-orchestra chord | 5.2 % |
+| Organ plenum chord + pedal | 6.0 % |
+| Full organ, all couplers (116 voices) | 19.6 % |
 
 ## Architecture
 
 ```
-TypeScript API (src/)
-      ↓  napi-rs bindings
-Rust synthesis engine (native/src/)
-  ├── synth/     oscillators, envelopes, LFOs, chiff, waveforms, Karplus-Strong
-  ├── effects/   Freeverb reverb, overdrive, biquad, low-pass, limiter, Leslie
-  ├── midi/      MIDI parsing, device input (midir)
-  └── audio/     CPAL backend selection and stream management
-      ↓  CPAL
-CoreAudio / WASAPI / ALSA / PulseAudio / PipeWire / JACK
+TypeScript API (src/)          Synth · Part · Organ · instruments · MIDI files · WAV
+        │ napi-rs
+native/src/                    bindings, CPAL audio output, MIDI input
+native/core/                   supersynth-core (pure Rust)
+  ├── model/                   .ssm spectral model format
+  ├── voice/                   spectral voice (oscillator bank, transients), pooled FFT noise
+  ├── engine/                  lock-free command queue, sample-accurate scheduling, parts, mixing
+  └── fx/                      FDN reverb, EQ, chorus, drive, rotary speaker, limiter
+tools/ssm/                     Python analysis: recordings → models; evaluation; blind tests
+models/                        the analysed instruments
+```
+
+Rebuild the models from the source recordings with `npm run models` (Python 3.12 with numpy,
+scipy, numba, soundfile; see `tools/ssm/`).
+
+## Tests
+
+```bash
+npm test             # TypeScript API (offline, no audio device)
+npm run test:rust    # engine and DSP
 ```
 
 ## License
 
-MIT
+Code: MIT. Instrument models are derived from recordings under their own licenses — CC0 and
+CC BY-SA 2.5 SE (the Bureå organ, attribution: Lars Palo). See [NOTICE.md](NOTICE.md).

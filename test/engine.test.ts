@@ -1,195 +1,170 @@
-import { Synth } from '../src/Synth.js';
-import { Organ } from '../src/instruments/organ.js';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+import {
+  chord, encodeWav, INSTRUMENTS, noteName, noteNumber, parseMidiFile, Piano, Synth, SupersynthError,
+} from '../src/index.js';
+
+const peak = (a: Float32Array) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+const rms = (a: Float32Array) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / Math.max(1, a.length));
+
+describe('notes', () => {
+  test('names and numbers', () => {
+    expect(noteNumber('C4')).toBe(60);
+    expect(noteNumber('A4')).toBe(69);
+    expect(noteNumber('F#3')).toBe(54);
+    expect(noteNumber('Bb2')).toBe(46);
+    expect(noteNumber('C-1')).toBe(0);
+    expect(noteNumber(72)).toBe(72);
+    expect(noteName(61)).toBe('C#4');
+    expect(() => noteNumber('H2')).toThrow(RangeError);
+    expect(() => noteNumber(128)).toThrow(RangeError);
+  });
+
+  test('chords', () => {
+    expect(chord('C4')).toEqual([60, 64, 67]);
+    expect(chord('A3', 'm7')).toEqual([57, 60, 64, 67]);
+    expect(chord('F#3m7b5')).toEqual([54, 57, 60, 64]);
+  });
+});
 
 describe('Synth offline rendering', () => {
-  let synth: Synth;
-
-  beforeEach(() => {
-    synth = new Synth({ sampleRate: 48000 });
+  test('silence with no notes, correct length, stereo', () => {
+    const synth = new Synth({ sampleRate: 48000 });
+    const a = synth.render(0.25);
+    expect(a.left.length).toBe(12000);
+    expect(a.right.length).toBe(12000);
+    expect(peak(a.left)).toBeLessThan(1e-9);
   });
 
-  test('render() returns Float32Array of correct length', () => {
-    const samples = synth.render(1024);
-    // Use ArrayBuffer.isView for cross-realm typed array check
-    expect(ArrayBuffer.isView(samples)).toBe(true);
-    expect(samples.length).toBe(1024);
+  test('a piano note sounds, stays finite and bounded, and ends after release', () => {
+    const synth = new Synth({ sampleRate: 48000 });
+    const piano = synth.add('piano');
+    piano.play('C4', { velocity: 100, duration: 0.5 });
+    const a = synth.render(1.5);
+    expect(rms(a.left)).toBeGreaterThan(1e-3);
+    for (const v of a.left) expect(Number.isFinite(v)).toBe(true);
+    expect(peak(a.left)).toBeLessThanOrEqual(1.0);
+    synth.render(4);
+    expect(synth.activeVoices).toBe(0);
   });
 
-  test('silence when no notes have been played', () => {
-    const samples = synth.render(1024);
-    const allZero = Array.from(samples).every((s) => s === 0);
-    expect(allZero).toBe(true);
+  test('velocity changes loudness and timbre', () => {
+    const level = (vel: number) => {
+      const s = new Synth({ sampleRate: 48000, reverb: false });
+      s.add('grand-piano').play('C4', { velocity: vel, duration: 1 });
+      return rms(s.render(1).left);
+    };
+    expect(level(110)).toBeGreaterThan(level(40) * 2);
   });
 
-  test('note on produces non-zero audio', () => {
-    synth.noteOn(69, 100);
-    const samples = synth.render(1024);
-    const hasSignal = Array.from(samples).some((s) => Math.abs(s) > 1e-6);
-    expect(hasSignal).toBe(true);
+  test('scheduling is sample accurate', () => {
+    const synth = new Synth({ sampleRate: 48000, reverb: false });
+    synth.add('marimba').play('C5', { at: 0.5, duration: 0.5 });
+    const a = synth.render(1);
+    const first = a.left.findIndex((v) => Math.abs(v) > 1e-4);
+    expect(first).toBeGreaterThanOrEqual(24000);
+    expect(first).toBeLessThan(24000 + 200);
   });
 
-  test('all samples are finite (no NaN/Infinity)', () => {
-    synth.noteOn(69, 100);
-    const samples = synth.render(4096);
-    for (const s of samples) {
-      expect(isFinite(s)).toBe(true);
-    }
-  });
-
-  test('limiter keeps output bounded when many notes play', () => {
-    for (let i = 0; i < 16; i++) {
-      synth.noteOn(60 + i, 127);
-    }
-    // Warm up: let the limiter envelope settle
-    synth.render(2400);
-    const samples = synth.render(2048);
-    for (const s of samples) {
-      expect(Math.abs(s)).toBeLessThanOrEqual(2.0);
-    }
-  });
-
-  test('note off eventually produces silence', () => {
-    synth.noteOn(69, 100);
-    synth.render(4800); // let attack settle
-    synth.noteOff(69);
-    synth.render(96000); // wait for release
-    expect(synth.activeNoteCount).toBe(0);
-  });
-
-  test('multiple simultaneous notes produce audio', () => {
-    [60, 64, 67].forEach((note) => synth.noteOn(note, 80));
-    const samples = synth.render(1024);
-    expect(Array.from(samples).some((s) => Math.abs(s) > 1e-6)).toBe(true);
-  });
-
-  test('activeNoteCount reflects note on/off state', () => {
-    expect(synth.activeNoteCount).toBe(0);
-    synth.noteOn(60, 100);
-    synth.noteOn(64, 100);
-    expect(synth.activeNoteCount).toBe(2);
-    synth.noteOff(60);
-    // Count stays 2 until release finishes — just check it's still tracked
-    expect(synth.activeNoteCount).toBeGreaterThanOrEqual(1);
-  });
-
-  test('voice override per note', () => {
-    synth.noteOn(69, 100, { voice: { oscillators: [{ waveform: 'trumpet' }] } });
-    const samples = synth.render(1024);
-    expect(Array.from(samples).some((s) => Math.abs(s) > 1e-6)).toBe(true);
-  });
-
-  test('setVoice changes default voice', () => {
-    synth.setVoice({ oscillators: [{ waveform: 'sine' }] });
-    synth.noteOn(69, 100);
-    const samples = synth.render(1024);
-    expect(Array.from(samples).some((s) => Math.abs(s) > 1e-6)).toBe(true);
-  });
-
-  test('setMasterVolume(0) produces silence', () => {
-    synth.noteOn(69, 100);
-    synth.render(480); // let attack start
-    synth.setMasterVolume(0);
-    // Render enough samples for the loudness filter's biquad state to drain to
-    // effective silence (the filter decays asymptotically, not to exact zero).
-    synth.render(4800); // drain biquad state (~100ms)
-    const samples = synth.render(1024);
-    const peak = Math.max(...Array.from(samples).map(Math.abs));
-    expect(peak).toBeLessThan(1e-6);
+  test('many notes are limited below full scale', () => {
+    const synth = new Synth({ sampleRate: 48000, volume: 1 });
+    const p = synth.add('strings');
+    for (let n = 36; n < 90; n += 2) p.play(n, { velocity: 127, duration: 2 });
+    const a = synth.render(2);
+    expect(peak(a.left)).toBeLessThanOrEqual(1.0);
   });
 });
 
-describe('Synth with reverb', () => {
-  test('reverb-enabled synth produces finite audio', () => {
-    const synth = new Synth({
-      reverb: { roomSize: 0.85, wet: 0.35, dry: 0.65, preDelayMs: 20 },
-    });
-    synth.noteOn(69, 100);
-    const samples = synth.render(4096);
-    for (const s of samples) {
-      expect(isFinite(s)).toBe(true);
-    }
+describe('instruments', () => {
+  test.each(INSTRUMENTS.map((d) => d.id))('%s loads and plays', (id) => {
+    const synth = new Synth({ sampleRate: 48000 });
+    const part = synth.add(id);
+    const mid = Math.round((part.instrument.range[0] + part.instrument.range[1]) / 2);
+    part.play(mid, { velocity: 100, duration: 0.6 });
+    const a = synth.render(0.8);
+    expect(rms(a.left)).toBeGreaterThan(1e-4);
   });
 
-  test('reverb tail continues after note off', () => {
-    const synth = new Synth({
-      reverb: { roomSize: 0.85, wet: 0.8, dry: 0.2 },
-    });
-    synth.noteOn(69, 127);
-    synth.render(4800);
-    synth.noteOff(69);
-    synth.render(96000); // wait for note release
-    // After note finishes, reverb tail keeps producing audio
-    const tail = synth.render(512);
-    const hasReverb = Array.from(tail).some((s) => Math.abs(s) > 1e-10);
-    expect(hasReverb).toBe(true);
-  });
-});
-
-describe('Synth sendMidiBytes', () => {
-  test('note on via MIDI bytes produces audio', () => {
-    const synth = new Synth();
-    synth.sendMidiBytes(Buffer.from([0x90, 69, 100])); // NoteOn ch1 A4 vel100
-    const samples = synth.render(1024);
-    expect(Array.from(samples).some((s) => Math.abs(s) > 1e-6)).toBe(true);
+  test('presets and parameters', () => {
+    const synth = new Synth({ sampleRate: 48000 });
+    const p = synth.add('grand-piano', { preset: 'mellow' });
+    expect(p.preset).toBe('mellow');
+    expect(p.get('brightness')).toBeLessThan(0);
+    p.usePreset('honky-tonk');
+    expect(p.preset).toBe('honky-tonk');
+    p.set({ brightness: 2, release: 1.5, leslie: 'slow' });
+    expect(p.get('brightness')).toBe(2);
+    expect(() => p.usePreset('nope')).toThrow(RangeError);
+    expect(() => p.set({ nope: 1 } as never)).toThrow(RangeError);
+    p.reset();
+    expect(p.get('brightness')).toBe(0);
   });
 
-  test('note off via MIDI bytes stops note', () => {
-    const synth = new Synth();
-    synth.sendMidiBytes(Buffer.from([0x90, 69, 100]));
-    synth.render(4800);
-    synth.sendMidiBytes(Buffer.from([0x80, 69, 0]));
-    synth.render(96000);
-    expect(synth.activeNoteCount).toBe(0);
+  test('unknown instrument throws a helpful error', () => {
+    const synth = new Synth({ sampleRate: 48000 });
+    expect(() => synth.add('kazoo')).toThrow(SupersynthError);
+  });
+
+  test('standalone instrument classes', () => {
+    const piano = new Piano({ sampleRate: 48000, preset: 'bright' });
+    piano.play(['C4', 'E4', 'G4'], { duration: 0.5 });
+    expect(rms(piano.render(0.6).left)).toBeGreaterThan(1e-3);
+  });
+
+  test('catalog lists available instruments', () => {
+    const list = Synth.instruments();
+    expect(list.length).toBeGreaterThan(20);
+    expect(list.every((i) => i.available)).toBe(true);
   });
 });
 
-describe('Organ addOscillator / removeOscillator', () => {
-  test('Organ activatePreset produces audio', () => {
-    const organ = new Organ({ sampleRate: 48000 });
-    organ.activatePreset('principal');
-    organ.noteOn(60, 100);
-    const samples = organ.render(1024);
-    expect(Array.from(samples).some((s) => Math.abs(s) > 1e-6)).toBe(true);
+describe('organ', () => {
+  test('registrations, stops and couplers', () => {
+    const synth = new Synth({ sampleRate: 48000 });
+    const organ = synth.organ({ registration: 'flutes' });
+    expect(organ.great.drawn).toEqual(["Gedackt 8'", "Rohrflöte 4'"]);
+    organ.great.play(['C4', 'E4'], { duration: 0.5 });
+    organ.pedal.play('C2', { duration: 0.5 });
+    expect(rms(synth.render(0.8).left)).toBeGreaterThan(1e-3);
+    organ.useRegistration('plenum');
+    expect(organ.great.drawn).toContain('Mixture V');
+    organ.great.pull("Trumpet 8'");
+    expect(organ.great.drawn).toContain("Trumpet 8'");
+    organ.great.push("Trumpet 8'");
+    expect(organ.great.drawn).not.toContain("Trumpet 8'");
+    expect(() => organ.great.pull('Bombarde 32')).toThrow(SupersynthError);
   });
 
-  test('shared stop refcount: deactivating one preset keeps shared stop active', () => {
-    const organ = new Organ({ sampleRate: 48000 });
-    // both cornet and mixture include "8' Principal"
-    organ.activatePreset('cornet');
-    organ.activatePreset('mixture');
-    organ.deactivatePreset('cornet');
-    organ.noteOn(60, 100);
-    const samples = organ.render(1024);
-    expect(Array.from(samples).some((s) => Math.abs(s) > 1e-6)).toBe(true);
-  });
-
-  test('Organ activatePreset with breaking stop produces finite audio', () => {
-    const organ = new Organ({ sampleRate: 48000 });
-    organ.activatePreset('mixture'); // includes Mixture III ranks (breaking stops)
-    // Test across the break ranges: low, mid, high
-    for (const note of [36, 60, 72, 84]) {
-      organ.noteOn(note, 80);
-      const samples = organ.render(512);
-      for (const s of samples) {
-        expect(isFinite(s)).toBe(true);
-      }
-      organ.noteOff(note);
-    }
+  test('pulling a stop while a note is held adds it to the sounding note', () => {
+    const synth = new Synth({ sampleRate: 48000, reverb: false });
+    const organ = synth.organ({ registration: 'flute-8' });
+    organ.positive.noteOn('C4');
+    const before = rms(synth.render(0.5).right);
+    organ.positive.pull("Krummhorn 8'");
+    synth.render(0.2);
+    const after = rms(synth.render(0.5).right);
+    expect(after).toBeGreaterThan(before * 1.2);
   });
 });
 
-describe('Synth utility methods', () => {
-  test('listAudioBackends returns array of strings', () => {
-    const synth = new Synth();
-    const backends = synth.listAudioBackends();
-    expect(Array.isArray(backends)).toBe(true);
-    expect(backends.length).toBeGreaterThan(0);
-    backends.forEach((b) => expect(typeof b).toBe('string'));
+describe('files', () => {
+  test('MIDI file parse and render', () => {
+    const bytes = readFileSync(path.join(process.cwd(), 'examples', 'jsbwv532.mid'));
+    const midi = parseMidiFile(bytes);
+    expect(midi.events.length).toBeGreaterThan(100);
+    expect(midi.duration).toBeGreaterThan(10);
+    const synth = new Synth({ sampleRate: 22050 });
+    const short = { ...midi, events: midi.events.filter((e) => e.time < 2) };
+    expect(short.events.length).toBeGreaterThan(0);
+    const audio = synth.renderMidi(bytes, { instrument: 'harpsichord', tail: 0.5, speed: 8 });
+    expect(audio.duration).toBeGreaterThan(1);
+    expect(rms(audio.left)).toBeGreaterThan(1e-3);
   });
 
-  test('listMidiDevices returns array', () => {
-    const synth = new Synth();
-    const devices = synth.listMidiDevices();
-    expect(Array.isArray(devices)).toBe(true);
+  test('WAV encoding', () => {
+    const buf = encodeWav({ sampleRate: 48000, left: new Float32Array(10), right: new Float32Array(10), duration: 10 / 48000 });
+    expect(buf.toString('ascii', 0, 4)).toBe('RIFF');
+    expect(buf.length).toBe(44 + 10 * 2 * 2);
   });
 });

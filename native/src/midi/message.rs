@@ -4,6 +4,7 @@ pub enum MidiMessageKind {
     NoteOn,
     ControlChange,
     ProgramChange,
+    PitchBend,
     Unknown,
 }
 
@@ -37,6 +38,7 @@ impl MidiMessage {
             }
             0xB0 => MidiMessageKind::ControlChange,
             0xC0 => MidiMessageKind::ProgramChange,
+            0xE0 => MidiMessageKind::PitchBend,
             _ => MidiMessageKind::Unknown,
         };
 

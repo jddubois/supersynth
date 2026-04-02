@@ -1,191 +1,106 @@
-# Organ
+# The church organ
 
-The `Organ` class is the flagship feature of supersynth — a baroque pipe organ simulation with stops, presets, mixture ranks, drawbar control, and key-click.
-
-```ts
-import { Organ } from 'supersynth';
-
-const organ = new Organ({ masterVolume: 0.7 });
-await organ.start();
-
-organ.activatePreset('principal');
-organ.noteOn(60, 100).noteOn(64, 100).noteOn(67, 100);
-```
-
-## Constructor
+`synth.organ()` gives a real church organ: the **Bureå Church organ** (Nils Hammarberg, 1967,
+Sweden), every pipe of 40 stops analysed from Lars Palo's GrandOrgue sample set (CC BY-SA). Pipes
+keep their own tuning and voicing, stops keep their natural balance, and the pipes carry the
+church acoustic they were recorded in.
 
 ```ts
-new Organ(config?: InstrumentConfig)
+const organ = synth.organ({ registration: 'plenum', tremulant: false });
+
+organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
+organ.pedal.play('C2', { duration: 4 });
+organ.swell.noteOn('G4'); organ.swell.noteOff('G4', { delay: 1 });
+
+organ.great.pull("Trumpet 8'");     // works while notes are held
+organ.great.push("Mixture V");
+organ.great.drawn;                  // stops currently drawn
+organ.couple('swell>great');        // play the swell from the great
+organ.couple('great>pedal', false);
+organ.swell.expression(0.5);        // swell pedal
+organ.tremulant(true);
+organ.useRegistration('celeste');
 ```
 
-`InstrumentConfig` is `SynthConfig` without `voice` — the organ manages its own oscillator templates via stops.
+Divisions: `great`, `swell`, `positive`, `pedal` (each a `Division` with `play`, `noteOn`,
+`noteOff`, `pull`, `push`, `clear`, `stops`, `drawn`, `expression`). `new ChurchOrgan()` creates
+an organ with its own engine.
 
-An `OrganConfig` (stops + presets) can optionally be passed to the underlying constructor if you need a custom stop list. By default the built-in config is used.
+## Stops
 
-## Methods
+### Great
 
-### Presets
+| Stop | Family |
+|---|---|
+| Principal 8' | principal |
+| Gedackt 8' | flute |
+| Hohlflöte 8' | flute |
+| Octave 4' | principal |
+| Rohrflöte 4' | flute |
+| Octave 2' | principal |
+| Sesquialtera II | mixture |
+| Mixture V | mixture |
+| Trumpet 8' | reed |
 
-```ts
-organ.activatePreset(presetName: string): this
-organ.deactivatePreset(presetName: string): this
-```
+### Swell
 
-Multiple presets can be active simultaneously. Stops shared between presets are reference-counted — a shared stop stays active until the last preset using it is deactivated.
+| Stop | Family |
+|---|---|
+| Rohrflöte 8' | flute |
+| Salicional 8' | string |
+| Voix céleste 8' | string |
+| Principal 4' | principal |
+| Hohlflöte 4' | flute |
+| Gemshorn 4' | principal |
+| Waldflöte 2' | flute |
+| Terz 1 3/5' | mutation |
+| Nasat 1 1/3' | mutation |
+| Septime 1 1/7' | mutation |
+| Scharf III | mixture |
+| Schalmei 8' | reed |
 
-```ts
-organ.activatePreset('principal');
-organ.activatePreset('trumpet');    // trumpet stop layered on top
-organ.deactivatePreset('trumpet');  // back to principal only
-```
+### Positive
 
-### Stops
+| Stop | Family |
+|---|---|
+| Gedackt 8' | flute |
+| Quintadena 8' | flute |
+| Koppelflöte 4' | flute |
+| Rohrquinte 2 2/3' | mutation |
+| Principal 2' | principal |
+| Flötlein 2' | flute |
+| Octave 1' | principal |
+| Sifflöte 1' | flute |
+| Cymbel II | mixture |
+| Krummhorn 8' | reed |
 
-```ts
-organ.activateStop(nameOrStop: string | OrganStop): this
-organ.deactivateStop(nameOrStop: string | OrganStop): this
-```
+### Pedal
 
-Activate/deactivate a stop by name (referencing the built-in stop list) or by passing an inline `OrganStop` object.
+| Stop | Family |
+|---|---|
+| Subbass 16' | flute |
+| Violon 16' | string |
+| Principal 8' | principal |
+| Gedackt 8' | flute |
+| Octave 4' | principal |
+| Nachthorn 2' | flute |
+| Rauschpfeife IV | mixture |
+| Fagott 16' | reed |
+| Trumpet 4' | reed |
 
-```ts
-organ.activateStop('principal_8');
-organ.activateStop({ waveform: 'flute', frequencyRatio: 2.0, amplitudeRatio: 0.7 });
-```
+## Registrations
 
-### Drawbars
-
-```ts
-organ.setDrawbarLevel(stopName: string, level: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8): this
-```
-
-Real-time amplitude control (0 = silent, 8 = full). Models the drawbar registers on a Hammond-style organ. Can be called while notes are playing.
-
-```ts
-organ.activateStop('principal_8');
-organ.setDrawbarLevel('principal_8', 6);  // pull it back
-```
-
-### Key-click
-
-```ts
-organ.setKeyClick(intensity: number, duration?: number): this
-// intensity: 0.0–1.0  |  duration: seconds (default 0.003)
-```
-
-Simulates the mechanical click of organ pipe speech — a short noise burst at each note onset.
-
-### Other
-
-```ts
-organ.reset(): this           // deactivate all stops and presets
-organ.activeStops: string[]   // read-only list of currently active stop names
-organ.config: OrganConfig     // read-only organ configuration
-```
-
-## Built-in stops
-
-| Name | Pitch | Waveform | Description |
-|------|-------|----------|-------------|
-| `subbass_16` | 16′ | principal | Sub-bass principal |
-| `principal_8` | 8′ | principal | Main diapason |
-| `principal_4` | 4′ | principal | Octave principal |
-| `super_octave_2` | 2′ | principal | Two-foot octave |
-| `flute_16` | 16′ | flute | Soft sub-bass flute |
-| `flute_8` | 8′ | flute | Open flute |
-| `flute_4` | 4′ | flute | Nazard / chimney flute |
-| `trumpet_16` | 16′ | trumpet | Pedal reed |
-| `trumpet_8` | 8′ | trumpet | Chorus reed |
-| `trumpet_4` | 4′ | trumpet | Clarion reed |
-| `fifth_2_2_3` | 2⅔′ | principal | Nazard interval stop |
-| `tierce_1_3_5` | 1⅗′ | principal | Tierce interval stop |
-| `larigot_1_1_3` | 1⅓′ | principal | Larigot interval stop |
-| `mixture_iii` | — | principal | 3-rank mixture (breaking) |
-| `fourniture_iv` | — | principal | 4-rank Fourniture (breaking) |
-| `cymbale_iii` | — | principal | 5-rank Cymbale (breaking) |
-
-**Breaking stops** (`mixture_iii`, `fourniture_iv`, `cymbale_iii`) are mixture ranks — their frequency ratios change across the keyboard at defined break points, keeping the mixture pitches in a playable range. See `OrganBreakingStop` in the type definitions.
-
-## Built-in presets
-
-| Name | Stops included | Character |
-|------|---------------|-----------|
-| `principal` | `principal_8`, `flute_4`, sine mixture | Warm, full diapason |
-| `cornet` | `principal_8`, `principal_4`, `fifth_2_2_3`, `tierce_1_3_5` | Cornet registration |
-| `mixture` | `principal_8`, `principal_4`, `mixture_iii` | Bright, full principal chorus |
-| `flute` | `flute_8`, `flute_4` | Soft, breathy flute combination |
-| `trumpet` | `trumpet_8` | Solo reed |
-| `grand_jeu` | `principal_8`, `trumpet_8` | Full German baroque principal + reed |
-| `plein_jeu` | `principal_8`, `principal_4`, `fourniture_iv` | Classical French Plein Jeu |
-| `pedalboard_default` | `subbass_16`, `principal_8` | Standard pedal registration |
-| `pedalboard_reed` | `trumpet_16`, `trumpet_8` | Pedal reeds |
-| `pedalboard_flute` | `flute_16`, `flute_8` | Pedal flutes |
-| `pedalboard_trumpet` | `trumpet_8` | Single pedal trumpet |
-
-## Custom organ configuration
-
-You can define your own stops and presets using `OrganConfig`:
-
-```ts
-import { Organ, OrganConfig } from 'supersynth';
-
-const config: OrganConfig = {
-  stops: {
-    my_stop: {
-      waveform: 'principal',
-      frequencyRatio: 1.0,
-      amplitudeRatio: 1.0,
-      chiffIntensity: 0.15,
-      attackTime: 0.008,
-    },
-    mixture_stop: {
-      waveform: 'principal',
-      frequencyRatio: 2.0,
-      breaks: [
-        { note: 0,  frequencyRatio: 2.0 },
-        { note: 48, frequencyRatio: 4.0 },
-        { note: 60, frequencyRatio: 8.0 },
-      ],
-    },
-  },
-  presets: {
-    my_preset: {
-      stops: ['my_stop', 'mixture_stop'],
-      displayName: 'My Registration',
-    },
-  },
-};
-
-const organ = new Organ({ masterVolume: 0.7 }, config);
-```
-
-## Effects with organ
-
-The Leslie rotary speaker and overdrive work particularly well with the organ:
-
-```ts
-const organ = new Organ({
-  masterVolume: 0.7,
-  reverb: { roomSize: 0.6, wet: 0.2 },
-});
-await organ.start();
-organ.setVibratoChorusMode('c2');     // chorus
-organ.setKeyClick(0.4);
-organ.activatePreset('grand_jeu');
-```
-
-See [effects.md](effects.md) for the full effects API.
-
-## MIDI with organ
-
-```ts
-await organ.start();
-await organ.enableMidi('Arturia');
-
-organ.on('noteOn',  ({ note, velocity }) => organ.noteOn(note, velocity));
-organ.on('noteOff', ({ note }) => organ.noteOff(note));
-organ.on('cc',      ({ controller, value }) => {
-  // Map CC to drawbar
-  if (controller === 16) organ.setDrawbarLevel('principal_8', Math.round(value / 16));
-});
-```
+| Name | Description |
+|---|---|
+| `principal` | Principal 8' alone — the foundation tone of the organ |
+| `principal-chorus` | Principal chorus 8' 4' 2' (Baroque plenum without mixture) |
+| `plenum` | Organo pleno for Bach preludes and fugues: principals and mixtures |
+| `full` | Full organ with reeds and all manuals coupled |
+| `flutes` | Flutes 8' + 4' — gentle, for chorale preludes |
+| `flute-8` | Gedackt 8' — soft stopped flute |
+| `cornet` | Cornet (8' 4' 2 2/3' 2' 1 3/5') — solo voice for ornamented melodies |
+| `trumpet` | Trumpet 8' with Principal — festive solo |
+| `krummhorn` | Krummhorn 8' — nasal Renaissance reed solo |
+| `celeste` | Salicional + Voix céleste — shimmering strings for romantic music |
+| `quiet-strings` | Salicional 8' alone |
+| `sesquialtera-solo` | Sesquialtera solo with flutes — the classic Dutch/Scandinavian chorale cantus |

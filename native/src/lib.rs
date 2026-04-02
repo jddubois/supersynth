@@ -1,10 +1,12 @@
 #![deny(clippy::all)]
 
-mod audio;
-mod effects;
-mod midi;
-mod synth;
+//! Node.js bindings for supersynth-core.
 
+mod audio;
+mod midi;
+
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use napi::bindgen_prelude::*;
@@ -12,483 +14,410 @@ use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFun
 use napi_derive::napi;
 
 use audio::backend::{list_available_backends, BackendKind};
-use audio::engine::{Engine, EngineConfig, OverdriveParams};
-use audio::output::AudioOutput;
-use effects::limiter::LimiterParams;
-use effects::reverb::FreeverbParams;
+use audio::output::{default_output_rate, AudioOutput};
 use midi::input::{connect_midi_device, list_midi_devices, MidiInputHandle};
 use midi::message::{MidiMessage, MidiMessageKind};
-use synth::voice::{OscillatorTemplate, VelocityCurve, VoiceConfig};
-use synth::waveform::Waveform;
+use supersynth_core::engine::params::{MasterParam, PartParam};
+use supersynth_core::engine::{Command, Controller, Engine, EngineConfig, InstLayer, Instrument, Status as EngineStatus};
+use supersynth_core::fx::reverb::ReverbParams;
+use supersynth_core::model::{Kind, Model, ReleaseMode};
 
-// ── Voice config objects ──────────────────────────────────────────────────────
-
-/// A break point for a mixture-rank stop: at MIDI notes >= `note`, use `frequency_ratio`.
-#[napi(object)]
-pub struct JsBreakPoint {
-    pub note: u32,
-    pub frequency_ratio: f64,
-}
+// ── JS objects ────────────────────────────────────────────────────────────────
 
 #[napi(object)]
-pub struct JsOscillatorTemplate {
-    pub waveform: Option<String>,
-    pub harmonic_ratio: Option<f64>,
-    pub amplitude: Option<f64>,
-    pub detune_cents: Option<f64>,
-    pub attack_time: Option<f64>,
-    pub decay_time: Option<f64>,
-    pub sustain_level: Option<f64>,
-    pub release_time: Option<f64>,
-    pub chiff_intensity: Option<f64>,
-    pub chiff_duration: Option<f64>,
-    /// Organ key-contact click intensity (0.0 = off, 0.5 = typical).
-    pub key_click_intensity: Option<f64>,
-    /// Key-click transient duration in seconds. @default 0.003
-    pub key_click_duration: Option<f64>,
-    /// Duty cycle for the `pulse` waveform (0.0–1.0). 0.5 = square wave. Ignored for other waveforms.
-    pub pulse_width: Option<f64>,
-    /// Break points for mixture-rank (breaking) stops. When provided, `harmonic_ratio` is
-    /// resolved per MIDI note rather than using a single fixed value.
-    pub breaks: Option<Vec<JsBreakPoint>>,
-    /// A-weighting correction strength (0.0–1.0). Defaults waveform-dependent:
-    /// sine/triangle = 1.0 (full, organ-quality), KarplusStrong = 0.1 (gentle), others = 0.5.
-    pub eq_loudness_strength: Option<f64>,
-}
-
-#[napi(object)]
-pub struct JsVoiceConfig {
-    pub oscillators: Option<Vec<JsOscillatorTemplate>>,
-    /// "linear" | "exponential" | "fixed"
-    pub velocity_curve: Option<String>,
-    /// Exponent for "exponential", amplitude for "fixed".
-    pub velocity_curve_value: Option<f64>,
-    pub headroom: Option<f64>,
-}
-
-// ── Engine config ─────────────────────────────────────────────────────────────
-
-#[napi(object)]
-pub struct JsEngineConfig {
+pub struct JsEngineOptions {
+    /// Sample rate in Hz. Default: the output device's rate (or 48000 without a device).
     pub sample_rate: Option<u32>,
     pub backend: Option<String>,
-    pub voice: Option<JsVoiceConfig>,
-    pub master_volume: Option<f64>,
-    pub reverb_room_size: Option<f64>,
-    pub reverb_damping: Option<f64>,
-    pub reverb_wet: Option<f64>,
-    pub reverb_dry: Option<f64>,
-    pub reverb_pre_delay_ms: Option<f64>,
-    pub low_pass_cutoff: Option<f64>,
-    /// Number of cascaded low-pass filter stages (default 2). Only used when `low_pass_cutoff` is set.
-    pub low_pass_stages: Option<u32>,
-    pub limiter_threshold: Option<f64>,
-    pub limiter_knee_width: Option<f64>,
-    pub limiter_ratio: Option<f64>,
-    pub limiter_attack_ms: Option<f64>,
-    pub limiter_release_ms: Option<f64>,
-    // ── Leslie cabinet ────────────────────────────────────────────────────────
-    /// Enable Leslie rotary speaker simulation. Default: false.
-    pub leslie_enabled: Option<bool>,
-    /// Initial Leslie speed: "stop" | "slow" | "fast". Default: "stop".
-    pub leslie_initial_speed: Option<String>,
-    // ── Overdrive ─────────────────────────────────────────────────────────────
-    /// Tube overdrive drive amount (1.0 = clean, 10.0 = heavy saturation).
-    pub overdrive_drive: Option<f64>,
-    /// Overdrive asymmetry bias (0.0 = symmetric, 0.3 = warm organ character).
-    pub overdrive_bias: Option<f64>,
-    /// Overdrive output level compensation (0.0–1.0).
-    pub overdrive_level: Option<f64>,
-    // ── Scanner vibrato/chorus ────────────────────────────────────────────────
-    /// Initial scanner mode: "off" | "v1" | "v2" | "v3" | "c1" | "c2" | "c3". Default: "off".
-    pub scanner_mode: Option<String>,
-    // ── Key click ─────────────────────────────────────────────────────────────
-    /// Global organ-mode key-click intensity (0.0 = off). Default: 0.0.
-    pub key_click_intensity: Option<f64>,
-    /// Key-click transient duration in seconds. Default: 0.003.
-    pub key_click_duration: Option<f64>,
+    /// Maximum simultaneously sounding voices (default 192).
+    pub max_voices: Option<u32>,
+    /// Reverb preset name (default "hall").
+    pub reverb: Option<String>,
+    /// Audio buffer size in frames (default: device default).
+    pub buffer_size: Option<u32>,
 }
 
 #[napi(object)]
-pub struct JsNoteOnOptions {
-    pub voice: Option<JsVoiceConfig>,
+pub struct JsLayer {
+    pub model: u32,
+    pub transpose: Option<f64>,
+    pub gain_db: Option<f64>,
+    pub pan: Option<f64>,
+    pub key_lo: Option<u32>,
+    pub key_hi: Option<u32>,
+    pub enabled: Option<bool>,
+    pub detune_cents: Option<f64>,
+    /// Play this layer when the key is released (damper / jack noises).
+    pub on_release: Option<bool>,
 }
 
-// ── Helpers: JS types → Rust synth types ─────────────────────────────────────
+// ── engine handle ────────────────────────────────────────────────────────────
 
-fn js_oscillator_template_to_template(t: JsOscillatorTemplate) -> OscillatorTemplate {
-    let breaks: Vec<(u8, f32)> = t.breaks
-        .unwrap_or_default()
-        .into_iter()
-        .map(|b| (b.note.min(127) as u8, b.frequency_ratio as f32))
-        .collect();
-    let waveform_str = t.waveform.as_deref().unwrap_or("sine");
-    let waveform = if waveform_str == "pulse" {
-        Waveform::Pulse(t.pulse_width.unwrap_or(0.5) as f32)
-    } else {
-        Waveform::parse(waveform_str)
-    };
-    OscillatorTemplate {
-        waveform,
-        harmonic_ratio: t.harmonic_ratio.unwrap_or(1.0) as f32,
-        amplitude: t.amplitude.unwrap_or(1.0) as f32,
-        detune_cents: t.detune_cents.unwrap_or(0.0) as f32,
-        attack_time: t.attack_time.unwrap_or(0.03) as f32,
-        decay_time: t.decay_time.unwrap_or(0.0) as f32,
-        sustain_level: t.sustain_level.unwrap_or(1.0) as f32,
-        release_time: t.release_time.unwrap_or(0.1) as f32,
-        chiff_intensity: t.chiff_intensity.unwrap_or(0.0) as f32,
-        chiff_duration: t.chiff_duration.unwrap_or(0.04) as f32,
-        key_click_intensity: t.key_click_intensity.unwrap_or(0.0) as f32,
-        key_click_duration: t.key_click_duration.unwrap_or(0.003) as f32,
-        pitch_lfo_rate: None,
-        pitch_lfo_depth: None,
-        amp_lfo_rate: None,
-        amp_lfo_depth: None,
-        breaks,
-        eq_loudness_strength: t.eq_loudness_strength.map(|v| v as f32),
+struct Shared {
+    ctl: Mutex<Controller>,
+    status: Arc<EngineStatus>,
+    sample_rate: f32,
+}
+
+impl Shared {
+    fn send(&self, time: Option<f64>, cmd: Command) -> Result<()> {
+        let frame = time.map(|t| (t.max(0.0) * self.sample_rate as f64).round() as u64).unwrap_or(0);
+        let mut c = self.ctl.lock().map_err(|_| Error::new(Status::GenericFailure, "controller lock poisoned"))?;
+        c.send(frame, cmd).map_err(|e| Error::new(Status::GenericFailure, e))
     }
 }
-
-fn js_voice_to_voice(js: JsVoiceConfig) -> VoiceConfig {
-    let velocity_curve = match js.velocity_curve.as_deref() {
-        Some("exponential") => VelocityCurve::Exponential(js.velocity_curve_value.unwrap_or(2.0) as f32),
-        Some("fixed") => VelocityCurve::Fixed(js.velocity_curve_value.unwrap_or(0.8) as f32),
-        _ => VelocityCurve::Linear,
-    };
-
-    let headroom = js.headroom.unwrap_or(1.0) as f32;
-
-    let oscillators: Vec<OscillatorTemplate> = js.oscillators.unwrap_or_default()
-        .into_iter()
-        .map(|t| js_oscillator_template_to_template(t))
-        .collect();
-
-    if oscillators.is_empty() {
-        return VoiceConfig::default();
-    }
-
-    VoiceConfig { oscillators, velocity_curve, headroom }
-}
-
-// ── Main SynthEngine class ────────────────────────────────────────────────────
 
 #[napi]
 pub struct SynthEngine {
     engine: Arc<Mutex<Engine>>,
-    _output: Option<AudioOutput>,
-    _midi: Option<MidiInputHandle>,
+    shared: Arc<Shared>,
+    output: Option<AudioOutput>,
+    midi: Option<MidiInputHandle>,
+    models: HashMap<u32, Arc<Model>>,
+    next_model: u32,
     sample_rate: u32,
     backend: BackendKind,
+    buffer_size: Option<u32>,
+}
+
+fn err(msg: impl Into<String>) -> Error {
+    Error::new(Status::GenericFailure, msg.into())
 }
 
 #[napi]
 impl SynthEngine {
     #[napi(constructor)]
-    pub fn new(config: Option<JsEngineConfig>) -> Result<Self> {
-        let cfg = config.unwrap_or(JsEngineConfig {
+    pub fn new(options: Option<JsEngineOptions>) -> Result<Self> {
+        let o = options.unwrap_or(JsEngineOptions {
             sample_rate: None,
             backend: None,
-            voice: None,
-            master_volume: None,
-            reverb_room_size: None,
-            reverb_damping: None,
-            reverb_wet: None,
-            reverb_dry: None,
-            reverb_pre_delay_ms: None,
-            low_pass_cutoff: None,
-            low_pass_stages: None,
-            limiter_threshold: None,
-            limiter_knee_width: None,
-            limiter_ratio: None,
-            limiter_attack_ms: None,
-            limiter_release_ms: None,
-            leslie_enabled: None,
-            leslie_initial_speed: None,
-            overdrive_drive: None,
-            overdrive_bias: None,
-            overdrive_level: None,
-            scanner_mode: None,
-            key_click_intensity: None,
-            key_click_duration: None,
+            max_voices: None,
+            reverb: None,
+            buffer_size: None,
         });
-
-        let sample_rate = cfg.sample_rate.unwrap_or(48000);
-        let backend = BackendKind::parse(&cfg.backend.unwrap_or_default());
-        let master_volume = cfg.master_volume.unwrap_or(0.5) as f32;
-        let low_pass_cutoff = cfg.low_pass_cutoff.map(|v| v as f32);
-        let low_pass_stages = cfg.low_pass_stages.unwrap_or(2);
-
-        let voice = cfg.voice.map(js_voice_to_voice).unwrap_or_default();
-
-        let reverb = if cfg.reverb_room_size.is_some()
-            || cfg.reverb_wet.is_some()
-            || cfg.reverb_dry.is_some()
-        {
-            Some(FreeverbParams {
-                room_size: cfg.reverb_room_size.unwrap_or(0.85) as f32,
-                damping: cfg.reverb_damping.unwrap_or(0.5) as f32,
-                wet: cfg.reverb_wet.unwrap_or(0.35) as f32,
-                dry: cfg.reverb_dry.unwrap_or(0.65) as f32,
-                pre_delay_ms: cfg.reverb_pre_delay_ms.unwrap_or(20.0) as f32,
-            })
-        } else {
-            None
-        };
-
-        let limiter = LimiterParams {
-            threshold: cfg.limiter_threshold.unwrap_or(0.85) as f32,
-            knee_width: cfg.limiter_knee_width.unwrap_or(0.15) as f32,
-            ratio: cfg.limiter_ratio.unwrap_or(10.0) as f32,
-            attack_ms: cfg.limiter_attack_ms.unwrap_or(1.0) as f32,
-            release_ms: cfg.limiter_release_ms.unwrap_or(100.0) as f32,
-        };
-
-        let leslie_enabled = cfg.leslie_enabled.unwrap_or(false);
-        let leslie_initial_speed = cfg.leslie_initial_speed;
-
-        let overdrive = if cfg.overdrive_drive.is_some() {
-            Some(OverdriveParams {
-                drive: cfg.overdrive_drive.unwrap_or(1.0) as f32,
-                bias: cfg.overdrive_bias.unwrap_or(0.0) as f32,
-                level: cfg.overdrive_level.unwrap_or(1.0) as f32,
-            })
-        } else {
-            None
-        };
-
-        let scanner_mode = cfg.scanner_mode;
-
-        let engine_config = EngineConfig {
+        let backend = BackendKind::parse(o.backend.as_deref().unwrap_or(""));
+        let sample_rate = o.sample_rate.unwrap_or_else(|| default_output_rate(&backend).unwrap_or(48000));
+        if !(8000..=384_000).contains(&sample_rate) {
+            return Err(err(format!("unsupported sample rate {sample_rate}")));
+        }
+        let reverb_name = o.reverb.unwrap_or_else(|| "hall".into());
+        let reverb = ReverbParams::preset(&reverb_name).ok_or_else(|| err(format!("unknown reverb preset '{reverb_name}'")))?;
+        let (engine, ctl) = Engine::new(EngineConfig {
             sample_rate: sample_rate as f32,
-            voice,
-            master_volume,
+            max_voices: o.max_voices.unwrap_or(192).clamp(8, 2048) as usize,
             reverb,
-            low_pass_cutoff,
-            low_pass_stages,
-            limiter,
-            leslie_enabled,
-            leslie_initial_speed,
-            overdrive,
-            scanner_mode,
-            key_click_intensity: cfg.key_click_intensity.unwrap_or(0.0) as f32,
-            key_click_duration: cfg.key_click_duration.unwrap_or(0.003) as f32,
-        };
-
-        let engine = Arc::new(Mutex::new(Engine::new(engine_config)));
-
-        Ok(Self { engine, _output: None, _midi: None, sample_rate, backend })
+        });
+        let status = Arc::clone(&ctl.status);
+        Ok(Self {
+            engine: Arc::new(Mutex::new(engine)),
+            shared: Arc::new(Shared { ctl: Mutex::new(ctl), status, sample_rate: sample_rate as f32 }),
+            output: None,
+            midi: None,
+            models: HashMap::new(),
+            next_model: 1,
+            sample_rate,
+            backend,
+            buffer_size: o.buffer_size,
+        })
     }
 
-    /// Start audio output. Must be called before sound is produced.
+    #[napi(getter)]
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    /// Engine clock in seconds (frames rendered so far).
+    #[napi(getter)]
+    pub fn current_time(&self) -> f64 {
+        self.shared.status.frames.load(Ordering::Relaxed) as f64 / self.sample_rate as f64
+    }
+
+    #[napi(getter)]
+    pub fn active_voices(&self) -> u32 {
+        self.shared.status.active_voices.load(Ordering::Relaxed)
+    }
+
+    /// Fraction of real time spent rendering the last buffer (0.25 = 25 % of one core).
+    #[napi(getter)]
+    pub fn cpu_load(&self) -> f64 {
+        self.shared.status.load_permille.load(Ordering::Relaxed) as f64 / 1000.0
+    }
+
+    #[napi(getter)]
+    pub fn is_running(&self) -> bool {
+        self.output.is_some()
+    }
+
+    // ── models ──────────────────────────────────────────────────────────────
+
+    /// Parse a spectral model (.ssm bytes). Returns a model id.
+    #[napi]
+    pub fn load_model(&mut self, bytes: Buffer) -> Result<u32> {
+        let m = Model::from_bytes(bytes.as_ref()).map_err(err)?;
+        let id = self.next_model;
+        self.next_model += 1;
+        self.models.insert(id, Arc::new(m));
+        Ok(id)
+    }
+
+    /// Release a model (instruments already using it keep their reference).
+    #[napi]
+    pub fn unload_model(&mut self, id: u32) {
+        self.models.remove(&id);
+    }
+
+    /// Model metadata as JSON.
+    #[napi]
+    pub fn model_info(&self, id: u32) -> Result<String> {
+        let m = self.models.get(&id).ok_or_else(|| err(format!("unknown model {id}")))?;
+        let p = &m.params;
+        let info = serde_json::json!({
+            "name": m.name,
+            "displayName": m.display_name,
+            "family": m.family,
+            "kind": if m.kind == Kind::Sustained { "sustained" } else { "decaying" },
+            "source": m.source,
+            "noteRange": [m.note_range.0, m.note_range.1],
+            "zones": m.zones.len(),
+            "layers": m.layers.iter().map(|l| serde_json::json!({"name": l.name, "velocity": l.velocity})).collect::<Vec<_>>(),
+            "releaseMode": match p.release_mode { ReleaseMode::Natural => "natural", ReleaseMode::Damper => "damper", ReleaseMode::RingOut => "ringout" },
+            "reverb": p.reverb,
+            "reverbSend": p.reverb_send,
+            "formant": p.formant,
+        });
+        Ok(info.to_string())
+    }
+
+    // ── parts ───────────────────────────────────────────────────────────────
+
+    /// Assign an instrument (one or more layers) to a part.
+    #[napi]
+    pub fn set_instrument(&self, part: u32, layers: Vec<JsLayer>, time: Option<f64>) -> Result<()> {
+        let mut inst = Instrument::default();
+        for l in layers {
+            let model = self.models.get(&l.model).ok_or_else(|| err(format!("unknown model {}", l.model)))?;
+            inst.layers.push(InstLayer {
+                model: Arc::clone(model),
+                transpose: l.transpose.unwrap_or(0.0) as f32,
+                gain_db: l.gain_db.unwrap_or(0.0) as f32,
+                pan: l.pan.unwrap_or(0.0) as f32,
+                key_lo: l.key_lo.unwrap_or(0).min(127) as u8,
+                key_hi: l.key_hi.unwrap_or(127).min(127) as u8,
+                enabled: l.enabled.unwrap_or(true),
+                detune_cents: l.detune_cents.unwrap_or(0.0) as f32,
+                on_release: l.on_release.unwrap_or(false),
+            });
+        }
+        self.shared.send(time, Command::SetInstrument { part: part as u16, instrument: Box::new(inst) })
+    }
+
+    #[napi]
+    pub fn note_on(&self, part: u32, note: u32, velocity: u32, time: Option<f64>) -> Result<()> {
+        if note > 127 {
+            return Err(err(format!("note {note} out of range 0-127")));
+        }
+        self.shared.send(time, Command::NoteOn { part: part as u16, note: note as u8, velocity: velocity.min(127) as u8 })
+    }
+
+    #[napi]
+    pub fn note_off(&self, part: u32, note: u32, time: Option<f64>) -> Result<()> {
+        if note > 127 {
+            return Err(err(format!("note {note} out of range 0-127")));
+        }
+        self.shared.send(time, Command::NoteOff { part: part as u16, note: note as u8 })
+    }
+
+    #[napi]
+    pub fn control_change(&self, part: u32, controller: u32, value: u32, time: Option<f64>) -> Result<()> {
+        self.shared.send(
+            time,
+            Command::ControlChange { part: part as u16, controller: controller.min(127) as u8, value: value.min(127) as u8 },
+        )
+    }
+
+    /// Pitch bend in -1..1.
+    #[napi]
+    pub fn pitch_bend(&self, part: u32, value: f64, time: Option<f64>) -> Result<()> {
+        self.shared.send(time, Command::PitchBend { part: part as u16, value: value as f32 })
+    }
+
+    #[napi]
+    pub fn set_param(&self, part: u32, name: String, value: f64, time: Option<f64>) -> Result<()> {
+        let p = PartParam::parse(&name).ok_or_else(|| err(format!("unknown parameter '{name}'")))?;
+        self.shared.send(time, Command::SetPartParam { part: part as u16, param: p, value: value as f32 })
+    }
+
+    #[napi]
+    pub fn set_master_param(&self, name: String, value: f64, time: Option<f64>) -> Result<()> {
+        let p = MasterParam::parse(&name).ok_or_else(|| err(format!("unknown master parameter '{name}'")))?;
+        self.shared.send(time, Command::SetMasterParam { param: p, value: value as f32 })
+    }
+
+    /// Switch all reverb parameters to a named preset.
+    #[napi]
+    pub fn set_reverb_preset(&self, name: String, time: Option<f64>) -> Result<()> {
+        let rp = ReverbParams::preset(&name).ok_or_else(|| err(format!("unknown reverb preset '{name}'")))?;
+        let sets = [
+            (MasterParam::ReverbDecay, rp.decay),
+            (MasterParam::ReverbLowMult, rp.low_mult),
+            (MasterParam::ReverbHighMult, rp.high_mult),
+            (MasterParam::ReverbSize, rp.size),
+            (MasterParam::ReverbPredelay, rp.predelay_ms),
+            (MasterParam::ReverbDiffusion, rp.diffusion),
+            (MasterParam::ReverbEarly, rp.early),
+            (MasterParam::ReverbWidth, rp.width),
+            (MasterParam::ReverbLowCut, rp.low_cut_hz),
+            (MasterParam::ReverbHighCut, rp.high_cut_hz),
+            (MasterParam::ReverbModulation, rp.modulation),
+        ];
+        for (p, v) in sets {
+            self.shared.send(time, Command::SetMasterParam { param: p, value: v })?;
+        }
+        Ok(())
+    }
+
+    /// Add one layer to a part without interrupting sounding notes (organ stops).
+    /// Returns nothing; the layer index is the number of layers added before it.
+    #[napi]
+    pub fn add_layer(&self, part: u32, layer: JsLayer, time: Option<f64>) -> Result<()> {
+        let model = self.models.get(&layer.model).ok_or_else(|| err(format!("unknown model {}", layer.model)))?;
+        let l = InstLayer {
+            model: Arc::clone(model),
+            transpose: layer.transpose.unwrap_or(0.0) as f32,
+            gain_db: layer.gain_db.unwrap_or(0.0) as f32,
+            pan: layer.pan.unwrap_or(0.0) as f32,
+            key_lo: layer.key_lo.unwrap_or(0).min(127) as u8,
+            key_hi: layer.key_hi.unwrap_or(127).min(127) as u8,
+            enabled: layer.enabled.unwrap_or(true),
+            detune_cents: layer.detune_cents.unwrap_or(0.0) as f32,
+            on_release: layer.on_release.unwrap_or(false),
+        };
+        self.shared.send(time, Command::AddLayer { part: part as u16, layer: Box::new(l) })
+    }
+
+    #[napi]
+    pub fn set_layer_enabled(&self, part: u32, layer: u32, enabled: bool, time: Option<f64>) -> Result<()> {
+        self.shared.send(time, Command::SetLayerEnabled { part: part as u16, layer: layer as u16, enabled })
+    }
+
+    #[napi]
+    pub fn set_layer_gain(&self, part: u32, layer: u32, gain_db: f64, time: Option<f64>) -> Result<()> {
+        self.shared.send(time, Command::SetLayerGain { part: part as u16, layer: layer as u16, gain_db: gain_db as f32 })
+    }
+
+    #[napi]
+    pub fn all_notes_off(&self, part: Option<u32>, time: Option<f64>) -> Result<()> {
+        self.shared.send(time, Command::AllNotesOff { part: part.map(|p| p as u16) })
+    }
+
+    #[napi]
+    pub fn all_sound_off(&self) -> Result<()> {
+        self.shared.send(None, Command::AllSoundOff)
+    }
+
+    /// Free space in the command queue (events not yet consumed by the engine).
+    #[napi(getter)]
+    pub fn queue_free(&self) -> u32 {
+        self.shared.ctl.lock().map(|c| c.queue_free() as u32).unwrap_or(0)
+    }
+
+    // ── audio output ────────────────────────────────────────────────────────
+
     #[napi]
     pub fn start(&mut self) -> Result<()> {
-        let output = AudioOutput::start(Arc::clone(&self.engine), &self.backend, self.sample_rate)
-            .map_err(|e| Error::new(Status::GenericFailure, e))?;
-        self._output = Some(output);
+        if self.output.is_some() {
+            return Ok(());
+        }
+        let out = AudioOutput::start(Arc::clone(&self.engine), &self.backend, self.sample_rate, self.buffer_size).map_err(err)?;
+        self.output = Some(out);
         Ok(())
     }
 
-    /// Stop audio output.
     #[napi]
     pub fn stop(&mut self) {
-        self._output = None;
-        self._midi = None;
+        self.output = None;
     }
 
-    /// Send a note-on event. `note` is a MIDI note number (0–127), `velocity` is 0–127.
+    /// Render `frames` of audio offline. Returns interleaved stereo (L, R, L, R…).
+    /// Not available while real-time output is running.
     #[napi]
-    pub fn note_on(&self, note: u32, velocity: u32, options: Option<JsNoteOnOptions>) -> Result<()> {
-        let voice_override = options.and_then(|o| o.voice).map(js_voice_to_voice);
-        let mut eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        eng.note_on(note as u8, velocity as u8, voice_override);
-        Ok(())
+    pub fn render(&self, frames: u32) -> Result<Float32Array> {
+        if self.output.is_some() {
+            return Err(err("render() is unavailable while real-time output is running; call stop() first"));
+        }
+        let mut eng = self.engine.lock().map_err(|_| err("engine lock poisoned"))?;
+        let mut buf = vec![0.0f32; frames as usize * 2];
+        eng.process_interleaved(&mut buf, 2);
+        if let Ok(mut c) = self.shared.ctl.lock() {
+            c.collect_garbage();
+        }
+        Ok(Float32Array::new(buf))
     }
 
-    /// Send a note-off event.
-    #[napi]
-    pub fn note_off(&self, note: u32) -> Result<()> {
-        let mut eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        eng.note_off(note as u8);
-        Ok(())
-    }
+    // ── MIDI ────────────────────────────────────────────────────────────────
 
-    /// Set the instrument voice for all subsequent note-on events.
-    #[napi]
-    pub fn set_voice(&self, config: JsVoiceConfig) -> Result<()> {
-        let mut eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        eng.set_voice(js_voice_to_voice(config));
-        Ok(())
-    }
-
-    /// Set master volume (0.0–1.0).
-    #[napi]
-    pub fn set_master_volume(&self, volume: f64) -> Result<()> {
-        let mut eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        eng.set_master_volume(volume as f32);
-        Ok(())
-    }
-
-    /// Returns the number of currently active (not yet finished) notes.
-    #[napi(getter)]
-    pub fn active_note_count(&self) -> Result<u32> {
-        let eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        Ok(eng.active_note_count() as u32)
-    }
-
-    /// Connect to a MIDI input device. `deviceName` is a substring match; omit for first device.
-    /// The returned JS function is called with each raw MIDI message as a Buffer.
-    #[napi]
-    pub fn enable_midi(
-        &mut self,
-        device_name: Option<String>,
-        callback: JsFunction,
-    ) -> Result<()> {
-        let tsfn: ThreadsafeFunction<Vec<u8>, ErrorStrategy::Fatal> = callback
-            .create_threadsafe_function(0, |ctx| {
-                let bytes: Vec<u8> = ctx.value;
-                Ok(vec![Buffer::from(bytes)])
-            })?;
-
-        let handle = connect_midi_device(
-            device_name.as_deref(),
-            Box::new(move |bytes| {
-                tsfn.call(bytes, ThreadsafeFunctionCallMode::NonBlocking);
-            }),
-        )
-        .map_err(|e| Error::new(Status::GenericFailure, e))?;
-
-        self._midi = Some(handle);
-        Ok(())
-    }
-
-    /// List available MIDI input device names.
     #[napi]
     pub fn list_midi_devices(&self) -> Vec<String> {
         list_midi_devices()
     }
 
-    /// List available audio backends on this platform.
     #[napi]
     pub fn list_audio_backends(&self) -> Vec<String> {
         list_available_backends()
     }
 
-    /// Render `numSamples` of audio to a Float32Array without requiring audio hardware.
-    /// Useful for testing and offline rendering.
+    /// Connect a MIDI input. Messages are applied to the engine immediately (channel N →
+    /// part N-1 when `route` is true) and forwarded to `callback` as raw bytes.
     #[napi]
-    pub fn render(&self, num_samples: u32) -> Result<Float32Array> {
-        let mut eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        let samples = eng.render(num_samples as usize);
-        Ok(Float32Array::new(samples))
-    }
-
-    /// Parse a raw MIDI byte buffer and apply it to the engine.
-    #[napi]
-    pub fn send_midi_bytes(&self, bytes: Buffer) -> Result<()> {
-        let msg = MidiMessage::parse(bytes.as_ref());
-        if let Some(msg) = msg {
-            let mut eng = self.engine.lock()
-                .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-            match msg.kind {
-                MidiMessageKind::NoteOn => eng.note_on(msg.data1, msg.data2, None),
-                MidiMessageKind::NoteOff => eng.note_off(msg.data1),
-                _ => {}
-            }
-        }
+    pub fn enable_midi(&mut self, device_name: Option<String>, route: bool, callback: JsFunction) -> Result<()> {
+        let tsfn: ThreadsafeFunction<Vec<u8>, ErrorStrategy::Fatal> =
+            callback.create_threadsafe_function(0, |ctx| Ok(vec![Buffer::from(ctx.value)]))?;
+        let shared = Arc::clone(&self.shared);
+        let handle = connect_midi_device(
+            device_name.as_deref(),
+            Box::new(move |bytes| {
+                if route {
+                    if let Some(msg) = MidiMessage::parse(&bytes) {
+                        let part = (msg.channel.saturating_sub(1)) as u16;
+                        let cmd = match msg.kind {
+                            MidiMessageKind::NoteOn => Some(Command::NoteOn { part, note: msg.data1, velocity: msg.data2 }),
+                            MidiMessageKind::NoteOff => Some(Command::NoteOff { part, note: msg.data1 }),
+                            MidiMessageKind::ControlChange => {
+                                Some(Command::ControlChange { part, controller: msg.data1, value: msg.data2 })
+                            }
+                            MidiMessageKind::PitchBend => {
+                                let v = ((msg.data2 as i32) << 7 | msg.data1 as i32) - 8192;
+                                Some(Command::PitchBend { part, value: v as f32 / 8192.0 })
+                            }
+                            _ => None,
+                        };
+                        if let Some(c) = cmd {
+                            let _ = shared.send(None, c);
+                        }
+                    }
+                }
+                tsfn.call(bytes, ThreadsafeFunctionCallMode::NonBlocking);
+            }),
+        )
+        .map_err(err)?;
+        self.midi = Some(handle);
         Ok(())
     }
 
-    // ── Organ oscillator management ───────────────────────────────────────────
-
-    /// Register an oscillator template and add it to all currently playing notes.
-    /// Returns an oscillator_id that must be passed to `removeOscillator` to remove it.
-    ///
-    /// When any oscillators are registered, `noteOn` will build notes from the registered
-    /// set instead of the voice config (organ mode). Use `breaks` for mixture-rank stops
-    /// whose harmonic ratio depends on the MIDI note number.
     #[napi]
-    pub fn add_oscillator(&self, template: JsOscillatorTemplate) -> Result<u32> {
-        let rust_template = js_oscillator_template_to_template(template);
-        let mut eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        Ok(eng.add_oscillator(rust_template))
+    pub fn disable_midi(&mut self) {
+        self.midi = None;
     }
+}
 
-    /// Trigger the release phase on all oscillators with the given id across all playing notes.
-    /// Also removes the template from the registry so future notes won't include it.
-    #[napi]
-    pub fn remove_oscillator(&self, oscillator_id: u32) -> Result<()> {
-        let mut eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        eng.remove_oscillator(oscillator_id);
-        Ok(())
-    }
+/// Names of the built-in reverb presets.
+#[napi]
+pub fn reverb_presets() -> Vec<String> {
+    ["room", "studio", "chamber", "hall", "concert-hall", "church", "cathedral", "plate"].iter().map(|s| s.to_string()).collect()
+}
 
-    /// The number of currently registered oscillator templates (organ mode).
-    #[napi(getter)]
-    pub fn active_oscillator_count(&self) -> Result<u32> {
-        let eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        Ok(eng.active_oscillator_count() as u32)
-    }
-
-    /// Update the amplitude of a registered oscillator in real time.
-    /// Affects both the stored template (for future notes) and all currently playing notes.
-    /// Used for drawbar-style real-time level control.
-    #[napi]
-    pub fn update_oscillator_amplitude(&self, oscillator_id: u32, amplitude: f64) -> Result<()> {
-        let mut eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        eng.update_oscillator_amplitude(oscillator_id, amplitude as f32);
-        Ok(())
-    }
-
-    // ── Overdrive ─────────────────────────────────────────────────────────────
-
-    /// Set tube overdrive parameters (creates the overdrive effect if not already active).
-    /// - `drive` — 1.0 (clean) to 10.0 (heavy saturation)
-    /// - `bias`  — 0.0 (symmetric) to 0.3 (warm organ character)
-    /// - `level` — output level compensation (0.0–1.0)
-    #[napi]
-    pub fn set_overdrive(&self, drive: f64, bias: f64, level: f64) -> Result<()> {
-        let mut eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        eng.set_overdrive(drive as f32, bias as f32, level as f32);
-        Ok(())
-    }
-
-    // ── Vibrato/chorus scanner ────────────────────────────────────────────────
-
-    /// Set the vibrato/chorus scanner mode.
-    /// `mode`: `"off"` | `"v1"` | `"v2"` | `"v3"` | `"c1"` | `"c2"` | `"c3"`
-    ///
-    /// V modes: pure pitch modulation at increasing depths.
-    /// C modes: pitch + amplitude modulation (chorus) at increasing rates.
-    #[napi]
-    pub fn set_vibrato_chorus_mode(&self, mode: String) -> Result<()> {
-        let mut eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        eng.set_vibrato_chorus_mode(&mode);
-        Ok(())
-    }
-
-    // ── Key click ─────────────────────────────────────────────────────────────
-
-    /// Set the global organ-mode key-click intensity and duration.
-    /// - `intensity` — 0.0 = off, 0.5 = typical organ key-click
-    /// - `duration`  — transient duration in seconds (default: 0.003 = 3 ms)
-    #[napi]
-    pub fn set_key_click(&self, intensity: f64, duration: Option<f64>) -> Result<()> {
-        let mut eng = self.engine.lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "Engine lock poisoned"))?;
-        eng.set_key_click(intensity as f32, duration.unwrap_or(0.003) as f32);
-        Ok(())
-    }
+/// Names of all part parameters accepted by `setParam`.
+#[napi]
+pub fn part_param_names() -> Vec<String> {
+    PartParam::ALL.iter().map(|(n, _)| n.to_string()).collect()
 }

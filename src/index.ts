@@ -1,28 +1,22 @@
 export { Synth } from './Synth.js';
-export { Organ } from './instruments/organ.js';
-export { Piano } from './instruments/piano.js';
-export { Strings, Violin, Cello } from './instruments/strings.js';
-export { Guitar, ElectricGuitar, BassGuitar, Harp, Harpsichord } from './instruments/guitar.js';
-export { Flute, Clarinet, Saxophone, Oboe } from './instruments/woodwind.js';
-export { Trumpet, FrenchHorn, Trombone } from './instruments/brass.js';
-export { SynthLead } from './instruments/electronic.js';
-export { HiHat, Marimba } from './instruments/percussion.js';
+export type { SynthOptions, AddOptions, InstrumentInfo, MidiPlayOptions, MidiTarget, BackendKind } from './Synth.js';
+export { Part, PARAM_DEFAULTS } from './Part.js';
+export type { PlayOptions, TimeOptions } from './Part.js';
+export { Organ, Division, BUREA_STOPS, REGISTRATIONS } from './Organ.js';
+export type { OrganOptions, StopDef, Registration, DivisionName } from './Organ.js';
+export {
+  Instrument, Piano, UprightPiano, Harpsichord, Harp, Violin, Cello, Strings, Flute, Oboe, Clarinet,
+  Bassoon, Saxophone, Trumpet, FrenchHorn, Trombone, Tuba, Marimba, Vibraphone, ChurchOrgan,
+} from './instruments.js';
+export type { InstrumentOptions } from './instruments.js';
+export { INSTRUMENTS, findInstrument, instrumentIds } from './catalog.js';
+export type { InstrumentDef, LayerDef, PresetDef, InstrumentFamily } from './catalog.js';
+export type { InstrumentParams, ReverbPreset, ReverbOptions } from './params.js';
+export { noteNumber, noteName, noteFrequency, chord } from './notes.js';
+export type { NoteLike } from './notes.js';
+export { parseMidiFile } from './midifile.js';
+export type { MidiFileData, MidiFileEvent } from './midifile.js';
+export { writeWav, encodeWav } from './wav.js';
+export type { AudioBuffer, WavOptions } from './wav.js';
 export { AudioBackendError, MidiError, SupersynthError } from './errors.js';
-export type {
-  BackendKind,
-  InstrumentConfig,
-  MidiEvent,
-  NoteOnOptions,
-  NotePlayer,
-  OrganBreakPoint,
-  OrganConfig,
-  OrganPreset,
-  OrganStop,
-  OscillatorTemplate,
-  ReverbConfig,
-  SynthConfig,
-  VelocityCurve,
-  VoiceConfig,
-  WaveformKind,
-} from './types.js';
-export { isBreakingStop } from './types.js';
+export type { MidiEvent, NotePlayer } from './types.js';

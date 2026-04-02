@@ -1,71 +1,365 @@
-# Instrument Classes
+# Instruments
 
-> **Work in progress.** These instrument classes produce sound and are usable, but their voices have not been tuned to the same standard as the [organ engine](organ.md). Expect rough edges — the voices are reasonable starting points, not finished models.
+Every instrument is a spectral model analysed from real recordings (see NOTICE.md).
+Add one with `synth.add(id, { preset })`. Aliases are accepted wherever an id is.
 
-All instrument classes extend `Synth` and accept an `InstrumentConfig` (which is `SynthConfig` without the `voice` field — the instrument provides its own voice). All `Synth` methods are available: `start()`, `stop()`, `noteOn()`, `noteOff()`, `render()`, `sendMidiBytes()`, `enableMidi()`, `listMidiDevices()`, `setMasterVolume()`, etc.
+## Keyboards
 
-```ts
-import { Piano, Flute, Guitar, /* ... */ } from 'supersynth';
+### `grand-piano` — Concert Grand Piano
 
-const piano = new Piano({ masterVolume: 0.6 });
-await piano.start();
-piano.noteOn(60, 100);
-```
+Steinway model B, three dynamic layers, with real hammer attacks, string stiffness, damper and sympathetic resonances.
+
+Aliases: `piano`, `grand`, `steinway`. Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `bright` | Harder hammers, pop/rock piano |
+| `mellow` | Soft hammers, warm and dark |
+| `felt` | Felt-muffled "una corda" intimate piano |
+| `concert` | Concert hall perspective |
+| `studio` | Close studio miking |
+| `honky-tonk` | Detuned saloon piano (two mistuned strings) |
+| `long-sustain` | Longer ringing notes |
+
+### `upright-piano` — Upright Piano
+
+Yamaha upright: intimate, a little brighter and boxier than the grand.
+
+Aliases: `upright`. Suggested room: `room`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `vintage` | Older instrument: duller, slightly out of tune |
+| `honky-tonk` | Bar-room detuned upright |
+| `dry` | Close-miked, almost no room |
+
+### `harpsichord` — Harpsichord
+
+French double-manual harpsichord, plucked attack transients from the real instrument.
+
+Suggested room: `chamber`.
+
+| Preset | Description |
+|---|---|
+| `default` | Single 8' choir |
+| `8-4` | 8' + 4' (brilliant, octave coupled) |
+| `lute` | Buff/lute stop: muted, short and soft |
+| `flemish` | Flemish harpsichord (8') |
+| `hall` | In a concert hall |
+
+## Organs
+
+### `pipe-organ` — Pipe Organ (full)
+
+A church organ with a full registration, recorded in its building.
+
+Aliases: `church-organ`. Suggested room: `church`.
+
+| Preset | Description |
+|---|---|
+| `default` | Full swell |
+| `soft` | Soft flutes |
+| `with-pedal` | Manual plus 16' pedal below C3 |
+| `cathedral` | In a vast cathedral |
+
+### `chamber-organ` — Renaissance Chamber Organ
+
+A small Renaissance-style positive organ: sweet wooden flutes.
+
+Aliases: `positive-organ`. Suggested room: `chamber`.
+
+| Preset | Description |
+|---|---|
+| `default` | 8' flute |
+| `4ft` | 4' flute alone |
+| `8-4` | 8' + 4' |
+| `full` | Full organ |
 
 ## Strings
 
-| Class | Character | Voice |
-|-------|-----------|-------|
-| `Strings` | Full string ensemble | 4 detuned sawtooth oscillators, slow attack |
-| `Violin` | Solo violin | 2 sawtooth oscillators, expressive attack |
-| `Cello` | Solo cello | 2 sawtooth oscillators, slower attack, fuller release |
+### `harp` — Concert Harp
 
-## Keyboard / plucked strings
+Pedal harp with real pluck transients; notes ring until they decay.
 
-| Class | Character | Voice |
-|-------|-----------|-------|
-| `Piano` | Acoustic piano | Karplus-Strong (`struck`) — 3 detuned oscillators, exponential velocity curve |
-| `Harpsichord` | Harpsichord | Karplus-Strong (`struck`) — velocity-insensitive, instant mute |
-| `Harp` | Harp | Karplus-Strong (`plucked`) — long ring-out |
+Suggested room: `hall`.
 
-## Guitar family
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `warm` | Plucked closer to the middle of the string |
+| `pres-de-la-table` | Plucked near the soundboard: metallic, guitar-like |
+| `hall` | In a concert hall |
 
-| Class | Character | Voice |
-|-------|-----------|-------|
-| `Guitar` | Acoustic guitar | Karplus-Strong (`plucked`) |
-| `ElectricGuitar` | Electric guitar | Karplus-Strong (`electric`) with bridge excitation and soft-clip |
-| `BassGuitar` | Bass guitar | Karplus-Strong (`plucked`), lower register tuning |
+### `violin-pizzicato` — Violin Pizzicato
+
+Plucked solo violin.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `dry` | Close-miked, almost no room |
+
+### `cello-pizzicato` — Cello Section Pizzicato
+
+Plucked cello section.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `dry` | Close-miked, almost no room |
+
+### `contrabass-pizzicato` — Contrabass Pizzicato
+
+Plucked double bass — also a lovely jazz walking bass.
+
+Aliases: `upright-bass`, `jazz-bass`. Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `jazz` | Dry jazz-club bass |
+
+### `violin` — Solo Violin
+
+Solo violin with natural vibrato.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `senza-vibrato` | Straight tone, no vibrato (baroque style) |
+| `expressive` | Wider romantic vibrato |
+| `intimate` | Close and dry |
+
+### `violins` — Violin Section
+
+Orchestral first violins.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `lush` | Bigger, wider section |
+| `soft` | Gentle, slow bow attack |
+
+### `violas` — Viola Section
+
+Orchestral violas.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `soft` | Slow bow attack |
+
+### `cellos` — Cello Section
+
+Orchestral cellos with vibrato.
+
+Aliases: `cello`. Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `soft` | Slow bow attack |
+
+### `contrabass` — Contrabass
+
+Double bass, bowed.
+
+Aliases: `double-bass`. Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+
+### `strings` — String Orchestra
+
+Full string section split across the keyboard: basses, cellos, violas and violins.
+
+Aliases: `string-ensemble`, `orchestra-strings`. Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | Divisi across the keyboard |
+| `octaves` | Violins doubled by cellos an octave below (classic film voicing) |
+| `lush` | Wider and softer |
 
 ## Woodwinds
 
-| Class | Character | Voice |
-|-------|-----------|-------|
-| `Flute` | Soft, breathy | 6-harmonic additive flute with breath transient |
-| `Clarinet` | Hollow, reedy | Narrow pulse (20% duty) with reed breath chiff |
-| `Saxophone` | Reedy, bright | Pulse (35% duty) with strong chiff |
-| `Oboe` | Nasal, penetrating | Narrow pulse (25% duty) with prominent chiff |
+### `flute` — Flute
+
+Concert flute, straight tone.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | Straight tone |
+| `vibrato` | With natural flute vibrato |
+| `breathy` | More air in the tone |
+| `piccolo` | Piccolo |
+
+### `oboe` — Oboe
+
+Oboe.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `vibrato` | Light vibrato |
+
+### `clarinet` — Clarinet
+
+B♭ clarinet.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `dark` | Dark, covered tone |
+
+### `bassoon` — Bassoon
+
+Bassoon.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+
+### `tenor-sax` — Tenor Saxophone
+
+Tenor saxophone, straight tone.
+
+Aliases: `sax`, `saxophone`. Suggested room: `room`.
+
+| Preset | Description |
+|---|---|
+| `default` | Straight tone |
+| `jazz` | Jazz ballad: breathy with vibrato |
+| `bright` | Edgy rock tone |
 
 ## Brass
 
-| Class | Character | Voice |
-|-------|-----------|-------|
-| `Trumpet` | Bright, piercing | 16-harmonic additive with sharp attack |
-| `FrenchHorn` | Mellow, round | Trumpet-like with slower attack |
-| `Trombone` | Full-bodied | Sawtooth-based brass |
+### `trumpet` — Trumpet
 
-## Percussion / mallet
+B♭ trumpet.
 
-| Class | Character | Voice |
-|-------|-----------|-------|
-| `Marimba` | Wooden, resonant | Three sine partials at inharmonic ratios (1 : 3.93 : 9.76) |
-| `HiHat` | Metallic noise | White noise burst with fast decay |
+Suggested room: `hall`.
 
-## Electronic
+| Preset | Description |
+|---|---|
+| `default` | Open |
+| `muted` | Straight mute |
+| `vibrato` | Lyrical vibrato |
 
-| Class | Character | Voice |
-|-------|-----------|-------|
-| `SynthLead` | 80s polysynth | Detuned sawtooth pair + sub-octave square |
+### `french-horn` — French Horn
 
-## Organ
+Horn in F.
 
-`Organ` is its own full-featured class. See [organ.md](organ.md).
+Aliases: `horn`. Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `distant` | Distant, at the back of the hall |
+
+### `trombone` — Trombone
+
+Tenor trombone.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+
+### `tuba` — Tuba
+
+Tuba.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+
+### `brass` — Brass Section
+
+Tuba, trombone, horn and trumpet split across the keyboard.
+
+Aliases: `brass-section`. Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+
+## Mallets & bells
+
+### `marimba` — Marimba
+
+Rosewood marimba.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `soft` | Yarn mallets |
+
+### `vibraphone` — Vibraphone
+
+Vibraphone with hard mallets; note-off engages the damper pedal behaviour.
+
+Aliases: `vibes`. Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+| `let-ring` | Pedal down: notes ring |
+
+### `xylophone` — Xylophone
+
+Xylophone.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+
+### `glockenspiel` — Glockenspiel
+
+Glockenspiel.
+
+Suggested room: `hall`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+
+### `tubular-bells` — Tubular Bells
+
+Orchestral chimes.
+
+Aliases: `chimes`. Suggested room: `church`.
+
+| Preset | Description |
+|---|---|
+| `default` | As recorded |
+
+The full church organ is not a single instrument but an `Organ` with four divisions — see [organ.md](organ.md).
