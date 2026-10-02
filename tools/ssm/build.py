@@ -24,7 +24,7 @@ from paths import DATA_ROOT
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 DATA = os.path.join(DATA_ROOT, 'samples')
-OUT_DIR = os.path.join(REPO, 'models')
+OUT_DIR = os.environ.get('SSM_OUT_DIR', os.path.join(REPO, 'models'))
 
 
 def q_db(db: np.ndarray) -> np.ndarray:
@@ -54,6 +54,7 @@ def delta_pm(q: np.ndarray) -> bytes:
 
 
 AMP_STEP = 1.0 / 16.0
+IMG_RANGE_DB = 40.0
 
 
 def delta_pm16(db: np.ndarray) -> bytes:
@@ -92,13 +93,19 @@ def write_model(path: str, header: dict, zones: list[Zone]):
         o['amps'] = o['amps16']        # (required key of older readers)
         st_t = z.meta.get('stereo_t')
         if st_t is not None and st_t[0].shape[0] == T:
-            # time-varying stereo image of the harmonics: ILD in ¼ dB around 128, inter-channel
-            # phase in 1/256 turns (delta coding mod 256 wraps the phase for free)
-            o['ild'] = put(delta_pm(np.clip(np.round(st_t[0] * 4) + 128, 0, 255).astype(np.uint8)))
-            o['iph'] = put(delta_pm((np.round(st_t[1] / (2 * math.pi) * 256).astype(np.int64) % 256).astype(np.uint8)))
-            o['imgK'] = int(st_t[0].shape[1])
+            # time-varying stereo image of the harmonics that matter (within IMG_RANGE_DB of the
+            # strongest; weaker ones keep the static image): ILD in ¼ dB around 128, phases in
+            # 1/256 turns (delta coding mod 256 wraps the phase for free)
+            kh = st_t[0].shape[1]
+            pk = z.amps_db[:, :kh].max(axis=0)
+            rows = np.where(pk > pk.max() - IMG_RANGE_DB)[0]
+            sel = lambda a: a[:, rows]
+            o['ild'] = put(delta_pm(np.clip(np.round(sel(st_t[0]) * 4) + 128, 0, 255).astype(np.uint8)))
+            o['iph'] = put(delta_pm((np.round(sel(st_t[1]) / (2 * math.pi) * 256).astype(np.int64) % 256).astype(np.uint8)))
+            o['imgK'] = int(len(rows))
+            o['imgIdx'] = [int(r) for r in rows]
             if len(st_t) > 2:
-                o['lph'] = put(delta_pm((np.round(st_t[2] / (2 * math.pi) * 256).astype(np.int64) % 256).astype(np.uint8)))
+                o['lph'] = put(delta_pm((np.round(sel(st_t[2]) / (2 * math.pi) * 256).astype(np.int64) % 256).astype(np.uint8)))
         tr = None
         if z.transient is not None and len(z.transient):
             pkv = float(np.max(np.abs(z.transient))) or 1.0
@@ -244,7 +251,8 @@ def build(inst_id: str, spec: dict, workers: int = 8) -> str:
               transient=spec.get('transient', False), transient_max_s=spec.get('transient_max_s', 0.1),
               max_loop_s=spec.get('max_loop_s'), use_cue=spec.get('use_cue', False), locked=spec.get('locked'),
               max_stiffness=spec.get('max_stiffness', 2e-3), stereo=spec.get('stereo', False),
-              steady_smooth_s=spec.get('steady_smooth_s', 0.0), phase_smooth_s=spec.get('phase_smooth_s', 0.0))
+              steady_smooth_s=spec.get('steady_smooth_s', 0.0), phase_smooth_s=spec.get('phase_smooth_s', 0.0),
+              pitch_smooth_s=spec.get('pitch_smooth_s', 0.1 if spec.get('stereo') and spec['kind'] == 'sustained' else 0.0))
     jobs = [(f, n, l, kw) for f, n, l in items]
     with ProcessPoolExecutor(workers, initializer=_worker_init) as ex:
         results = list(ex.map(_analyze_job, jobs))

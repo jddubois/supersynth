@@ -126,6 +126,10 @@ pub struct SpectralVoice {
     w: [f32; MAX_ZONES],
     pos: [f32; MAX_ZONES],
     dir: [f32; MAX_ZONES],
+    /// current ping-pong turning points (frames) per zone: re-drawn at every turn, so long
+    /// notes never repeat the loop with a fixed period
+    turn_lo: [f32; MAX_ZONES],
+    turn_hi: [f32; MAX_ZONES],
     dominant: usize,
 
     k: usize,
@@ -232,6 +236,8 @@ impl Default for SpectralVoice {
             w: [0.0; MAX_ZONES],
             pos: [0.0; MAX_ZONES],
             dir: [1.0; MAX_ZONES],
+            turn_lo: [0.0; MAX_ZONES],
+            turn_hi: [f32::MAX; MAX_ZONES],
             dominant: 0,
             k: 0,
             k_h: 0,
@@ -418,6 +424,9 @@ impl SpectralVoice {
         for j in 0..self.nz {
             self.pos[j] = 0.0;
             self.dir[j] = 1.0;
+            let (a, b) = m.zones[self.zone[j]].loop_range.map(|(a, b)| (a as f32, b as f32)).unwrap_or((0.0, f32::MAX));
+            self.turn_lo[j] = a;
+            self.turn_hi[j] = b;
         }
 
         // ── partials ───────────────────────────────────────────────────────
@@ -719,7 +728,11 @@ impl SpectralVoice {
             // the recorded phase wander replaces the synthetic per-partial jitter
             for i in 0..k.min(self.k_h) {
                 let covered = (0..self.nz).all(|j| {
-                    m.zones[self.zone[j]].image.as_ref().map(|im| !im.lph.is_empty() && (self.look_i[j][i] as usize) < im.k).unwrap_or(false)
+                    m.zones[self.zone[j]]
+                        .image
+                        .as_ref()
+                        .map(|im| !im.lph.is_empty() && im.row.get(self.look_i[j][i] as usize).map(|&r| r != u16::MAX).unwrap_or(false))
+                        .unwrap_or(false)
                 });
                 if covered {
                     self.jit_sigma[i] = 0.0;
@@ -791,12 +804,13 @@ impl SpectralVoice {
                 let w = self.w[j];
                 let ii = self.look_i[j][i] as usize;
                 match (&z.image, &z.stereo) {
-                    (Some(im), _) if ii < im.k => {
+                    (Some(im), _) if im.row.get(ii).map(|&r| r != u16::MAX).unwrap_or(false) => {
+                        let ri = im.row[ii] as usize;
                         let f0 = (self.pos[j].floor() as usize).min(z.frames - 1);
                         let f1 = (f0 + 1).min(z.frames - 1);
                         let ft = self.pos[j] - f0 as f32;
                         let (am, a0, a1, a2) =
-                            (f0.saturating_sub(1) * im.k + ii, f0 * im.k + ii, f1 * im.k + ii, (f1 + 1).min(z.frames - 1) * im.k + ii);
+                            (f0.saturating_sub(1) * im.k + ri, f0 * im.k + ri, f1 * im.k + ri, (f1 + 1).min(z.frames - 1) * im.k + ri);
                         // phases as unit vectors, cubic between frames (a phase interpolated
                         // linearly has a stepped frequency: FM at the frame rate)
                         let vec = |tab: &[u8]| {
@@ -848,6 +862,35 @@ impl SpectralVoice {
             self.st_c[i] = lc * ic - ls * is;
             self.st_s[i] = ls * ic + lc * is;
         }
+    }
+
+    /// Next ping-pong turning point inside the loop [a, b]: at least 75 % of the loop (and
+    /// 0.4 s) away from the current turn `from`, at a random place beyond that.
+    fn draw_turn(&mut self, m: &Model, a: usize, b: usize, from: f32, upward: bool) -> f32 {
+        let g = |f: usize| m.grid.get(f).copied().unwrap_or(0.0);
+        let (ta, tb) = (g(a), g(b));
+        let span = tb - ta;
+        let min_len = (0.75 * span).max(0.4).min(span);
+        let tf = {
+            let f = from.clamp(a as f32, b as f32);
+            let i = f.floor() as usize;
+            let fr = f - i as f32;
+            g(i) + (g((i + 1).min(b)) - g(i)) * fr
+        };
+        let t = if upward {
+            let lo = (tf + min_len).min(tb);
+            lo + (tb - lo) * self.rng.uniform()
+        } else {
+            let hi = (tf - min_len).max(ta);
+            hi - (hi - ta) * self.rng.uniform()
+        };
+        // time → fractional frame
+        let mut i = a;
+        while i < b && g(i + 1) < t {
+            i += 1;
+        }
+        let seg = (g(i + 1) - g(i)).max(1e-6);
+        (i as f32 + ((t - g(i)) / seg).clamp(0.0, 1.0)).clamp(a as f32, b as f32)
     }
 
     fn compute_tail_rates(&mut self, m: &Model) {
@@ -973,13 +1016,15 @@ impl SpectralVoice {
             let mut np = self.pos[j] + self.dir[j] * dt * rate / seg;
             if let Some((a, b)) = z.loop_range {
                 if m.kind == Kind::Sustained && !self.in_rel_tail {
-                    let (a, b) = (a as f32, b as f32);
-                    if np >= b {
-                        np = b - (np - b);
+                    let (lo, hi) = (self.turn_lo[j], self.turn_hi[j]);
+                    if np >= hi {
+                        np = hi - (np - hi);
                         self.dir[j] = -1.0;
-                    } else if self.dir[j] < 0.0 && np <= a {
-                        np = a + (a - np);
+                        self.turn_lo[j] = self.draw_turn(m, a, b, hi, false);
+                    } else if self.dir[j] < 0.0 && np <= lo {
+                        np = lo + (lo - np);
                         self.dir[j] = 1.0;
+                        self.turn_hi[j] = self.draw_turn(m, a, b, lo, true);
                     }
                 }
             }

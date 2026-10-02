@@ -28,7 +28,10 @@ pub struct ZoneStereo {
 /// to the left, q/256 turns.
 #[derive(Clone, Debug)]
 pub struct ZoneImage {
+    /// number of stored rows
     pub k: usize,
+    /// harmonic index → row (u16::MAX: no time-varying image, use the static one)
+    pub row: Vec<u16>,
     pub ild: Vec<u8>,
     pub iph: Vec<u8>,
     /// the left channel's own phase wander (q/256 turns, relative to the start phase);
@@ -287,6 +290,9 @@ struct HOffsets {
     img_k: Option<usize>,
     #[serde(default)]
     lph: Option<usize>,
+    /// harmonics that have image rows (absent: the first `imgK` harmonics)
+    #[serde(rename = "imgIdx", default)]
+    img_idx: Option<Vec<usize>>,
 }
 
 #[derive(Deserialize)]
@@ -536,6 +542,15 @@ impl Model {
                 image: match (hz.o.ild, hz.o.iph, hz.o.img_k) {
                     (Some(a), Some(b), Some(ik)) if ik > 0 => Some(ZoneImage {
                         k: ik,
+                        row: {
+                            let idx: Vec<usize> = hz.o.img_idx.clone().unwrap_or_else(|| (0..ik).collect());
+                            let n = idx.iter().copied().max().map(|m| m + 1).unwrap_or(0);
+                            let mut row = vec![u16::MAX; n];
+                            for (r, &h) in idx.iter().enumerate().take(ik) {
+                                row[h] = r as u16;
+                            }
+                            row
+                        },
                         ild: undelta_pm(slice(blob, a, t * ik, "ild")?, t, ik, ik),
                         iph: undelta_pm(slice(blob, b, t * ik, "iph")?, t, ik, ik),
                         lph: match hz.o.lph {

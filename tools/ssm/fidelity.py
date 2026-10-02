@@ -42,7 +42,7 @@ from compare import logmel
 from evaluate import SSRENDER, read_header, sustain_duration
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MODELS = os.path.join(HERE, '..', '..', 'models')
+MODELS = os.environ.get('SSM_OUT_DIR', os.path.join(HERE, '..', '..', 'models'))
 
 NFFT = 4096
 HOP = 512

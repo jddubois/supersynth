@@ -426,7 +426,8 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                  transient_max_s: float = 0.1, release_at_s: float | None = None,
                  max_loop_s: float | None = None, locked: bool | None = None,
                  max_stiffness: float = 2e-3, keep_release_tail: bool = True,
-                 stereo: bool = False, steady_smooth_s: float = 0.0, phase_smooth_s: float = 0.0) -> Zone:
+                 stereo: bool = False, steady_smooth_s: float = 0.0, phase_smooth_s: float = 0.0,
+                 pitch_smooth_s: float = 0.0) -> Zone:
     if locked is None:
         locked = kind == 'sustained'
     x, sr = load_mono(path, channel_mix)
@@ -572,6 +573,15 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
             hop_s = hop / sr
             wlen = max(3, int(round(0.25 / hop_s)) | 1)
             cents = np.convolve(np.pad(cents, wlen // 2, mode='edge'), np.ones(wlen) / wlen, mode='valid')[:len(cents)]
+
+        if kind == 'sustained' and pitch_smooth_s > 0:
+            # The common pitch track is estimated from a few partials over a short window:
+            # its frame-to-frame noise would become vibrato on every partial. Smooth it over
+            # the sustain; per-partial phase wander that remains is kept by the demodulation
+            # below (stereo phase trajectories) or by the jitter measurement.
+            lvl = 10 * np.log10(np.sum(mags[:, :kmax] ** 2, axis=1) + 1e-30)
+            wm = steady_mask(centers / sr, lvl, 0.3, 0.08)
+            cents = steady_smooth(cents[:, None], centers / sr, wm, pitch_smooth_s, 'db')[:, 0]
 
         # ── pass 3: demodulate following the pitch ───────────────────────────
         inst_f = f0 * 2 ** (np.interp(n, centers, cents) / 1200)
@@ -821,6 +831,22 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
         if stereo_t is not None:
             ild_grid, iph_grid, lph_grid = ild_grid[:T], iph_grid[:T], lph_grid[:T]
 
+    if stereo_t is not None and loop is not None and kind == 'sustained':
+        # A harmonic whose recorded phase drifts steadily over the loop is slightly off its
+        # nominal frequency. Played ping-pong, that drift would reverse at every turn (the
+        # partial alternately sharp and flat): move each harmonic's mean drift over the loop
+        # into its frequency ratio and keep only the detrended wander in the phase track.
+        a, b = loop
+        tg = grid[:len(lph_grid)]
+        u = np.unwrap(lph_grid, axis=0)
+        if b - a >= 4:
+            ta = tg[a:b + 1] - tg[a:b + 1].mean()
+            slope = (ta[:, None] * (u[a:b + 1] - u[a:b + 1].mean(0))).sum(0) / max((ta ** 2).sum(), 1e-12)
+            kk = min(len(slope), K_h)
+            ratios = np.asarray(ratios, dtype=np.float64).copy()
+            ratios[:kk] += slope[:kk] / (2 * math.pi * f0)
+            u[:, :kk] -= slope[None, :kk] * tg[:, None]
+            lph_grid = np.angle(np.exp(1j * u))
     peak = float(np.max(np.abs(x)))
     rms = float(np.sqrt(np.mean(x[: int(min(len(x), sr * 1.0))] ** 2)))
     tr, tr_r, tfade = None, None, (0.0, 0.0)
@@ -912,7 +938,13 @@ def measure_shimmer(raw_c, smooth_c, resid, ratios, f0, sr, hop, steady, t0, t1)
         if nm.sum() < 2 or bm.sum() < 2 or tot <= 0:
             scale[b] = 0.0
             continue
-        noise_frac[b] = float(np.clip(np.median(P[bm]) * inb.sum() * df / tot, 0.0, 1.0))
+        # mean density between the harmonics (trimmed: free partials found later are
+        # modelled on their own; the edges near partials carry their skirts)
+        rel = (fr[inb] / f0) % 1.0
+        mid = (rel > 0.3) & (rel < 0.7)
+        pv = np.sort(P[inb][mid]) if mid.sum() >= 3 else np.sort(P[bm])
+        dens = pv[:max(1, int(0.9 * len(pv)))].mean()
+        noise_frac[b] = float(np.clip(dens * inb.sum() * df / tot, 0.0, 1.0))
         excess = max(0.0, P[nm].sum() * df - P[bm].mean() * nm.sum() * df)
         ks = (hk >= NOISE_EDGES[b]) & (hk < NOISE_EDGES[b + 1])
         e_shim = float(np.sum(sig[ks] ** 2 * pk[ks]) / 2)       # a sinusoid's power is |a|²/2
