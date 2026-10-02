@@ -184,9 +184,14 @@ export class Vibraphone extends Instrument {
  */
 export class ChurchOrgan extends OrganHandle {
   constructor(options: OrganOptions & SynthOptions = {}) {
-    const { registration, tremulant, ...synthOptions } = options;
+    const { registration, tremulant, instrument, wind, ...synthOptions } = options;
     const synth = new Synth({ reverb: 'church', ...synthOptions });
-    super(synth, { ...(registration ? { registration } : {}), ...(tremulant ? { tremulant } : {}) });
+    super(synth, {
+      ...(instrument ? { instrument } : {}),
+      ...(registration ? { registration } : {}),
+      ...(tremulant ? { tremulant } : {}),
+      ...(wind !== undefined ? { wind } : {}),
+    });
   }
 
   async start(): Promise<this> {

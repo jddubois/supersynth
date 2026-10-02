@@ -2,8 +2,8 @@ export { Synth } from './Synth.js';
 export type { SynthOptions, AddOptions, InstrumentInfo, MidiPlayOptions, MidiTarget, BackendKind } from './Synth.js';
 export { Part, PARAM_DEFAULTS } from './Part.js';
 export type { PlayOptions, TimeOptions } from './Part.js';
-export { Organ, Division, BUREA_STOPS, REGISTRATIONS } from './Organ.js';
-export type { OrganOptions, StopDef, Registration, DivisionName } from './Organ.js';
+export { Organ, Division, BUREA_STOPS, REGISTRATIONS, VCSL_STOPS, VCSL_REGISTRATIONS, ORGANS } from './Organ.js';
+export type { OrganOptions, OrganInstrument, StopDef, Registration, DivisionName } from './Organ.js';
 export {
   Instrument, Piano, UprightPiano, Harpsichord, Harp, Violin, Cello, Strings, Flute, Oboe, Clarinet,
   Bassoon, Saxophone, Trumpet, FrenchHorn, Trombone, Tuba, Marimba, Vibraphone, ChurchOrgan,

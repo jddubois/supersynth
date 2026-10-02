@@ -67,6 +67,12 @@ INSTRUMENTS: dict[str, dict] = {
         exclude=RR_EXTRA, stereo=True, transient=True, transient_max_s=0.09, max_partials=512, locked=False, free_partials=12,
         params=dict(tuning='recorded', releaseMode='natural', spread=0.4, reverb='church', reverbSend=0.12, minReleaseDbS=20.0),
     ),
+    'pipe-organ-pedal-soft': dict(
+        display='Pipe Organ — Soft Pedal 16\'', family='organ', kind='sustained', source=CC0_VCSL,
+        files=[f'{VCSL}/Aerophones/Edge-blown Aerophones/Pipe Organ/Quiet Pedal/*.wav'],
+        exclude=RR_EXTRA, stereo=True, transient=True, transient_max_s=0.09, max_partials=512,
+        params=dict(tuning='recorded', releaseMode='natural', spread=0.4, reverb='church', reverbSend=0.12, minReleaseDbS=20.0),
+    ),
     'renaissance-organ-8': dict(
         display='Renaissance Chamber Organ 8\'', family='organ', kind='sustained', source=CC0_VCSL,
         files=[f"{VCSL}/Aerophones/Edge-blown Aerophones/Renaissance Organ/8'/*.wav"],
