@@ -26,6 +26,29 @@ Divisions: `great`, `swell`, `positive`, `pedal` (each a `Division` with `play`,
 `noteOff`, `pull`, `push`, `clear`, `stops`, `drawn`, `expression`). `new ChurchOrgan()` creates
 an organ with its own engine.
 
+## A second organ: the VCSL church organ
+
+```ts
+const organ = synth.organ({ instrument: 'vcsl', registration: 'full' });
+organ.great.play(['C4', 'E4', 'G4'], { duration: 3 });
+organ.useRegistration('chamber');            // the Renaissance chamber organ (8' + 4')
+organ.positive.play(['G4', 'B4', 'D5'], { duration: 3 });
+```
+
+A church organ recorded in stereo with its room (Simon Dalzell / Ivy Audio, through the
+Versilian Community Sample Library, CC0), with a Renaissance chamber organ as positive. Its
+stops are recorded registrations rather than single ranks, and every third semitone is recorded
+(the notes between are morphed from their neighbours).
+
+| Division | Stops |
+|---|---|
+| great, swell | Full Organ, Flutes |
+| positive | Gedackt 8', Principal 4', Chorus (Renaissance chamber organ) |
+| pedal | Pedal 16' + 8', Soft Bass 16' |
+
+Registrations: `full`, `flutes`, `chamber`, `chamber-8`, `dialogue` (full great against
+flutes on the swell). The rest of this page describes the Bureå organ (the default).
+
 ## Stops
 
 ### Great

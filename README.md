@@ -43,7 +43,7 @@ blind listening tests (see `tools/ssm/blind.py`) are used to hunt down any remai
 | Family | Instruments (ids) |
 |---|---|
 | Keyboards | `grand-piano`, `upright-piano`, `harpsichord` |
-| Organs | `organ()` — the full Bureå church organ (40 stops, 4 divisions); `pipe-organ`, `chamber-organ` |
+| Organs | `organ()` — the full Bureå church organ (40 stops, 4 divisions); `organ({ instrument: 'vcsl' })` — the VCSL church organ with a Renaissance chamber organ; `pipe-organ`, `chamber-organ` |
 | Strings | `violin`, `violins`, `violas`, `cellos`, `contrabass`, `strings` (full section), `harp`, `violin-pizzicato`, `cello-pizzicato`, `contrabass-pizzicato` |
 | Woodwinds | `flute`, `oboe`, `clarinet`, `bassoon`, `tenor-sax` |
 | Brass | `trumpet`, `french-horn`, `trombone`, `tuba`, `brass` (section) |
