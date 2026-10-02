@@ -145,6 +145,10 @@ pub struct SpectralVoice {
     /// tilt + even/odd offset per partial, recomputed when those parameters change
     stat_db: [f32; MAX_PARTIALS],
     stat_key: (f32, f32),
+    /// morphing between zones: the dominant zone's envelope (its own attack, beating and
+    /// release in time) shifted by the weighted timbre difference at the zones' steady state
+    morph_off: [f32; MAX_PARTIALS],
+    morph_ok: [bool; MAX_PARTIALS],
     /// free-decay continuation after the analysed frames end (dB/s per partial)
     tail_rate: [f32; MAX_PARTIALS],
     tail_set: bool,
@@ -249,6 +253,8 @@ impl Default for SpectralVoice {
             look_db: [[0.0; MAX_PARTIALS]; MAX_ZONES],
             stat_db: [0.0; MAX_PARTIALS],
             stat_key: (f32::NAN, f32::NAN),
+            morph_off: [0.0; MAX_PARTIALS],
+            morph_ok: [false; MAX_PARTIALS],
             tail_rate: [60.0; MAX_PARTIALS],
             tail_set: false,
             in_rel_tail: false,
@@ -509,6 +515,41 @@ impl SpectralVoice {
             k = i + 1;
         }
         self.k_h = k;
+        // morph offsets: each zone's level at its steady reference frame (loop start, or 0.5 s)
+        let dzi = self.dominant;
+        for i in 0..k {
+            self.morph_ok[i] = false;
+            if self.nz < 2 {
+                continue;
+            }
+            let mut sum = 0.0f32;
+            let mut dom = 0.0f32;
+            let mut ok = true;
+            for j in 0..self.nz {
+                let z = &m.zones[self.zone[j]];
+                let rf = z.loop_range.map(|(a, _)| a).unwrap_or_else(|| m.grid.iter().position(|&g| g >= 0.5).unwrap_or(0)).min(z.frames - 1);
+                let ii = self.look_i[j][i] as usize;
+                let fr = self.look_f[j][i];
+                let q = |idx: usize| z.harm_db(rf, idx);
+                let mut v = q(ii);
+                if fr > 0.0 {
+                    v = lerp(v, q(ii + 2), fr);
+                }
+                if v < -150.0 {
+                    ok = false;
+                    break;
+                }
+                v += self.look_db[j][i] + z.gain_db;
+                sum += self.w[j] * v;
+                if j == dzi {
+                    dom = v;
+                }
+            }
+            if ok {
+                self.morph_off[i] = sum - dom;
+                self.morph_ok[i] = true;
+            }
+        }
         // free (inharmonic) partials: each zone contributes its own, crossfaded in power
         for j in 0..self.nz {
             let z = &m.zones[self.zone[j]];
@@ -625,7 +666,9 @@ impl SpectralVoice {
             self.tr_pos[j] = 0.0;
             self.tr_step[j] = 0.0;
             if let Some(tr) = &z.transient {
-                if self.w[j] >= 0.02 {
+                // the recorded onset of the dominant zone only: two onsets played at different
+                // speeds and mixed would smear (and comb-filter) the attack
+                if j == self.dominant {
                     self.has_tr = true;
                     self.tr_step[j] = (f_target / z.f0) as f64 * (tr.rate / self.sr) as f64;
                     fade.0 += self.w[j] * tr.fade.0;
@@ -802,6 +845,9 @@ impl SpectralVoice {
             for j in 0..self.nz {
                 let z = &m.zones[self.zone[j]];
                 let w = self.w[j];
+                // Phases come from the dominant zone: two recordings' phase wander is
+                // unrelated, and averaging unit vectors of unrelated phases makes them jump.
+                let pw = if j == self.dominant { 1.0 } else { 1e-3 * w };
                 let ii = self.look_i[j][i] as usize;
                 match (&z.image, &z.stereo) {
                     (Some(im), _) if im.row.get(ii).map(|&r| r != u16::MAX).unwrap_or(false) => {
@@ -818,11 +864,11 @@ impl SpectralVoice {
                             (cubic_free(pm.0, p0.0, p1.0, p2.0, ft), cubic_free(pm.1, p0.1, p1.1, p2.1, ft))
                         };
                         if im.lph.is_empty() {
-                            lc += w;
+                            lc += pw;
                         } else {
                             let (c, sn) = vec(&im.lph);
-                            lc += w * c;
-                            ls += w * sn;
+                            lc += pw * c;
+                            ls += pw * sn;
                         }
                         let ild = cubic(im.ild[am] as f32, im.ild[a0] as f32, im.ild[a1] as f32, im.ild[a2] as f32, ft) * 0.25 - 32.0;
                         // R/L amplitude ratio; gains normalised so gL² + gR² = 2
@@ -831,21 +877,21 @@ impl SpectralVoice {
                         gl += w * l_g;
                         gr += w * l_g * r;
                         let (c, sn) = vec(&im.iph);
-                        vc += w * c;
-                        vs += w * sn;
+                        vc += pw * c;
+                        vs += pw * sn;
                     }
                     (_, Some(st)) if ii < st.l.len() => {
                         gl += w * st.l[ii];
                         gr += w * st.r[ii];
-                        vc += w * st.ph[ii].cos();
-                        vs += w * st.ph[ii].sin();
-                        lc += w;
+                        vc += pw * st.ph[ii].cos();
+                        vs += pw * st.ph[ii].sin();
+                        lc += pw;
                     }
                     _ => {
                         gl += w;
                         gr += w;
-                        vc += w;
-                        lc += w;
+                        vc += pw;
+                        lc += pw;
                     }
                 }
             }
@@ -1128,7 +1174,19 @@ impl SpectralVoice {
         let kh = self.k_h;
         for i in 0..k {
             let mut db;
-            if i < kh {
+            if i < kh && self.morph_ok[i] {
+                let j = self.dominant;
+                let ii = self.look_i[j][i] as usize;
+                let fr = self.look_f[j][i];
+                let khj = kh_z[j];
+                let q = |row: &[u16], idx: usize| if idx < khj { a16_to_db(row[idx]) } else { -200.0 };
+                let ft = ftj[j];
+                let mut v = cubic(q(rowm[j], ii), q(row0[j], ii), q(row1[j], ii), q(row2[j], ii), ft);
+                if fr > 0.0 {
+                    v = lerp(v, cubic(q(rowm[j], ii + 2), q(row0[j], ii + 2), q(row1[j], ii + 2), q(row2[j], ii + 2), ft), fr);
+                }
+                db = v + self.look_db[j][i] + zgain[j] + self.morph_off[i];
+            } else if i < kh {
                 db = 0.0;
                 let detail = self.nz > 1 && !srow0[self.dominant].is_empty();
                 for j in 0..self.nz {
@@ -1502,7 +1560,7 @@ impl SpectralVoice {
             if self.tr_step[j] <= 0.0 {
                 continue;
             }
-            let gz = g * self.w[j] * db_to_amp(z.gain_db);
+            let gz = g * db_to_amp(z.gain_db);
             let data = &tr.data;
             let last = data.len() as f64 - 1.0;
             let mut pos = self.tr_pos[j];

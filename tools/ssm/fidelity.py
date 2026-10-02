@@ -377,7 +377,15 @@ def main_holdout(a):
             ra, rb = steady_stats(x[s0:mid], sr, f0), steady_stats(x[mid:s1], sr, f0)
             sb = compare_steady(steady_stats(yb[s0:mid], sr, f0), rb)
             sb2 = compare_steady(steady_stats(yb[mid:s1], sr, f0), ra)
-            base.append({'synth': {k: (sb[k] + sb2[k]) / 2 for k in sb}, 'floor': r['floor']})
+            n_at = int(0.25 * sr)
+            _, A = logmel(x[:n_at].mean(1), sr, nfft=1024, hop=128)
+            _, B = logmel(yb[:n_at].mean(1), sr, nfft=1024, hop=128)
+            top = max(A.max(), B.max())
+            att = float(np.mean(np.abs(np.maximum(A, top - 80) - np.maximum(B, top - 80))))
+            rr = attack_stats(x[:int(1.2 * sr)], sr, f0, None)
+            rb_ = attack_stats(yb[:int(1.2 * sr)], sr, f0, None)
+            base.append({'synth': {k: (sb[k] + sb2[k]) / 2 for k in sb}, 'floor': r['floor'],
+                         'attack_lsd': att, 'rise_err_ms': float(np.nanmean(np.abs(rr - rb_)))})
         print(f"{r['src']:36s} note={note} " + ' '.join(f"{k}={r['synth'][k]:.2f}" for k in ('harm', 'noise', 'flutter', 'coh')), flush=True)
     summ = summarize(res, f'{a.model} HOLDOUT engine')
     if base:
