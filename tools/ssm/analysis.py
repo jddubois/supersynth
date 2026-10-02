@@ -780,15 +780,18 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
     rel_frame = None
     rel_rate = np.zeros(K)
     rel_noise_rate = 0.0
+    # Recorded phase trajectories (stereo image) still move fast while the tone settles
+    # after its attack; a ping-pong loop reversing there turns that into frequency spikes.
+    loop_min_start = 0.6 if stereo_t is not None else 0.0
     if kind == 'sustained':
         if release_at_s is not None:
             # release point known (e.g. GrandOrgue cue marker, relative to the file start)
             rel_t = release_at_s - on / sr
             rel_i = int(np.clip(np.searchsorted(grid, rel_t) - 1, 1, len(grid) - 2))
-            loop, _ = find_loop(grid[:rel_i], tot[:rel_i], max_loop_s or 2.0)
+            loop, _ = find_loop(grid[:rel_i], tot[:rel_i], max_loop_s or 2.0, loop_min_start)
             rel_start = rel_i
         else:
-            loop, rel_start = find_loop(grid, tot, max_loop_s or 2.0)
+            loop, rel_start = find_loop(grid, tot, max_loop_s or 2.0, loop_min_start)
         if release_from_end and rel_start is not None:
             rel_rate, rel_noise_rate = measure_release(grid, amps_db, noise_db, rel_start)
         if loop is not None:
@@ -898,6 +901,9 @@ def measure_shimmer(raw_c, smooth_c, resid, ratios, f0, sr, hop, steady, t0, t1)
         near |= np.abs(fr - f) < 0.25 * f0
     cut = np.zeros(nb)
     scale = np.ones(nb)
+    # the noise model is flat within a band: its level is the residual's density *between*
+    # the harmonics (energy left near them is partial fluctuation — shimmer — not noise)
+    noise_frac = np.ones(nb)
     pk = np.abs(np.mean(np.abs(a) ** 2, axis=0))
     for b in range(nb):
         inb = (fr >= NOISE_EDGES[b]) & (fr < NOISE_EDGES[b + 1])
@@ -906,6 +912,7 @@ def measure_shimmer(raw_c, smooth_c, resid, ratios, f0, sr, hop, steady, t0, t1)
         if nm.sum() < 2 or bm.sum() < 2 or tot <= 0:
             scale[b] = 0.0
             continue
+        noise_frac[b] = float(np.clip(np.median(P[bm]) * inb.sum() * df / tot, 0.0, 1.0))
         excess = max(0.0, P[nm].sum() * df - P[bm].mean() * nm.sum() * df)
         ks = (hk >= NOISE_EDGES[b]) & (hk < NOISE_EDGES[b + 1])
         e_shim = float(np.sum(sig[ks] ** 2 * pk[ks]) / 2)       # a sinusoid's power is |a|²/2
@@ -918,7 +925,7 @@ def measure_shimmer(raw_c, smooth_c, resid, ratios, f0, sr, hop, steady, t0, t1)
         cut[b] = min(0.95, used / tot)
     band_of = np.clip(np.searchsorted(NOISE_EDGES, hk, side='right') - 1, 0, nb - 1)
     sig = np.clip(sig * scale[band_of], 0, 1.5)
-    return sig, tau, cut
+    return sig, tau, 1.0 - noise_frac
 
 
 PULSE_BINS = 32
@@ -1011,7 +1018,7 @@ def _stft_power_cal(nper: int, sr: int, window: str = 'hann', hop: int = 128) ->
     return _CAL[key]
 
 
-def find_loop(grid: np.ndarray, tot_db: np.ndarray, max_loop_s: float = 2.0
+def find_loop(grid: np.ndarray, tot_db: np.ndarray, max_loop_s: float = 2.0, min_start_s: float = 0.0
               ) -> tuple[tuple[int, int] | None, int | None]:
     """Sustain loop and release start of a sustained recording.
 
@@ -1044,6 +1051,9 @@ def find_loop(grid: np.ndarray, tot_db: np.ndarray, max_loop_s: float = 2.0
         rel_start = None
     end_lim = (rel_start if rel_start is not None else len(t) - 1)
     a = int(np.searchsorted(t, t[attack_end] + 0.1))
+    if min_start_s > t[min(a, len(t) - 1)]:
+        # never shorten the loop below 0.6 s for it
+        a = max(a, int(np.searchsorted(t, min(min_start_s, t[end_lim] - 0.75))))
     b_t = min(t[end_lim] - 0.15, t[a] + max_loop_s) if a < len(t) else 0
     b = int(np.searchsorted(t, b_t)) - 1
     if a >= len(t) or b - a < 6 or t[b] - t[a] < 0.3:

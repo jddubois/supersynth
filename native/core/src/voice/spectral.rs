@@ -795,25 +795,30 @@ impl SpectralVoice {
                         let f0 = (self.pos[j].floor() as usize).min(z.frames - 1);
                         let f1 = (f0 + 1).min(z.frames - 1);
                         let ft = self.pos[j] - f0 as f32;
-                        let (a0, a1) = (f0 * im.k + ii, f1 * im.k + ii);
+                        let (am, a0, a1, a2) =
+                            (f0.saturating_sub(1) * im.k + ii, f0 * im.k + ii, f1 * im.k + ii, (f1 + 1).min(z.frames - 1) * im.k + ii);
+                        // phases as unit vectors, cubic between frames (a phase interpolated
+                        // linearly has a stepped frequency: FM at the frame rate)
+                        let vec = |tab: &[u8]| {
+                            let (pm, p0, p1, p2) = (lut[tab[am] as usize], lut[tab[a0] as usize], lut[tab[a1] as usize], lut[tab[a2] as usize]);
+                            (cubic_free(pm.0, p0.0, p1.0, p2.0, ft), cubic_free(pm.1, p0.1, p1.1, p2.1, ft))
+                        };
                         if im.lph.is_empty() {
                             lc += w;
                         } else {
-                            let (c0, s0) = lut[im.lph[a0] as usize];
-                            let (c1, s1) = lut[im.lph[a1] as usize];
-                            lc += w * lerp(c0, c1, ft);
-                            ls += w * lerp(s0, s1, ft);
+                            let (c, sn) = vec(&im.lph);
+                            lc += w * c;
+                            ls += w * sn;
                         }
-                        let ild = lerp(im.ild[a0] as f32, im.ild[a1] as f32, ft) * 0.25 - 32.0;
+                        let ild = cubic(im.ild[am] as f32, im.ild[a0] as f32, im.ild[a1] as f32, im.ild[a2] as f32, ft) * 0.25 - 32.0;
                         // R/L amplitude ratio; gains normalised so gL² + gR² = 2
                         let r = fast_db_to_amp(-ild);
                         let l_g = (2.0 / (1.0 + r * r)).sqrt();
                         gl += w * l_g;
                         gr += w * l_g * r;
-                        let (c0, s0) = lut[im.iph[a0] as usize];
-                        let (c1, s1) = lut[im.iph[a1] as usize];
-                        vc += w * lerp(c0, c1, ft);
-                        vs += w * lerp(s0, s1, ft);
+                        let (c, sn) = vec(&im.iph);
+                        vc += w * c;
+                        vs += w * sn;
                     }
                     (_, Some(st)) if ii < st.l.len() => {
                         gl += w * st.l[ii];
@@ -1041,8 +1046,10 @@ impl SpectralVoice {
             self.update_static_db(p);
         }
         // per-zone frame rows and interpolation weights (hoisted out of the partial loop)
+        let mut rowm: [&[u16]; MAX_ZONES] = [&[]; MAX_ZONES];
         let mut row0: [&[u16]; MAX_ZONES] = [&[]; MAX_ZONES];
         let mut row1: [&[u16]; MAX_ZONES] = [&[]; MAX_ZONES];
+        let mut row2: [&[u16]; MAX_ZONES] = [&[]; MAX_ZONES];
         let mut srow0: [&[u16]; MAX_ZONES] = [&[]; MAX_ZONES];
         let mut srow1: [&[u16]; MAX_ZONES] = [&[]; MAX_ZONES];
         let mut ftj = [0.0f32; MAX_ZONES];
@@ -1052,8 +1059,12 @@ impl SpectralVoice {
             let z = &m.zones[self.zone[j]];
             let f0 = (self.pos[j].floor() as usize).min(z.frames - 1);
             let f1 = (f0 + 1).min(z.frames - 1);
+            let fm = f0.saturating_sub(1);
+            let f2 = (f1 + 1).min(z.frames - 1);
+            rowm[j] = &z.amps[fm * z.partials..(fm + 1) * z.partials];
             row0[j] = &z.amps[f0 * z.partials..(f0 + 1) * z.partials];
             row1[j] = &z.amps[f1 * z.partials..(f1 + 1) * z.partials];
+            row2[j] = &z.amps[f2 * z.partials..(f2 + 1) * z.partials];
             if self.nz > 1 && !z.amps_smooth.is_empty() {
                 srow0[j] = &z.amps_smooth[f0 * z.partials..(f0 + 1) * z.partials];
                 srow1[j] = &z.amps_smooth[f1 * z.partials..(f1 + 1) * z.partials];
@@ -1085,19 +1096,31 @@ impl SpectralVoice {
                         let a = lerp(q(r0, ii), q(r1, ii), ft);
                         if fr > 0.0 { lerp(a, lerp(q(r0, ii + 2), q(r1, ii + 2), ft), fr) } else { a }
                     };
+                    // the zone's own envelope: cubic between frames (linear interpolation's
+                    // corners at the frame rate are audible as a fast flutter on steady tones)
+                    let at4 = || {
+                        let a = cubic(q(rowm[j], ii), q(row0[j], ii), q(row1[j], ii), q(row2[j], ii), ft);
+                        if fr > 0.0 {
+                            lerp(a, cubic(q(rowm[j], ii + 2), q(row0[j], ii + 2), q(row1[j], ii + 2), q(row2[j], ii + 2), ft), fr)
+                        } else {
+                            a
+                        }
+                    };
                     let v = if detail {
                         // smooth envelope from every zone; the dominant zone adds its own detail
                         let sm = at(srow0[j], srow1[j]);
-                        if j == self.dominant { sm + (at(row0[j], row1[j]) - sm).clamp(-30.0, 30.0) / self.w[j] } else { sm }
+                        if j == self.dominant { sm + (at4() - sm).clamp(-30.0, 30.0) / self.w[j] } else { sm }
                     } else {
-                        at(row0[j], row1[j])
+                        at4()
                     };
                     db += self.w[j] * (v + self.look_db[j][i] + zgain[j]);
                 }
             } else {
                 let j = self.slot_zone[i] as usize;
                 let ii = self.slot_idx[i] as usize;
-                db = lerp(a16_to_db(row0[j][ii]), a16_to_db(row1[j][ii]), ftj[j]) + zgain[j] + self.slot_wdb[i];
+                db = cubic(a16_to_db(rowm[j][ii]), a16_to_db(row0[j][ii]), a16_to_db(row1[j][ii]), a16_to_db(row2[j][ii]), ftj[j])
+                    + zgain[j]
+                    + self.slot_wdb[i];
             }
             db += self.stat_db[i] - self.rel_db[i] + common;
             peak = peak.max(db);
@@ -1129,7 +1152,13 @@ impl SpectralVoice {
         let pos = self.pos[self.dominant];
         let f0i = (pos.floor() as usize).min(dz.frames - 1);
         let f1i = (f0i + 1).min(dz.frames - 1);
-        let rec_cents = lerp(dz.pitch[f0i], dz.pitch[f1i], pos - f0i as f32) * p.expression;
+        let rec_cents = cubic(
+            dz.pitch[f0i.saturating_sub(1)],
+            dz.pitch[f0i],
+            dz.pitch[f1i],
+            dz.pitch[(f1i + 1).min(dz.frames - 1)],
+            pos - f0i as f32,
+        ) * p.expression;
         let vib_depth = p.vibrato_cents * ((self.t - p.vibrato_delay) / 0.4).clamp(0.0, 1.0) + md.mod_vibrato;
         self.vib_phase = (self.vib_phase + p.vibrato_rate * dt).fract();
         let vib = if vib_depth > 0.0 { vib_depth * (std::f32::consts::TAU * self.vib_phase).sin() } else { 0.0 };
@@ -1541,6 +1570,25 @@ fn smoothstep(a: f32, b: f32, t: f32) -> f32 {
         let x = (t - a) / (b - a);
         x * x * (3.0 - 2.0 * x)
     }
+}
+
+/// Catmull-Rom between `b` (t = 0) and `c` (t = 1), kept within the range of the four
+/// points (no overshoot at onsets); linear next to silence.
+#[inline]
+fn cubic(a: f32, b: f32, c: f32, d: f32, t: f32) -> f32 {
+    if a < -150.0 || b < -150.0 || c < -150.0 || d < -150.0 {
+        return lerp(b, c, t);
+    }
+    let lo = a.min(b).min(c).min(d);
+    let hi = a.max(b).max(c).max(d);
+    cubic_free(a, b, c, d, t).clamp(lo, hi)
+}
+
+#[inline]
+fn cubic_free(a: f32, b: f32, c: f32, d: f32, t: f32) -> f32 {
+    let t2 = t * t;
+    let t3 = t2 * t;
+    0.5 * ((2.0 * b) + (c - a) * t + (2.0 * a - 5.0 * b + 4.0 * c - d) * t2 + (3.0 * b - a - 3.0 * c + d) * t3)
 }
 
 #[inline]

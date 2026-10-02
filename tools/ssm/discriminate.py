@@ -94,6 +94,9 @@ def two_sample(rows, label):
     from sklearn.metrics import roc_auc_score
     keys = sorted(rows[0][2])
     X = np.array([[r[2].get(k, np.nan) for k in keys] for r in rows], float)
+    X[~np.isfinite(X)] = np.nan
+    keep = ~np.all(np.isnan(X), axis=0) & (np.nanstd(X, axis=0) > 0)
+    X, keys = X[:, keep], [k for k, kk in zip(keys, keep) if kk]
     y = np.array([r[1] for r in rows])
     g = np.array([r[0] for r in rows])
     groups = np.unique(g)
@@ -122,7 +125,14 @@ def main():
     ap.add_argument('--max', type=int, default=None)
     ap.add_argument('--set', action='append', default=[])
     a = ap.parse_args()
-    rows, att = collect_features(a.model, a.max, a.set)
+    import pickle
+    cache = os.environ.get('DISC_CACHE')
+    if cache and os.path.exists(cache):
+        rows, att = pickle.load(open(cache, 'rb'))
+    else:
+        rows, att = collect_features(a.model, a.max, a.set)
+        if cache:
+            pickle.dump((rows, att), open(cache, 'wb'))
     two_sample(rows, f'{a.model} sustain')
     two_sample(att, f'{a.model} attack')
 
