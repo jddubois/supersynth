@@ -1,154 +1,63 @@
-# Synth
+# Synth and Part
 
-The `Synth` class is the core synthesis engine. All instrument classes extend it.
+## `new Synth(options?)`
 
-```ts
-import { Synth } from 'supersynth';
-```
+| Option | Default | |
+|---|---|---|
+| `sampleRate` | device rate (48000 without a device) | Hz |
+| `backend` | `'auto'` | `'coreaudio' \| 'wasapi' \| 'alsa' \| 'jack' \| 'pulseaudio' \| 'pipewire'` |
+| `reverb` | `'auto'` | preset name, `ReverbOptions`, `false`, or `'auto'` (room of the first instrument) |
+| `volume` | `0.5` | master volume 0–1 |
+| `maxVoices` | `192` | quietest/oldest voices are stolen beyond this |
+| `bufferSize` | device default | frames per audio callback |
+| `modelsDir` | package `models/` | where `.ssm` models are loaded from |
 
-## Constructor
+### Members
 
-```ts
-new Synth(config?: SynthConfig)
-```
+| | |
+|---|---|
+| `add(id \| def, { preset, params, channel })` | add an instrument → `Part` |
+| `organ({ registration, tremulant })` | the church organ → `Organ` |
+| `part(channel)`, `remove(part)` | |
+| `start()` / `stop()` / `close()` | real-time output |
+| `render(seconds)` | offline → `{ sampleRate, left, right }` |
+| `renderToFile(path, seconds, { bitDepth, mono })` | offline → WAV |
+| `renderMidi(file, options)` / `playMidi(file, options)` | Standard MIDI Files |
+| `setReverb(preset \| options \| false)`, `setVolume(v)` | |
+| `allNotesOff()`, `panic()` | |
+| `enableMidi(device?, { route })`, `listMidiDevices()`, `listAudioBackends()` | hardware MIDI |
+| `currentTime` | engine clock, seconds — schedule with `{ at: synth.currentTime + x }` |
+| `activeVoices`, `cpuLoad`, `sampleRate`, `isRunning` | |
+| `Synth.instruments()` | catalog with presets |
 
-### SynthConfig
+Events: `'midi'` (`MidiEvent`) when hardware MIDI is enabled.
 
-```ts
-const synth = new Synth({
-  sampleRate: 48000,          // Hz. Default: 48000
-  backend: 'auto',            // Audio backend. Default: 'auto'
-  voice: {                    // Default voice for new notes
-    oscillators: [{ waveform: 'sine' }],
-    velocityCurve: { type: 'linear' },
-  },
-  masterVolume: 0.5,          // 0.0–1.0. Default: 0.5
-  reverb: {
-    roomSize: 0.85,           // 0.0–1.0
-    damping: 0.5,             // 0.0–1.0
-    wet: 0.35,                // reverb send level
-    dry: 0.65,                // direct signal level
-    preDelayMs: 20,           // ms before reverb tail begins
-  },
-  keyClickIntensity: 0,       // organ key-click noise burst (0.0–1.0)
-  keyClickDuration: 0.003,    // key-click duration in seconds
-});
-```
+## `Part`
 
-See [voice.md](voice.md) for `VoiceConfig` and oscillator options, and [effects.md](effects.md) for additional effect configuration available via `SynthConfig`.
+Returned by `synth.add`. One instrument on one channel (MIDI channel = `index + 1`).
 
-## Methods
+| | |
+|---|---|
+| `play(notes, { velocity, duration, at, delay })` | notes: `'C4'`, `60`, or arrays (chords) |
+| `sequence(steps, { bpm, at, velocity, legato })` | `[note, beats]` or `{ note, beats, velocity }`; returns seconds |
+| `noteOn(note, velocity?, { at })` / `noteOff(note, { at })` | |
+| `sustain(down)`, `pitchBend(-1…1)`, `modWheel(0…1)`, `expression(0…1)`, `cc(n, v)` | |
+| `set(params, { at })`, `get(name)`, `reset()` | see [parameters.md](parameters.md) |
+| `usePreset(name, extraParams?)`, `presets`, `preset` | |
+| `allNotesOff()` | |
 
-All methods except `start()` and `stop()` support method chaining.
+## Standalone instruments
 
-### Playback
-
-```ts
-await synth.start(): Promise<void>
-```
-Opens a CPAL audio stream on a dedicated Rust thread. Must be called before audio is heard.
-
-```ts
-synth.stop(): void
-```
-Stops audio output and disconnects any active MIDI device.
-
-### Notes
+`new Piano()`, `new Violin()`, `new Strings()`, `new Flute()`, `new Trumpet()`, `new ChurchOrgan()` …
+(or `new Instrument(id, options)`) create their own `Synth` with one part — the quickest way to play:
 
 ```ts
-synth.noteOn(note: number, velocity?: number, options?: NoteOnOptions): this
-```
-Starts a note. `note` is a MIDI note number (0–127; C4 = 60, A4 = 69). `velocity` defaults to 100.
-
-Override the voice for a single note:
-```ts
-synth.noteOn(60, 80, {
-  voice: { oscillators: [{ waveform: 'trumpet' }] },
-});
+const piano = new Piano({ preset: 'mellow' });
+await piano.start();
+piano.play(['C4', 'E4', 'G4'], { duration: 2 });
 ```
 
-```ts
-synth.noteOff(note: number): this
-```
-Releases a note, triggering its release envelope.
+## Notes
 
-### Voice & volume
-
-```ts
-synth.setVoice(config: VoiceConfig): this
-```
-Changes the default voice for all subsequent notes. See [voice.md](voice.md).
-
-```ts
-synth.setMasterVolume(volume: number): this   // 0.0–1.0
-```
-
-### Rendering
-
-```ts
-synth.render(numSamples: number): Float32Array
-```
-Offline render — returns a mono `Float32Array` of `numSamples` samples in `[-1, 1]`. No audio hardware required.
-
-```ts
-const synth = new Synth({ sampleRate: 48000 });
-synth.noteOn(69, 100);
-const samples = synth.render(48000); // 1 second at 48 kHz
-```
-
-### Organ controls
-
-```ts
-synth.setKeyClick(intensity: number, duration?: number): this
-```
-Sets the organ key-click transient. `intensity` is 0.0–1.0; `duration` is in seconds (default 0.003).
-
-```ts
-synth.updateOscillatorAmplitude(id: number, amplitude: number): this
-```
-Real-time drawbar control — updates the amplitude of a registered oscillator template by ID. See [organ.md](organ.md).
-
-### Effects
-
-```ts
-synth.setVibratoChorusMode(mode: 'off' | 'v1' | 'v2' | 'v3' | 'c1' | 'c2' | 'c3'): this
-```
-Sets the Leslie rotary speaker / scanner vibrato mode. See [effects.md](effects.md).
-
-```ts
-synth.setOverdrive(drive: number, bias: number, level: number): this
-// drive: 1.0–10.0 | bias: 0.0–0.3 | level: 0.0–1.0
-```
-
-### MIDI
-
-```ts
-await synth.enableMidi(deviceName?: string): Promise<this>
-synth.listMidiDevices(): string[]
-synth.sendMidiBytes(bytes: Buffer): this
-```
-See [midi.md](midi.md).
-
-### Backends
-
-```ts
-synth.listAudioBackends(): string[]
-```
-
-## Events
-
-`Synth` extends `EventEmitter`. Events fire when MIDI input is active.
-
-```ts
-synth.on('noteOn',       ({ note, velocity, channel }) => { ... });
-synth.on('noteOff',      ({ note, channel }) => { ... });
-synth.on('cc',           ({ controller, value, channel }) => { ... });
-synth.on('programChange',({ program, channel }) => { ... });
-synth.on('midiMessage',  (event: MidiEvent) => { ... }); // all messages
-```
-
-## Properties
-
-```ts
-synth.activeNoteCount: number   // read-only, number of notes in their envelope
-```
+`noteNumber('F#3')` → 54, `noteName(61)` → `'C#4'`, `noteFrequency('A4')` → 440,
+`chord('C4')`, `chord('A3', 'm7')`, `chord('F#3m7b5')`.

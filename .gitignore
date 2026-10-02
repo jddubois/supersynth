@@ -31,3 +31,10 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Rendered demos
+demos/
+
+# Python
+__pycache__/
+*.pyc

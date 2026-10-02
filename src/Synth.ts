@@ -1,358 +1,556 @@
 import { EventEmitter } from 'node:events';
-import { createRequire } from 'node:module';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import type {
-  MidiEvent,
-  NativeEngine,
-  NativeOscillatorTemplate,
-  NoteOnOptions,
-  SynthConfig,
-  VelocityCurve,
-  VoiceConfig,
-} from './types.js';
-import { AudioBackendError, MidiError } from './errors.js';
+import { findInstrument, INSTRUMENTS, type InstrumentDef, type LayerDef } from './catalog.js';
+import { AudioBackendError, MidiError, SupersynthError } from './errors.js';
+import { parseMidiFile, type MidiFileData, type MidiFileEvent } from './midifile.js';
+import { loadNative, packageRoot, type NativeEngine, type NativeLayer } from './native.js';
+import type { InstrumentParams, ReverbOptions, ReverbPreset } from './params.js';
+import { REVERB_FIELDS } from './params.js';
+import { Division, Organ, type OrganOptions } from './Organ.js';
+import { Part } from './Part.js';
+import { deinterleave, makeAudioBuffer, writeWav, type AudioBuffer, type WavOptions } from './wav.js';
+import type { MidiEvent } from './types.js';
 
-/** @internal Symbol used by the Organ class to access oscillator registration. Not part of the public API. */
-export const kOrgan = Symbol('supersynth.organ');
+export type BackendKind = 'auto' | 'coreaudio' | 'wasapi' | 'alsa' | 'jack' | 'pulseaudio' | 'pipewire';
 
-function loadNative(): { SynthEngine: new (config: object) => NativeEngine } {
-  const require = createRequire(import.meta.url);
-  const dir = path.dirname(fileURLToPath(import.meta.url));
-  // Try platform-specific binary first (e.g. supersynth.linux-arm64.node),
-  // then fall back to the generic supersynth.node for backward compatibility.
-  const platformName = `supersynth.${process.platform}-${process.arch}.node`;
-  for (const name of [platformName, 'supersynth.node']) {
-    try {
-      return require(path.resolve(dir, '..', name));
-    } catch {
-      // try next
-    }
-  }
-  throw new Error(`No supersynth native binary found for ${process.platform}-${process.arch}`);
+export interface SynthOptions {
+  /** Sample rate in Hz. Default: the audio device's rate (48000 if there is no device). */
+  sampleRate?: number;
+  /** Audio backend. @default 'auto' */
+  backend?: BackendKind;
+  /** Room reverb: a preset name, detailed options, `false` for none, or `'auto'` to use
+   *  the first instrument's recommended room. @default 'auto' */
+  reverb?: ReverbPreset | ReverbOptions | false | 'auto';
+  /** Master volume, 0–1 (linear). @default 0.5 */
+  volume?: number;
+  /** Maximum sounding voices before the quietest are stolen. @default 192 */
+  maxVoices?: number;
+  /** Audio buffer size in frames (smaller = lower latency, more CPU risk). Default: device default. */
+  bufferSize?: number;
+  /** Directory with `.ssm` models. Default: the package's `models/` folder. */
+  modelsDir?: string;
+  /** CPU/quality trade-off: partials per note up to 512 (`'high'`), 128 (`'balanced'`) or 32 (`'eco'`,
+   *  for small boards such as a Raspberry Pi). @default 'high' */
+  quality?: 'high' | 'balanced' | 'eco';
 }
 
-let _native: ReturnType<typeof loadNative> | null = null;
-function getNative() {
-  if (!_native) _native = loadNative();
-  return _native;
+export interface AddOptions {
+  /** Preset name (see `part.presets`). @default 'default' */
+  preset?: string;
+  /** Parameter tweaks on top of the preset. */
+  params?: InstrumentParams;
+  /** Engine channel 0–31 (MIDI channel − 1). Default: next free channel. */
+  channel?: number;
 }
 
-function flattenVelocityCurve(vc: VelocityCurve): { velocity_curve: string; velocity_curve_value?: number } {
-  switch (vc.type) {
-    case 'exponential': return { velocity_curve: 'exponential', velocity_curve_value: vc.exponent };
-    case 'fixed':       return { velocity_curve: 'fixed', velocity_curve_value: vc.amplitude };
-    default:            return { velocity_curve: 'linear' };
-  }
+/** Information about an available instrument. */
+export interface InstrumentInfo {
+  id: string;
+  name: string;
+  family: string;
+  description: string;
+  presets: Record<string, string>;
+  aliases: string[];
+  available: boolean;
 }
 
-function toNativeVoice(v: VoiceConfig): object {
-  return {
-    oscillators: v.oscillators?.map((o) => ({
-      waveform: o.waveform,
-      harmonic_ratio: o.harmonicRatio,
-      amplitude: o.amplitude,
-      detune_cents: o.detuneCents,
-      attack_time: o.attackTime,
-      decay_time: o.decayTime,
-      sustain_level: o.sustainLevel,
-      release_time: o.releaseTime,
-      chiff_intensity: o.chiffIntensity,
-      chiff_duration: o.chiffDuration,
-      pulse_width: o.pulseWidth,
-      eq_loudness_strength: o.eqLoudnessStrength,
-    })),
-    ...(v.velocityCurve ? flattenVelocityCurve(v.velocityCurve) : {}),
-    headroom: v.headroom,
-  };
+export interface MidiPlayOptions {
+  /** Instrument per MIDI channel (1–16) or track name/index, e.g. `{ 1: 'grand-piano', 10: drums }`.
+   *  Default: every channel plays `instrument`. */
+  channels?: Record<number, MidiTarget>;
+  /** Instrument used for channels not listed. @default 'grand-piano' */
+  instrument?: MidiTarget;
+  /** Map by track index instead of channel. @default false */
+  byTrack?: boolean;
+  /** Tempo scale (2 = twice as fast). @default 1 */
+  speed?: number;
+  /** Transpose all notes (semitones). @default 0 */
+  transpose?: number;
+  /** Seconds of tail rendered/waited after the last event. @default 3 */
+  tail?: number;
 }
+
+/** Where MIDI file notes go: an instrument id, a part, or an organ division. */
+export type MidiTarget = string | Part | Division;
+
+const MODEL_BYTES = new Map<string, Buffer>();
 
 /**
- * The main supersynth synthesis engine.
+ * The synthesizer: an engine that plays real instruments.
  *
- * Backed by a native Rust engine (via CPAL) that runs on a dedicated OS thread,
- * independent of Node's event loop and garbage collector. Suitable for real-time
- * audio servers, generative music, MIDI instruments, and offline rendering.
- *
- * @example Organ voice through speakers
  * ```ts
- * import { Synth, organVoice } from 'supersynth';
+ * import { Synth } from 'supersynth';
  *
- * const synth = new Synth({ voice: organVoice });
- * await synth.start();
+ * const synth = new Synth();
+ * const piano = synth.add('grand-piano');
+ * await synth.start();                  // real-time output
+ * piano.play(['C4', 'E4', 'G4'], { duration: 2 });
  *
- * synth.noteOn(60, 100).noteOn(64, 100).noteOn(67, 100); // C major chord
- * await new Promise(r => setTimeout(r, 3000));
- * synth.noteOff(60); synth.noteOff(64); synth.noteOff(67);
- * synth.stop();
- * ```
- *
- * @example Piano voice with velocity sensitivity
- * ```ts
- * import { Synth, pianoVoice } from 'supersynth';
- * const synth = new Synth({ voice: pianoVoice });
- * await synth.start();
- * synth.noteOn(69, 80);  // soft
- * synth.noteOn(72, 127); // loud — very different amplitude (exponential curve)
- * ```
- *
- * @example Offline rendering (no audio hardware required)
- * ```ts
- * import { Synth, stringsVoice } from 'supersynth';
- * const synth = new Synth({ voice: stringsVoice });
- * synth.noteOn(60, 100);
- * const samples = synth.render(48000); // 1 second of audio
+ * // or offline, without an audio device:
+ * const audio = synth.render(3);        // { sampleRate, left, right }
+ * synth.renderToFile('chord.wav', 3);
  * ```
  */
-export declare interface Synth {
-  on(event: 'noteOn' | 'noteOff' | 'cc' | 'programChange' | 'midiMessage', listener: (event: MidiEvent) => void): this;
-  emit(event: 'noteOn' | 'noteOff' | 'cc' | 'programChange' | 'midiMessage', arg: MidiEvent): boolean;
-}
-
 export class Synth extends EventEmitter {
   private engine: NativeEngine;
+  private parts: (Part | null)[] = new Array(32).fill(null);
+  private models = new Map<string, number>();
+  private modelsDir: string;
+  private reverbMode: 'auto' | 'set';
+  private maxPartials: number;
+  private closed = false;
 
-  constructor(config: SynthConfig = {}) {
+  constructor(options: SynthOptions = {}) {
     super();
-    const { SynthEngine } = getNative();
-
-    const voice = config.voice ? toNativeVoice(config.voice) : undefined;
-
-    this.engine = new SynthEngine({
-      sampleRate: config.sampleRate,
-      backend: config.backend,
-      voice,
-      masterVolume: config.masterVolume,
-      ...(config.reverb
-        ? {
-            reverbRoomSize: config.reverb.roomSize,
-            reverbDamping: config.reverb.damping,
-            reverbWet: config.reverb.wet,
-            reverbDry: config.reverb.dry,
-            reverbPreDelayMs: config.reverb.preDelayMs,
-          }
-        : {}),
-      keyClickIntensity: config.keyClickIntensity,
-      keyClickDuration: config.keyClickDuration,
-    });
+    const N = loadNative();
+    const reverbPreset = typeof options.reverb === 'string' && options.reverb !== 'auto' ? options.reverb : 'hall';
+    try {
+      this.engine = new N.SynthEngine({
+        ...(options.sampleRate !== undefined ? { sampleRate: options.sampleRate } : {}),
+        ...(options.backend ? { backend: options.backend } : {}),
+        ...(options.maxVoices !== undefined ? { maxVoices: options.maxVoices } : {}),
+        ...(options.bufferSize !== undefined ? { bufferSize: options.bufferSize } : {}),
+        reverb: reverbPreset,
+      });
+    } catch (e) {
+      throw new SupersynthError((e as Error).message);
+    }
+    this.modelsDir = options.modelsDir ?? path.join(packageRoot(), 'models');
+    this.maxPartials = { high: 512, balanced: 128, eco: 32 }[options.quality ?? 'high'];
+    this.reverbMode = options.reverb === undefined || options.reverb === 'auto' ? 'auto' : 'set';
+    if (options.reverb !== undefined && options.reverb !== 'auto') this.setReverb(options.reverb);
+    this.setVolume(options.volume ?? 0.5);
   }
 
+  // ── info ──────────────────────────────────────────────────────────────────
+
+  get sampleRate(): number {
+    return this.engine.sampleRate;
+  }
+
+  /** Engine clock in seconds. Use it to schedule events precisely (`{ at: synth.currentTime + 0.5 }`). */
+  get currentTime(): number {
+    return this.engine.currentTime;
+  }
+
+  /** Number of sounding voices. */
+  get activeVoices(): number {
+    return this.engine.activeVoices;
+  }
+
+  /** Fraction of real time the last audio buffer took to render (0.1 = 10 % of a core). */
+  get cpuLoad(): number {
+    return this.engine.cpuLoad;
+  }
+
+  get isRunning(): boolean {
+    return this.engine.isRunning;
+  }
+
+  /** All instruments in the catalog. */
+  static instruments(): InstrumentInfo[] {
+    const dir = path.join(packageRoot(), 'models');
+    return INSTRUMENTS.map((d) => ({
+      id: d.id,
+      name: d.name,
+      family: d.family,
+      description: d.description,
+      presets: Object.fromEntries(Object.entries(d.presets).map(([k, p]) => [k, p.description])),
+      aliases: d.aliases ?? [],
+      available: d.layers.every((l) => existsSync(path.join(dir, `${l.model}.ssm`))),
+    }));
+  }
+
+  // ── parts ─────────────────────────────────────────────────────────────────
+
   /**
-   * Start the audio output stream.
+   * Add an instrument on its own channel.
    *
-   * Opens a connection to the audio backend (CoreAudio / WASAPI / ALSA / JACK)
-   * and begins streaming audio. Must be called before notes will be heard through speakers.
-   *
-   * Not required for offline rendering via {@link render}.
-   *
-   * @throws {@link AudioBackendError} if no audio device is available or the backend fails to start.
+   * @param instrument  Catalog id or alias (`'grand-piano'`, `'violin'`, `'strings'`, …) or a custom
+   *                    {@link InstrumentDef}.
    */
-  async start(): Promise<void> {
+  add(instrument: string | InstrumentDef, options: AddOptions = {}): Part {
+    const def = typeof instrument === 'string' ? findInstrument(instrument) : instrument;
+    if (!def) {
+      throw new SupersynthError(
+        `Unknown instrument '${String(instrument)}'. Available: ${INSTRUMENTS.map((d) => d.id).join(', ')}`,
+      );
+    }
+    let ch: number;
+    if (options.channel !== undefined) {
+      ch = options.channel;
+      if (!Number.isInteger(ch) || ch < 0 || ch > 31) throw new RangeError('channel must be an integer 0-31');
+      this.used.add(ch);
+    } else {
+      ch = this.freeChannel();
+    }
+    const part = new Part(this, ch, def);
+    this.parts[ch] = part;
+    part.usePreset(options.preset ?? 'default', options.params);
+
+    if (this.reverbMode === 'auto') {
+      const preset = def.presets[options.preset ?? 'default'];
+      this.engine.setReverbPreset(preset?.reverb ?? def.reverb);
+      this.reverbMode = 'set';
+    }
+    return part;
+  }
+
+  /** The part on a channel, if any. */
+  part(channel: number): Part | undefined {
+    return this.parts[channel] ?? undefined;
+  }
+
+  /** Remove a part (its notes stop immediately). */
+  remove(part: Part): void {
+    if (this.parts[part.index] !== part) return;
+    this.engine.setInstrument(part.index, []);
+    this.parts[part.index] = null;
+    this.used.delete(part.index);
+  }
+
+  /** @internal Reserve a free channel (used by the organ's divisions). */
+  _reserveChannel(): number {
+    return this.freeChannel();
+  }
+
+  private freeChannel(): number {
+    // channel 9 (MIDI channel 10) is conventionally drums; use it last
+    const order = [...Array(32).keys()].filter((c) => c !== 9).concat([9]);
+    const ch = order.find((c) => !this.used.has(c));
+    if (ch === undefined) throw new SupersynthError('All 32 channels are in use');
+    this.used.add(ch);
+    return ch;
+  }
+
+  private used = new Set<number>();
+
+  /**
+   * The church organ (four divisions with drawable stops).
+   *
+   * @example
+   * const organ = synth.organ({ registration: 'plenum' });
+   * organ.great.play(['C4','E4','G4'], { duration: 4 });
+   */
+  organ(options: OrganOptions = {}): Organ {
+    if (this.reverbMode === 'auto') {
+      this.engine.setReverbPreset('church');
+      this.reverbMode = 'set';
+    }
+    const organ = new Organ(this, options);
+    if (this.maxPartials < 512) {
+      for (const d of organ.divisions) this.engine.setParam(d.channel, 'maxPartials', this.maxPartials);
+    }
+    return organ;
+  }
+
+  // ── sound ─────────────────────────────────────────────────────────────────
+
+  /** Master volume 0–1 (linear). */
+  setVolume(volume: number): this {
+    const v = Math.max(0, Math.min(1, volume));
+    this.engine.setMasterParam('volume', v <= 0 ? -120 : 20 * Math.log10(v));
+    return this;
+  }
+
+  /** Change the room: a preset, detailed options, or `false` to switch reverb off. */
+  setReverb(reverb: ReverbPreset | ReverbOptions | false): this {
+    this.reverbMode = 'set';
+    if (reverb === false) {
+      this.engine.setMasterParam('reverbLevel', -120);
+      return this;
+    }
+    const opts: ReverbOptions = typeof reverb === 'string' ? { preset: reverb } : reverb;
+    if (opts.preset) this.engine.setReverbPreset(opts.preset);
+    if (opts.level === undefined) this.engine.setMasterParam('reverbLevel', 0);
+    for (const [k, native] of Object.entries(REVERB_FIELDS)) {
+      const v = (opts as Record<string, number | undefined>)[k];
+      if (v !== undefined) this.engine.setMasterParam(native, v);
+    }
+    return this;
+  }
+
+  /** Release every held note on every part. */
+  allNotesOff(): this {
+    this.engine.allNotesOff(null);
+    return this;
+  }
+
+  /** Silence everything immediately. */
+  panic(): this {
+    this.engine.allSoundOff();
+    return this;
+  }
+
+  // ── output ────────────────────────────────────────────────────────────────
+
+  /** Start real-time audio output. */
+  async start(): Promise<this> {
     try {
       this.engine.start();
-    } catch (err) {
-      throw new AudioBackendError(`Failed to start audio: ${(err as Error).message}`);
+    } catch (e) {
+      throw new AudioBackendError(`Failed to start audio: ${(e as Error).message}`);
     }
+    return this;
   }
 
-  /**
-   * Stop the audio output stream and disconnect any MIDI input.
-   *
-   * Safe to call even if {@link start} was never called.
-   */
-  stop(): void {
+  /** Stop real-time output (the engine keeps its state; `render()` works again). */
+  stop(): this {
+    this.engine.stop();
+    return this;
+  }
+
+  /** Stop output and MIDI. */
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    try {
+      this.engine.disableMidi();
+    } catch {
+      /* not enabled */
+    }
     this.engine.stop();
   }
 
   /**
-   * Trigger a note-on event — start playing a note.
-   *
-   * If the same MIDI note number is already playing, the existing note is released
-   * and a new one starts immediately.
-   *
-   * @param note - MIDI note number (0–127). Middle C = 60, A4 = 69.
-   * @param velocity - Note velocity (0–127). Scales amplitude per the voice's velocity curve. Default: 100.
-   * @param options - Optional per-note overrides such as a different voice.
-   * @returns `this` for chaining.
+   * Render audio offline (no audio device needed). Advances the engine clock.
+   * Notes scheduled with `play()`/`at` are rendered at their times.
    */
-  noteOn(note: number, velocity = 100, options?: NoteOnOptions): this {
-    const nativeOptions = options?.voice
-      ? { voice: toNativeVoice(options.voice) }
-      : undefined;
-    this.engine.noteOn(note, velocity, nativeOptions);
-    return this;
+  render(seconds: number): AudioBuffer {
+    if (this.engine.isRunning) throw new SupersynthError('render() is unavailable while real-time output is running');
+    const total = Math.round(Math.max(0, seconds) * this.sampleRate);
+    const left = new Float32Array(total);
+    const right = new Float32Array(total);
+    const chunk = 8192;
+    for (let pos = 0; pos < total; pos += chunk) {
+      const n = Math.min(chunk, total - pos);
+      const [l, r] = deinterleave(this.engine.render(n));
+      left.set(l, pos);
+      right.set(r, pos);
+    }
+    return makeAudioBuffer(this.sampleRate, left, right);
+  }
+
+  /** Render offline and write a WAV file. */
+  renderToFile(file: string, seconds: number, options: WavOptions = {}): AudioBuffer {
+    const audio = this.render(seconds);
+    writeWav(file, audio, options);
+    return audio;
+  }
+
+  // ── MIDI files ────────────────────────────────────────────────────────────
+
+  /**
+   * Render a Standard MIDI File offline.
+   *
+   * @example
+   * const audio = synth.renderMidi('bach.mid', { instrument: 'harpsichord' });
+   */
+  renderMidi(file: string | Uint8Array, options: MidiPlayOptions = {}): AudioBuffer {
+    const { midi, route } = this.prepareMidi(file, options);
+    const tail = options.tail ?? 3;
+    const t0 = this.currentTime;
+    const end = midi.duration + tail;
+    const chunk = 1.0;
+    const parts: AudioBuffer[] = [];
+    let i = 0;
+    for (let t = 0; t < end; t += chunk) {
+      const until = t0 + t + chunk + 0.5;
+      while (i < midi.events.length && t0 + midi.events[i]!.time < until) {
+        route(midi.events[i]!, t0);
+        i++;
+      }
+      parts.push(this.render(Math.min(chunk, end - t)));
+    }
+    return concatAudio(this.sampleRate, parts);
   }
 
   /**
-   * Trigger a note-off event — begin the release phase of a playing note.
-   *
-   * The note does not stop immediately; it fades out according to the voice's
-   * release time. The note is removed from the engine once fully silent.
-   *
-   * @param note - MIDI note number (0–127).
-   * @returns `this` for chaining.
+   * Play a Standard MIDI File in real time (call `start()` first). Resolves when finished.
    */
-  noteOff(note: number): this {
-    this.engine.noteOff(note);
-    return this;
-  }
-
-  /**
-   * Set the instrument voice used for all subsequent {@link noteOn} calls.
-   *
-   * Does not affect notes that are already playing.
-   *
-   * @param config - A {@link VoiceConfig}. Use a preset from `supersynth` (e.g. `organVoice`) or build a custom one.
-   * @returns `this` for chaining.
-   */
-  setVoice(config: VoiceConfig): this {
-    this.engine.setVoice(toNativeVoice(config));
-    return this;
-  }
-
-  /**
-   * Set the master output volume.
-   *
-   * Applied after the effects chain, before the soft knee limiter.
-   *
-   * @param volume - Volume level from 0.0 (silent) to 1.0 (full).
-   * @returns `this` for chaining.
-   */
-  setMasterVolume(volume: number): this {
-    this.engine.setMasterVolume(volume);
-    return this;
-  }
-
-  /**
-   * The number of notes currently active in the engine — including notes in
-   * their release phase that have not yet fully faded out.
-   */
-  get activeNoteCount(): number {
-    return this.engine.activeNoteCount;
-  }
-
-  /**
-   * Connect to a MIDI input device and start receiving events.
-   *
-   * Once connected, the synth emits the following events:
-   * - `'noteOn'` — key pressed
-   * - `'noteOff'` — key released
-   * - `'cc'` — control change (knobs, pedals, etc.)
-   * - `'programChange'` — program / patch change
-   * - `'midiMessage'` — every MIDI message, regardless of type
-   *
-   * @param deviceName - A substring to match against available device names
-   *   (e.g. `'Arturia'`). Omit to use the first available device.
-   * @returns `this` for chaining.
-   * @throws {@link MidiError} if no matching device is found or the connection fails.
-   */
-  async enableMidi(deviceName?: string): Promise<this> {
-    try {
-      this.engine.enableMidi(deviceName ?? null, (raw: Buffer) => {
-        const event = this.parseMidiBytes(raw);
-        this.emit('midiMessage', event);
-        const knownTypes = ['noteOn', 'noteOff', 'cc', 'programChange'] as const;
-        if ((knownTypes as readonly string[]).includes(event.type)) {
-          this.emit(event.type as 'noteOn' | 'noteOff' | 'cc' | 'programChange', event);
+  async playMidi(file: string | Uint8Array, options: MidiPlayOptions = {}): Promise<void> {
+    if (!this.isRunning) await this.start();
+    const { midi, route } = this.prepareMidi(file, options);
+    const t0 = this.currentTime + 0.2;
+    let i = 0;
+    await new Promise<void>((resolve) => {
+      const pump = () => {
+        const horizon = this.currentTime + 1.5;
+        while (i < midi.events.length && t0 + midi.events[i]!.time < horizon) {
+          route(midi.events[i]!, t0);
+          i++;
         }
+        if (i >= midi.events.length) {
+          clearInterval(timer);
+          setTimeout(resolve, Math.max(0, (t0 + midi.duration - this.currentTime + (options.tail ?? 3)) * 1000));
+        }
+      };
+      const timer = setInterval(pump, 100);
+      pump();
+    });
+  }
+
+  private prepareMidi(file: string | Uint8Array, options: MidiPlayOptions) {
+    const bytes = typeof file === 'string' ? readFileSync(file) : file;
+    const raw = parseMidiFile(bytes);
+    const speed = options.speed ?? 1;
+    const midi: MidiFileData = speed === 1 ? raw : {
+      ...raw,
+      duration: raw.duration / speed,
+      events: raw.events.map((e) => ({ ...e, time: e.time / speed })),
+    };
+    const transpose = options.transpose ?? 0;
+    const partsByKey = new Map<number, { index: number }>();
+    const resolvePart = (key: number): { index: number } => {
+      let p = partsByKey.get(key);
+      if (p) return p;
+      const spec = options.channels?.[key] ?? options.instrument ?? 'grand-piano';
+      p = typeof spec === 'string' ? this.add(spec) : spec instanceof Division ? { index: spec.channel } : spec;
+      partsByKey.set(key, p);
+      return p;
+    };
+    const n = this.engine;
+    const route = (e: MidiFileEvent, t0: number) => {
+      const key = options.byTrack ? e.track : e.channel + 1;
+      if (!options.byTrack && e.channel === 9 && !options.channels?.[10]) return; // GM drums: skip unless mapped
+      const p = resolvePart(key);
+      const at = t0 + e.time;
+      switch (e.type) {
+        case 'noteOn': {
+          const note = e.note + transpose;
+          if (note >= 0 && note <= 127) n.noteOn(p.index, note, e.velocity, at);
+          break;
+        }
+        case 'noteOff': {
+          const note = e.note + transpose;
+          if (note >= 0 && note <= 127) n.noteOff(p.index, note, at);
+          break;
+        }
+        case 'cc':
+          if ([1, 7, 10, 11, 64, 91].includes(e.controller)) n.controlChange(p.index, e.controller, e.value, at);
+          break;
+        case 'pitchBend':
+          n.pitchBend(p.index, e.value, at);
+          break;
+        default:
+          break;
+      }
+    };
+    return { midi, route };
+  }
+
+  // ── MIDI input ────────────────────────────────────────────────────────────
+
+  /**
+   * Connect a hardware MIDI input. With `route` (default), channel N plays the part on
+   * channel N−1 with no JS round-trip. Emits `'midi'` events for every message.
+   */
+  async enableMidi(device?: string, options: { route?: boolean } = {}): Promise<this> {
+    try {
+      this.engine.enableMidi(device ?? null, options.route ?? true, (raw: Buffer) => {
+        this.emit('midi', parseMidiBytes(raw));
       });
-    } catch (err) {
-      throw new MidiError(`Failed to enable MIDI: ${(err as Error).message}`);
+    } catch (e) {
+      throw new MidiError(`Failed to enable MIDI: ${(e as Error).message}`);
     }
     return this;
   }
 
-  /**
-   * List the names of available MIDI input devices on this machine.
-   */
   listMidiDevices(): string[] {
     return this.engine.listMidiDevices();
   }
 
-  /**
-   * List the audio backends available on this platform.
-   */
   listAudioBackends(): string[] {
     return this.engine.listAudioBackends();
   }
 
-  /**
-   * Render audio to a `Float32Array` without opening an audio device.
-   *
-   * @param numSamples - Number of samples to render. At 48kHz, 48000 = 1 second.
-   * @returns A mono `Float32Array` of `numSamples` length, samples in [-1, 1].
-   */
-  render(numSamples: number): Float32Array {
-    return this.engine.render(numSamples);
-  }
+  // ── internals ─────────────────────────────────────────────────────────────
 
-  /**
-   * Feed raw MIDI bytes directly into the engine.
-   *
-   * @param bytes - A 3-byte MIDI message buffer (status, data1, data2).
-   * @returns `this` for chaining.
-   */
-  sendMidiBytes(bytes: Buffer): this {
-    this.engine.sendMidiBytes(bytes);
-    return this;
+  /** @internal Partial cap implied by the `quality` option. */
+  get _maxPartials(): number {
+    return this.maxPartials;
   }
 
   /** @internal */
-  get [kOrgan]() {
+  _native(): NativeEngine {
+    return this.engine;
+  }
+
+  /** @internal Load (once) and return the native id of a model. */
+  _model(name: string): number {
+    const cached = this.models.get(name);
+    if (cached !== undefined) return cached;
+    const file = path.join(this.modelsDir, `${name}.ssm`);
+    let bytes = MODEL_BYTES.get(file);
+    if (!bytes) {
+      if (!existsSync(file)) throw new SupersynthError(`Instrument model '${name}' not found at ${file}`);
+      bytes = readFileSync(file);
+      MODEL_BYTES.set(file, bytes);
+    }
+    const id = this.engine.loadModel(bytes);
+    this.models.set(name, id);
+    return id;
+  }
+
+  /** @internal Model metadata. */
+  _modelInfo(name: string): { noteRange: [number, number]; displayName: string; source: string } {
+    return JSON.parse(this.engine.modelInfo(this._model(name)));
+  }
+
+  /** @internal */
+  _layer(l: LayerDef): NativeLayer {
     return {
-      addOscillator: (template: NativeOscillatorTemplate): number => this.engine.addOscillator(template),
-      removeOscillator: (id: number): void => this.engine.removeOscillator(id),
-      updateOscillatorAmplitude: (id: number, amplitude: number): void =>
-        this.engine.updateOscillatorAmplitude(id, amplitude),
+      model: this._model(l.model),
+      transpose: l.transpose ?? 0,
+      gainDb: l.gain ?? 0,
+      pan: l.pan ?? 0,
+      keyLo: l.keyLow ?? 0,
+      keyHi: l.keyHigh ?? 127,
+      enabled: true,
+      detuneCents: l.detune ?? 0,
+      onRelease: l.trigger === 'release',
     };
   }
 
-  /**
-   * Update the amplitude of a registered oscillator in real time.
-   * Affects both the stored template (for future notes) and all currently playing notes.
-   * Used for drawbar-style real-time level control — no note retrigger.
-   */
-  updateOscillatorAmplitude(id: number, amplitude: number): this {
-    this.engine.updateOscillatorAmplitude(id, amplitude);
-    return this;
-  }
-
-  /**
-   * Set the global organ-mode key-click intensity and duration.
-   *
-   * @param intensity - 0.0 = off, 0.5 = typical organ key-click.
-   * @param duration  - Transient duration in seconds. @default 0.003
-   */
-  setKeyClick(intensity: number, duration?: number): this {
-    this.engine.setKeyClick(intensity, duration ?? null);
-    return this;
-  }
-
-  private parseMidiBytes(raw: Buffer): MidiEvent {
-    if (raw.length === 0) {
-      return { type: 'unknown', channel: 0, raw };
-    }
-    const status = raw[0]!;
-    const kind = status & 0xf0;
-    const channel = (status & 0x0f) + 1;
-    const b1 = raw[1] ?? 0;
-    const b2 = raw[2] ?? 0;
-
-    switch (kind) {
-      case 0x80:
-        return { type: 'noteOff', channel, note: b1, velocity: b2, raw };
-      case 0x90:
-        if (b2 === 0) return { type: 'noteOff', channel, note: b1, velocity: 0, raw };
-        return { type: 'noteOn', channel, note: b1, velocity: b2, raw };
-      case 0xb0:
-        return { type: 'cc', channel, controller: b1, value: b2, raw };
-      case 0xc0:
-        return { type: 'programChange', channel, program: b1, raw };
-      default:
-        return { type: 'unknown', channel, raw };
-    }
+  /** @internal */
+  _setLayers(channel: number, layers: LayerDef[]): void {
+    this.engine.setInstrument(channel, layers.map((l) => this._layer(l)));
   }
 }
 
+function concatAudio(sampleRate: number, parts: AudioBuffer[]): AudioBuffer {
+  const n = parts.reduce((a, p) => a + p.left.length, 0);
+  const l = new Float32Array(n);
+  const r = new Float32Array(n);
+  let o = 0;
+  for (const p of parts) {
+    l.set(p.left, o);
+    r.set(p.right, o);
+    o += p.left.length;
+  }
+  return makeAudioBuffer(sampleRate, l, r);
+}
 
+function parseMidiBytes(raw: Buffer): MidiEvent {
+  const status = raw[0] ?? 0;
+  const kind = status & 0xf0;
+  const channel = (status & 0x0f) + 1;
+  const b1 = raw[1] ?? 0;
+  const b2 = raw[2] ?? 0;
+  switch (kind) {
+    case 0x80:
+      return { type: 'noteOff', channel, note: b1, velocity: b2, raw };
+    case 0x90:
+      return b2 === 0 ? { type: 'noteOff', channel, note: b1, velocity: 0, raw } : { type: 'noteOn', channel, note: b1, velocity: b2, raw };
+    case 0xb0:
+      return { type: 'cc', channel, controller: b1, value: b2, raw };
+    case 0xc0:
+      return { type: 'programChange', channel, program: b1, raw };
+    case 0xe0:
+      return { type: 'pitchBend', channel, value: (((b2 << 7) | b1) - 8192) / 8192, raw };
+    default:
+      return { type: 'unknown', channel, raw };
+  }
+}
