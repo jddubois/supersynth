@@ -810,7 +810,13 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                 # keep the recording's own release (and room tail) for note-off: from just
                 # before the level starts to fall, until −70 dB or 2.5 s
                 back = int(np.searchsorted(grid, grid[rel_start] - 0.04))
-                rel_frame = max(loop[1] + 2, back)
+                # rel_start is where the level is already well down: walk back to where the
+                # decline begins, or note-off would skip the first decibels of the release
+                steady = float(np.median(tot_all[loop[0]:loop[1] + 1]))
+                j = min(back, rel_start)
+                while j - 1 > loop[1] + 2 and tot_all[j - 1] < steady - 0.75:
+                    j -= 1
+                rel_frame = max(loop[1] + 2, j - 1)
                 after = np.where((np.arange(len(grid)) > rel_start) & (tot_all < tot_all.max() - 70))[0]
                 end = int(after[0]) + 1 if len(after) else len(grid)
                 end = min(end, int(np.searchsorted(grid, grid[rel_start] + 2.5)) + 1, len(grid))
@@ -942,9 +948,12 @@ def measure_shimmer(raw_c, smooth_c, resid, ratios, f0, sr, hop, steady, t0, t1)
         # modelled on their own; the edges near partials carry their skirts)
         rel = (fr[inb] / f0) % 1.0
         mid = (rel > 0.3) & (rel < 0.7)
-        pv = np.sort(P[inb][mid]) if mid.sum() >= 3 else np.sort(P[bm])
-        dens = pv[:max(1, int(0.9 * len(pv)))].mean()
-        noise_frac[b] = float(np.clip(dens * inb.sum() * df / tot, 0.0, 1.0))
+        dens = P[inb][mid].mean() if mid.sum() >= 3 else P[bm].mean()
+        ks_b = (hk >= NOISE_EDGES[b]) & (hk < NOISE_EDGES[b + 1])
+        # only where the band's partials are actually above its noise does the residual near
+        # them hold partial fluctuation; elsewhere all of it is noise
+        if np.sum(pk[ks_b]) / 2 > dens * inb.sum() * df:
+            noise_frac[b] = float(np.clip(dens * inb.sum() * df / tot, 0.0, 1.0))
         excess = max(0.0, P[nm].sum() * df - P[bm].mean() * nm.sum() * df)
         ks = (hk >= NOISE_EDGES[b]) & (hk < NOISE_EDGES[b + 1])
         e_shim = float(np.sum(sig[ks] ** 2 * pk[ks]) / 2)       # a sinusoid's power is |a|²/2

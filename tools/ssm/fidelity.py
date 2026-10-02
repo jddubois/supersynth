@@ -188,11 +188,27 @@ def attack_stats(x, sr, f0, steady_level):
     return np.array(out)
 
 
+def release_onset(m, sr):
+    """Seconds from onset to where the recording's level starts to fall at its release
+    (walking back from the −8 dB point to the first 20 ms frame 0.75 dB below the sustain)."""
+    on = find_onset(m, sr)
+    y = m[on:]
+    t8 = sustain_duration(m, sr)
+    w = int(0.02 * sr)
+    n = len(y) // w
+    env = 10 * np.log10(np.mean(y[:n * w].reshape(n, w) ** 2, axis=1) + 1e-20)
+    steady = np.median(env[int(0.5 / 0.02):max(int(0.5 / 0.02) + 1, int((t8 - 0.3) / 0.02))])
+    j = min(int(t8 / 0.02), n - 1)
+    while j > 0 and env[j - 1] < steady - 0.75:
+        j -= 1
+    return j * 0.02
+
+
 def evaluate_note(model_path, wav, note, f0, sets=(), alt=None):
     x, sr = load_stereo(wav)
     m = x.mean(1)
     on = find_onset(m, sr)
-    hold = sustain_duration(m, sr)
+    hold = release_onset(m, sr)
     x = x[on:]
     y = render(model_path, note, hold, sr, sets=sets)
     y = y[find_onset(y.mean(1), sr):]
