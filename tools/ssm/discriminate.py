@@ -23,6 +23,7 @@ from evaluate import read_header, sustain_duration
 
 NH = 12
 WIN = 0.75
+AUDIBLE_DB = 30.0
 
 
 def window_features(x, sr, f0):
@@ -62,10 +63,10 @@ def attack_features(x, sr, f0):
     return f
 
 
-def collect_features(model_id, max_notes=None, sets=()):
+def collect_features(model_id, max_notes=None, sets=(), path=None):
     from build import collect
     from instruments import INSTRUMENTS
-    path = os.path.join(MODELS, f'{model_id}.ssm')
+    path = path or os.path.join(MODELS, f'{model_id}.ssm')
     hdr = read_header(path)
     by = {os.path.basename(f): f for f, _, _ in collect(INSTRUMENTS[model_id])}
     zones = [z for z in hdr['zones'] if z['src'] in by]
@@ -80,9 +81,21 @@ def collect_features(model_id, max_notes=None, sets=()):
         x = x[on:]
         y = render(path, int(round(z['note'])), hold, sr, sets=sets)
         y = y[find_onset(y.mean(1), sr):]
-        for lab, sig in ((1, x), (0, y)):
-            for f in note_windows(sig, sr, z['f0'], hold):
+        wins = {lab: note_windows(sig, sr, z['f0'], hold) for lab, sig in ((1, x), (0, y))}
+        # audibility mask from the *real* note (same for both sides): per-harmonic features of
+        # harmonics more than AUDIBLE_DB below the strongest carry no audible information
+        if wins[1]:
+            lv = np.array([wins[1][0].get(f'level{i + 1}', np.nan) for i in range(NH)])
+            quiet = [i + 1 for i in range(NH) if not lv[i] > -AUDIBLE_DB]
+            for lab in (1, 0):
+                for f in wins[lab]:
+                    for i in quiet:
+                        for key in ('flut', 'modlo', 'modmid', 'modhi', 'cents', 'ild', 'coh'):
+                            f[f'{key}{i}'] = np.nan
+        for lab in (1, 0):
+            for f in wins[lab]:
                 rows.append((gi, lab, f))
+        for lab, sig in ((1, x), (0, y)):
             att.append((gi, lab, attack_features(sig, sr, z['f0'])))
         print(f'  {z["src"]}', flush=True)
     return rows, att
@@ -105,7 +118,15 @@ def two_sample(rows, label):
     imp = np.zeros(len(keys))
     for test_g in folds:
         te = np.isin(g, test_g)
-        clf = HistGradientBoostingClassifier(max_iter=200, learning_rate=0.05, max_leaf_nodes=8, random_state=0)
+        if len(y) < 300:
+            # few examples (one attack per note): a regularised linear model can still learn
+            from sklearn.impute import SimpleImputer
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.pipeline import make_pipeline
+            from sklearn.preprocessing import StandardScaler
+            clf = make_pipeline(SimpleImputer(), StandardScaler(), LogisticRegression(C=0.3, max_iter=2000))
+        else:
+            clf = HistGradientBoostingClassifier(max_iter=200, learning_rate=0.05, max_leaf_nodes=8, random_state=0)
         clf.fit(X[~te], y[~te])
         prob[te] = clf.predict_proba(X[te])[:, 1]
         if len(np.unique(y[te])) == 2:
@@ -124,13 +145,14 @@ def main():
     ap.add_argument('model')
     ap.add_argument('--max', type=int, default=None)
     ap.add_argument('--set', action='append', default=[])
+    ap.add_argument('--model-path', default=None)
     a = ap.parse_args()
     import pickle
     cache = os.environ.get('DISC_CACHE')
     if cache and os.path.exists(cache):
         rows, att = pickle.load(open(cache, 'rb'))
     else:
-        rows, att = collect_features(a.model, a.max, a.set)
+        rows, att = collect_features(a.model, a.max, a.set, a.model_path)
         if cache:
             pickle.dump((rows, att), open(cache, 'wb'))
     two_sample(rows, f'{a.model} sustain')
