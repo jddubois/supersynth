@@ -23,6 +23,19 @@ pub struct ZoneStereo {
     pub ph: Vec<f32>,
 }
 
+/// Time-varying stereo image of the harmonics (frames × `k`, frame-major): inter-channel
+/// level difference (q − 128)/4 dB (left over right) and the right channel's phase relative
+/// to the left, q/256 turns.
+#[derive(Clone, Debug)]
+pub struct ZoneImage {
+    pub k: usize,
+    pub ild: Vec<u8>,
+    pub iph: Vec<u8>,
+    /// the left channel's own phase wander (q/256 turns, relative to the start phase);
+    /// empty when not stored
+    pub lph: Vec<u8>,
+}
+
 #[derive(Deserialize)]
 struct HStereo {
     l: Vec<u8>,
@@ -36,7 +49,20 @@ pub const PULSE_MAX: f32 = 4.0;
 
 pub const MAX_PARTIALS: usize = 512;
 
-/// u8 dB quantisation used for amplitude and noise envelopes.
+/// In-memory partial amplitudes: u16 in 1/32 dB above −160 dB (0 = silent).
+pub const AMP_UNIT_DB: f32 = 1.0 / 32.0;
+pub const AMP_FLOOR_DB: f32 = -160.0;
+
+#[inline]
+pub fn a16_to_db(v: u16) -> f32 {
+    if v == 0 {
+        -200.0
+    } else {
+        v as f32 * AMP_UNIT_DB + AMP_FLOOR_DB
+    }
+}
+
+/// u8 dB quantisation used for noise envelopes (and amplitude envelopes of older models).
 #[inline]
 pub fn q_to_db(v: u8) -> f32 {
     if v == 0 {
@@ -99,12 +125,12 @@ pub struct Zone {
     pub loop_range: Option<(usize, usize)>,
     pub ratios: Vec<f32>,
     pub phases: Vec<f32>,
-    /// frames × partials, quantised dB (see [`q_to_db`]).
-    pub amps: Vec<u8>,
+    /// frames × partials, dB in 1/32 dB units (see [`a16_to_db`]).
+    pub amps: Vec<u16>,
     /// `amps` smoothed over ~0.6 s (computed at load): when notes are morphed between
     /// recordings, the smooth envelopes are mixed and only the nearest zone's own detail
     /// (beating, timbre drift) is added back, instead of averaging it away.
-    pub amps_smooth: Vec<u8>,
+    pub amps_smooth: Vec<u16>,
     /// frames, cents relative to f0.
     pub pitch: Vec<f32>,
     /// frames × bands, quantised dB.
@@ -131,6 +157,8 @@ pub struct Zone {
     /// Recorded stereo image per harmonic partial (spaced microphones in a room): left/right
     /// gains (l² + r² = 2) and the right channel's phase relative to the left.
     pub stereo: Option<ZoneStereo>,
+    /// Time-varying stereo image (overrides `stereo` where present).
+    pub image: Option<ZoneImage>,
 }
 
 impl Zone {
@@ -139,7 +167,7 @@ impl Zone {
         if partial >= self.partials {
             return -200.0;
         }
-        q_to_db(self.amps[frame * self.partials + partial])
+        a16_to_db(self.amps[frame * self.partials + partial])
     }
 
     /// Amplitude of harmonic `partial` (free partials are never read as harmonics).
@@ -148,7 +176,7 @@ impl Zone {
         if partial >= self.harmonic {
             return -200.0;
         }
-        q_to_db(self.amps[frame * self.partials + partial])
+        a16_to_db(self.amps[frame * self.partials + partial])
     }
 }
 
@@ -245,6 +273,20 @@ struct HOffsets {
     release: usize,
     #[serde(default)]
     jitter: Option<usize>,
+    /// 16-bit amplitude envelopes (time-delta coded, low/high byte planes, partial-major),
+    /// in units of `ampsStep` dB above −160 dB; replaces the u8 `amps` when present.
+    #[serde(default)]
+    amps16: Option<usize>,
+    #[serde(rename = "ampsStep", default)]
+    amps_step: Option<f32>,
+    #[serde(default)]
+    ild: Option<usize>,
+    #[serde(default)]
+    iph: Option<usize>,
+    #[serde(rename = "imgK", default)]
+    img_k: Option<usize>,
+    #[serde(default)]
+    lph: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -352,7 +394,7 @@ fn slice<'a>(blob: &'a [u8], off: usize, len: usize, what: &str) -> Result<&'a [
 /// Decode partial-major, time-delta-coded u8 envelopes into frame-major values,
 /// keeping the first `keep` of `k` columns.
 /// Moving average of quantised dB rows (frames × partials) over ±`half_s` of grid time.
-fn smooth_rows(amps: &[u8], frames: usize, partials: usize, grid: &[f32], half_s: f32) -> Vec<u8> {
+fn smooth_rows(amps: &[u16], frames: usize, partials: usize, grid: &[f32], half_s: f32) -> Vec<u16> {
     if frames == 0 || partials == 0 {
         return amps.to_vec();
     }
@@ -369,17 +411,17 @@ fn smooth_rows(amps: &[u8], frames: usize, partials: usize, grid: &[f32], half_s
         lo[f] = a;
         hi[f] = b.max(f);
     }
-    let mut out = vec![0u8; amps.len()];
-    let mut cum = vec![0u32; frames + 1];
+    let mut out = vec![0u16; amps.len()];
+    let mut cum = vec![0u64; frames + 1];
     for k in 0..partials {
         for f in 0..frames {
             // silence (0) counts as the floor of the scale, not as −200 dB
-            cum[f + 1] = cum[f] + amps[f * partials + k].max(1) as u32;
+            cum[f + 1] = cum[f] + amps[f * partials + k].max(1) as u64;
         }
         for f in 0..frames {
-            let n = (hi[f] + 1 - lo[f]) as u32;
+            let n = (hi[f] + 1 - lo[f]) as u64;
             let v = (cum[hi[f] + 1] - cum[lo[f]] + n / 2) / n;
-            out[f * partials + k] = if amps[f * partials + k] == 0 { 0 } else { v.min(255) as u8 };
+            out[f * partials + k] = if amps[f * partials + k] == 0 { 0 } else { v.min(u16::MAX as u64) as u16 };
         }
     }
     out
@@ -393,6 +435,23 @@ fn undelta_pm(b: &[u8], t: usize, _k: usize, keep: usize) -> Vec<u8> {
         for (f, &d) in col.iter().enumerate() {
             acc = acc.wrapping_add(d);
             out[f * keep + c] = acc;
+        }
+    }
+    out
+}
+
+/// Partial-major, time-delta coded i16 (low byte plane, then high byte plane) → frame-major
+/// u16 amplitudes in 1/32 dB, keeping the first `keep` of `k` columns.
+fn undelta_pm16(b: &[u8], t: usize, k: usize, keep: usize, step_db: f32) -> Vec<u16> {
+    let (lo, hi) = b.split_at(t * k);
+    let mut out = vec![0u16; t * keep];
+    let scale = step_db / AMP_UNIT_DB;
+    for c in 0..keep {
+        let mut acc = 0i16;
+        for f in 0..t {
+            let i = c * t + f;
+            acc = acc.wrapping_add(i16::from_le_bytes([lo[i], hi[i]]));
+            out[f * keep + c] = if acc <= 0 { 0 } else { ((acc as f32 * scale).round() as u32).min(u16::MAX as u32) as u16 };
         }
     }
     out
@@ -438,12 +497,17 @@ impl Model {
             }
             let ratios_all = f32s(slice(blob, hz.o.ratios, kk * 4, "ratios")?);
             let phases_q = slice(blob, hz.o.phases, kk, "phases")?;
-            let amps_all = slice(blob, hz.o.amps, t * kk, "amps")?;
+            let amps = match hz.o.amps16 {
+                Some(o) => undelta_pm16(slice(blob, o, t * kk * 2, "amps16")?, t, kk, k, hz.o.amps_step.unwrap_or(1.0 / 16.0)),
+                None => {
+                    // u8 0.5 dB codes → 1/32 dB units
+                    let a8 = undelta_pm(slice(blob, hz.o.amps, t * kk, "amps")?, t, kk, k);
+                    a8.iter().map(|&q| if q == 0 { 0 } else { ((q_to_db(q) - AMP_FLOOR_DB) / AMP_UNIT_DB).round().max(1.0) as u16 }).collect()
+                }
+            };
             let pitch_q = slice(blob, hz.o.pitch, t * 2, "pitch")?;
             let noise = undelta_pm(slice(blob, hz.o.noise, t * nb, "noise")?, t, nb, nb);
             let rel_q = slice(blob, hz.o.release, kk, "release")?;
-            // decode (partial-major deltas) keeping only the first MAX_PARTIALS partials
-            let amps = undelta_pm(amps_all, t, kk, k);
             zones.push(Zone {
                 note: hz.note,
                 f0: hz.f0,
@@ -469,6 +533,18 @@ impl Model {
                 shimmer: hz.shimmer.iter().map(|&q| q as f32 / 100.0).collect(),
                 shimmer_tau: hz.shimmer_tau.unwrap_or(0.01).clamp(0.001, 0.2),
                 rel_frame: hz.rel_frame.filter(|&f| f + 2 < t),
+                image: match (hz.o.ild, hz.o.iph, hz.o.img_k) {
+                    (Some(a), Some(b), Some(ik)) if ik > 0 => Some(ZoneImage {
+                        k: ik,
+                        ild: undelta_pm(slice(blob, a, t * ik, "ild")?, t, ik, ik),
+                        iph: undelta_pm(slice(blob, b, t * ik, "iph")?, t, ik, ik),
+                        lph: match hz.o.lph {
+                            Some(o) => undelta_pm(slice(blob, o, t * ik, "lph")?, t, ik, ik),
+                            None => Vec::new(),
+                        },
+                    }),
+                    _ => None,
+                },
                 stereo: hz.stereo.as_ref().filter(|st| st.l.len() == st.r.len() && st.l.len() == st.ph.len()).map(|st| {
                     let g = |q: &u8| *q as f32 / 255.0 * std::f32::consts::SQRT_2;
                     ZoneStereo {

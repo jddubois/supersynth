@@ -14,9 +14,16 @@ OVERRIDE = {'harpsichord': 0.2, 'harpsichord-flemish': 0.2, 'harp': 0.9, 'violin
 
 def zone_level(blob, z, nb):
     T, K = z['frames'], z['partials']
-    d = np.frombuffer(blob[z['o']['amps']:z['o']['amps'] + T * K], np.uint8).reshape(K, T)
-    q = np.cumsum(d.astype(np.int64), axis=1) % 256
-    db = np.where(q == 0, -200.0, q * 0.5 - 120.0)
+    o = z['o']
+    if 'amps16' in o:
+        b = np.frombuffer(blob[o['amps16']:o['amps16'] + 2 * T * K], np.uint8)
+        d = (b[:T * K].astype(np.uint16) | (b[T * K:].astype(np.uint16) << 8)).view(np.int16).reshape(K, T)
+        q = np.cumsum(d.astype(np.int64), axis=1)
+        db = np.where(q <= 0, -200.0, q * o.get('ampsStep', 1 / 16) - 160.0)
+    else:
+        d = np.frombuffer(blob[o['amps']:o['amps'] + T * K], np.uint8).reshape(K, T)
+        q = np.cumsum(d.astype(np.int64), axis=1) % 256
+        db = np.where(q == 0, -200.0, q * 0.5 - 120.0)
     p = (10 ** (db / 10)).sum(axis=0)          # total partial power per frame
     return 10 * np.log10(p.max() + 1e-20)
 

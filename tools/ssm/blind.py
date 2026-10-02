@@ -24,8 +24,9 @@ from build import build, collect
 import build as buildmod
 from evaluate import read_header, sustain_duration, SSRENDER
 from instruments import INSTRUMENTS
+from paths import DATA_ROOT
 
-HOLD = '/Users/jddubois/aptora/supersynth/data/holdout'
+HOLD = os.path.join(DATA_ROOT, 'holdout')
 
 
 def holdout_model(model_id: str) -> tuple[str, list[tuple[str, int, str]]]:
@@ -45,7 +46,7 @@ def holdout_model(model_id: str) -> tuple[str, list[tuple[str, int, str]]]:
         for i, (n, f, ll) in enumerate(lst):
             (test if (i % 2 == 1 and 0 < i < len(lst) - 1) else keep).append((f, n, ll))
     if not os.path.exists(path):
-        data = os.environ.get('SUPERSYNTH_DATA', '/Users/jddubois/aptora/supersynth/data/samples')
+        data = os.path.join(DATA_ROOT, 'samples')
         spec['files'] = [os.path.relpath(f, data) for f, _, _ in keep]
         old = buildmod.OUT_DIR
         buildmod.OUT_DIR = HOLD

@@ -14,6 +14,7 @@ supersynth.*.node
 
 # Large data files (audio, analysis, MIDI)
 data/
+/data
 
 # Environment
 .env

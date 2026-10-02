@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use crate::dsp::{db_to_amp, noise::Rng, pan_gains, BLOCK};
-use crate::model::{Kind, Model, ReleaseMode, MAX_PARTIALS, PULSE_BINS};
+use crate::model::{a16_to_db, Kind, Model, ReleaseMode, MAX_PARTIALS, PULSE_BINS};
 
 pub const MAX_ZONES: usize = 4;
 pub const MAX_BANDS: usize = 32;
@@ -159,7 +159,15 @@ pub struct SpectralVoice {
     st_c: [f32; MAX_PARTIALS],
     st_s: [f32; MAX_PARTIALS],
     grs: [f32; MAX_PARTIALS],
+    /// left channel's own phase offset (recorded phase wander): cos / sin, and the quadrature
+    /// gain ramp of the left channel
+    st_lc: [f32; MAX_PARTIALS],
+    st_ls: [f32; MAX_PARTIALS],
+    gls: [f32; MAX_PARTIALS],
+    has_lph: bool,
     has_st: bool,
+    /// some zone carries a time-varying stereo image: pan_l/pan_r/st_c/st_s follow it per block
+    has_img: bool,
     shim_sigma: [f32; MAX_PARTIALS],
     shim_drive: [[f32; 2]; MAX_PARTIALS],
     shim_u: [[f32; 2]; MAX_PARTIALS],
@@ -246,7 +254,12 @@ impl Default for SpectralVoice {
             st_c: [1.0; MAX_PARTIALS],
             st_s: [0.0; MAX_PARTIALS],
             grs: [0.0; MAX_PARTIALS],
+            st_lc: [1.0; MAX_PARTIALS],
+            st_ls: [0.0; MAX_PARTIALS],
+            gls: [0.0; MAX_PARTIALS],
+            has_lph: false,
             has_st: false,
+            has_img: false,
             shim_sigma: [0.0; MAX_PARTIALS],
             shim_drive: [[0.0; 2]; MAX_PARTIALS],
             shim_u: [[0.0; 2]; MAX_PARTIALS],
@@ -663,6 +676,9 @@ impl SpectralVoice {
             self.st_c[i] = 1.0;
             self.st_s[i] = 0.0;
             self.grs[i] = 0.0;
+            self.st_lc[i] = 1.0;
+            self.st_ls[i] = 0.0;
+            self.gls[i] = 0.0;
         }
         if self.has_st {
             let pg = pan_gains(on.pan.clamp(-1.0, 1.0));
@@ -696,6 +712,23 @@ impl SpectralVoice {
             }
         }
 
+        self.has_img = self.has_st && (0..self.nz).any(|j| m.zones[self.zone[j]].image.is_some());
+        self.has_lph = self.has_img
+            && (0..self.nz).any(|j| m.zones[self.zone[j]].image.as_ref().map(|im| !im.lph.is_empty()).unwrap_or(false));
+        if self.has_lph {
+            // the recorded phase wander replaces the synthetic per-partial jitter
+            for i in 0..k.min(self.k_h) {
+                let covered = (0..self.nz).all(|j| {
+                    m.zones[self.zone[j]].image.as_ref().map(|im| !im.lph.is_empty() && (self.look_i[j][i] as usize) < im.k).unwrap_or(false)
+                });
+                if covered {
+                    self.jit_sigma[i] = 0.0;
+                }
+            }
+        }
+        if self.has_img {
+            self.update_image(m);
+        }
         self.gain_db = gain;
         self.nb = m.noise_bands().min(MAX_BANDS);
         self.noise_rel_rate = dz.release_noise.max(m.params.min_release_db_s);
@@ -743,6 +776,73 @@ impl SpectralVoice {
         self.vib_phase = vib;
         self.glide_cents = (old_pitch - self.cur_pitch) * 100.0;
         self.glide_tau = glide_s.max(0.001);
+    }
+
+    /// Per-partial stereo gains and inter-channel phase from the zones' time-varying images at
+    /// the current playheads (zones without one contribute their static image).
+    fn update_image(&mut self, m: &Model) {
+        let lut = phase_lut();
+        let pg = self.voice_pan;
+        for i in 0..self.k.min(self.k_h) {
+            let (mut gl, mut gr, mut vc, mut vs) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+            let (mut lc, mut ls) = (0.0f32, 0.0f32);
+            for j in 0..self.nz {
+                let z = &m.zones[self.zone[j]];
+                let w = self.w[j];
+                let ii = self.look_i[j][i] as usize;
+                match (&z.image, &z.stereo) {
+                    (Some(im), _) if ii < im.k => {
+                        let f0 = (self.pos[j].floor() as usize).min(z.frames - 1);
+                        let f1 = (f0 + 1).min(z.frames - 1);
+                        let ft = self.pos[j] - f0 as f32;
+                        let (a0, a1) = (f0 * im.k + ii, f1 * im.k + ii);
+                        if im.lph.is_empty() {
+                            lc += w;
+                        } else {
+                            let (c0, s0) = lut[im.lph[a0] as usize];
+                            let (c1, s1) = lut[im.lph[a1] as usize];
+                            lc += w * lerp(c0, c1, ft);
+                            ls += w * lerp(s0, s1, ft);
+                        }
+                        let ild = lerp(im.ild[a0] as f32, im.ild[a1] as f32, ft) * 0.25 - 32.0;
+                        // R/L amplitude ratio; gains normalised so gL² + gR² = 2
+                        let r = fast_db_to_amp(-ild);
+                        let l_g = (2.0 / (1.0 + r * r)).sqrt();
+                        gl += w * l_g;
+                        gr += w * l_g * r;
+                        let (c0, s0) = lut[im.iph[a0] as usize];
+                        let (c1, s1) = lut[im.iph[a1] as usize];
+                        vc += w * lerp(c0, c1, ft);
+                        vs += w * lerp(s0, s1, ft);
+                    }
+                    (_, Some(st)) if ii < st.l.len() => {
+                        gl += w * st.l[ii];
+                        gr += w * st.r[ii];
+                        vc += w * st.ph[ii].cos();
+                        vs += w * st.ph[ii].sin();
+                        lc += w;
+                    }
+                    _ => {
+                        gl += w;
+                        gr += w;
+                        vc += w;
+                        lc += w;
+                    }
+                }
+            }
+            let norm = ((gl * gl + gr * gr) * 0.5).sqrt().max(1e-6);
+            self.pan_l[i] = gl / norm * pg.0;
+            self.pan_r[i] = gr / norm * pg.1;
+            let vm = (vc * vc + vs * vs).sqrt().max(1e-6);
+            let (ic, is) = (vc / vm, vs / vm);
+            let lm = (lc * lc + ls * ls).sqrt().max(1e-6);
+            let (lc, ls) = (lc / lm, ls / lm);
+            self.st_lc[i] = lc;
+            self.st_ls[i] = ls;
+            // right = left phase + inter-channel phase
+            self.st_c[i] = lc * ic - ls * is;
+            self.st_s[i] = ls * ic + lc * is;
+        }
     }
 
     fn compute_tail_rates(&mut self, m: &Model) {
@@ -941,10 +1041,10 @@ impl SpectralVoice {
             self.update_static_db(p);
         }
         // per-zone frame rows and interpolation weights (hoisted out of the partial loop)
-        let mut row0: [&[u8]; MAX_ZONES] = [&[]; MAX_ZONES];
-        let mut row1: [&[u8]; MAX_ZONES] = [&[]; MAX_ZONES];
-        let mut srow0: [&[u8]; MAX_ZONES] = [&[]; MAX_ZONES];
-        let mut srow1: [&[u8]; MAX_ZONES] = [&[]; MAX_ZONES];
+        let mut row0: [&[u16]; MAX_ZONES] = [&[]; MAX_ZONES];
+        let mut row1: [&[u16]; MAX_ZONES] = [&[]; MAX_ZONES];
+        let mut srow0: [&[u16]; MAX_ZONES] = [&[]; MAX_ZONES];
+        let mut srow1: [&[u16]; MAX_ZONES] = [&[]; MAX_ZONES];
         let mut ftj = [0.0f32; MAX_ZONES];
         let mut kh_z = [0usize; MAX_ZONES];
         let mut zgain = [0.0f32; MAX_ZONES];
@@ -962,6 +1062,9 @@ impl SpectralVoice {
             kh_z[j] = z.harmonic;
             zgain[j] = z.gain_db;
         }
+        if self.has_img {
+            self.update_image(m);
+        }
         // partials more than 96 dB below the loudest are inaudible: skip them
         let cull = (self.peak_db - 96.0).max(SILENT_DB);
         let mut tgt_l = [0.0f32; MAX_PARTIALS];
@@ -977,8 +1080,8 @@ impl SpectralVoice {
                     let fr = self.look_f[j][i];
                     let khj = kh_z[j];
                     let ft = ftj[j];
-                    let q = |row: &[u8], idx: usize| if idx < khj { DB_LUT[row[idx] as usize] } else { -200.0 };
-                    let at = |r0: &[u8], r1: &[u8]| {
+                    let q = |row: &[u16], idx: usize| if idx < khj { a16_to_db(row[idx]) } else { -200.0 };
+                    let at = |r0: &[u16], r1: &[u16]| {
                         let a = lerp(q(r0, ii), q(r1, ii), ft);
                         if fr > 0.0 { lerp(a, lerp(q(r0, ii + 2), q(r1, ii + 2), ft), fr) } else { a }
                     };
@@ -994,7 +1097,7 @@ impl SpectralVoice {
             } else {
                 let j = self.slot_zone[i] as usize;
                 let ii = self.slot_idx[i] as usize;
-                db = lerp(DB_LUT[row0[j][ii] as usize], DB_LUT[row1[j][ii] as usize], ftj[j]) + zgain[j] + self.slot_wdb[i];
+                db = lerp(a16_to_db(row0[j][ii]), a16_to_db(row1[j][ii]), ftj[j]) + zgain[j] + self.slot_wdb[i];
             }
             db += self.stat_db[i] - self.rel_db[i] + common;
             peak = peak.max(db);
@@ -1116,10 +1219,18 @@ impl SpectralVoice {
         }
         let mut tgt_s = [0.0f32; MAX_PARTIALS];
         let mut ds = [0.0f32; MAX_PARTIALS];
+        let mut tgt_ls = [0.0f32; MAX_PARTIALS];
+        let mut dls = [0.0f32; MAX_PARTIALS];
         if self.has_st {
             for i in 0..k {
                 tgt_s[i] = tgt_r[i] * self.st_s[i];
                 tgt_r[i] *= self.st_c[i];
+            }
+        }
+        if self.has_lph {
+            for i in 0..k {
+                tgt_ls[i] = tgt_l[i] * self.st_ls[i];
+                tgt_l[i] *= self.st_lc[i];
             }
         }
         for i in 0..kp {
@@ -1130,6 +1241,7 @@ impl SpectralVoice {
             dl[i] = (tgt_l[i] - self.gl[i]) * inv_n;
             dr[i] = (tgt_r[i] - self.gr[i]) * inv_n;
             ds[i] = (tgt_s[i] - self.grs[i]) * inv_n;
+            dls[i] = (tgt_ls[i] - self.gls[i]) * inv_n;
         }
         let mut acc_l = [[0.0f32; LANES]; BLOCK];
         let mut acc_r = [[0.0f32; LANES]; BLOCK];
@@ -1145,7 +1257,8 @@ impl SpectralVoice {
             let mut sr = [0.0f32; LANES];
             // skip groups of partials that are silent for this whole block
             let silent = (c0..c0 + LANES).all(|i| {
-                self.gl[i] == 0.0 && self.gr[i] == 0.0 && self.grs[i] == 0.0 && tgt_l[i] == 0.0 && tgt_r[i] == 0.0 && tgt_s[i] == 0.0
+                self.gl[i] == 0.0 && self.gr[i] == 0.0 && self.grs[i] == 0.0 && self.gls[i] == 0.0
+                    && tgt_l[i] == 0.0 && tgt_r[i] == 0.0 && tgt_s[i] == 0.0 && tgt_ls[i] == 0.0
             });
             if silent {
                 // still advance the phases: a partial fading in later (after a stored attack
@@ -1167,7 +1280,33 @@ impl SpectralVoice {
             ci.copy_from_slice(&wi[c0..c0 + LANES]);
             sl.copy_from_slice(&dl[c0..c0 + LANES]);
             sr.copy_from_slice(&dr[c0..c0 + LANES]);
-            if self.has_st {
+            if self.has_lph {
+                let mut gs = [0.0f32; LANES];
+                let mut ss = [0.0f32; LANES];
+                let mut gq = [0.0f32; LANES];
+                let mut sq = [0.0f32; LANES];
+                gs.copy_from_slice(&self.grs[c0..c0 + LANES]);
+                ss.copy_from_slice(&ds[c0..c0 + LANES]);
+                gq.copy_from_slice(&self.gls[c0..c0 + LANES]);
+                sq.copy_from_slice(&dls[c0..c0 + LANES]);
+                for s in 0..n {
+                    let al = &mut acc_l[s];
+                    let ar = &mut acc_r[s];
+                    for l in 0..LANES {
+                        let nr = re[l] * cr[l] - im[l] * ci[l];
+                        let ni = re[l] * ci[l] + im[l] * cr[l];
+                        re[l] = nr;
+                        im[l] = ni;
+                        gl[l] += sl[l];
+                        gr[l] += sr[l];
+                        gs[l] += ss[l];
+                        gq[l] += sq[l];
+                        // each channel = Re(e^{iφ_c}·rot) = cos φ_c·re − sin φ_c·im
+                        al[l] += gl[l] * nr - gq[l] * ni;
+                        ar[l] += gr[l] * nr - gs[l] * ni;
+                    }
+                }
+            } else if self.has_st {
                 let mut gs = [0.0f32; LANES];
                 let mut ss = [0.0f32; LANES];
                 gs.copy_from_slice(&self.grs[c0..c0 + LANES]);
@@ -1219,6 +1358,7 @@ impl SpectralVoice {
         self.gl[..k].copy_from_slice(&tgt_l[..k]);
         self.gr[..k].copy_from_slice(&tgt_r[..k]);
         self.grs[..k].copy_from_slice(&tgt_s[..k]);
+        self.gls[..k].copy_from_slice(&tgt_ls[..k]);
         for s in 0..n {
             let mut l = 0.0;
             let mut r = 0.0;
@@ -1338,6 +1478,19 @@ impl SpectralVoice {
     pub fn noise_bands(&self) -> usize {
         self.nb
     }
+}
+
+/// (cos, sin) of q/256 turns.
+fn phase_lut() -> &'static [(f32, f32); 256] {
+    static LUT: std::sync::OnceLock<[(f32, f32); 256]> = std::sync::OnceLock::new();
+    LUT.get_or_init(|| {
+        let mut t = [(1.0f32, 0.0f32); 256];
+        for (q, v) in t.iter_mut().enumerate() {
+            let a = q as f32 / 256.0 * std::f32::consts::TAU;
+            *v = (a.cos(), a.sin());
+        }
+        t
+    })
 }
 
 /// u8 → dB lookup (see `model::q_to_db`).

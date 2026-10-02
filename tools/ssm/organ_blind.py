@@ -23,10 +23,11 @@ from blind import prep  # noqa: F401  (mono variant)
 from build import wav_cue_seconds
 from evaluate import read_header, SSRENDER
 from instruments import BUREA_STOPS
+from paths import DATA_ROOT
 
 MODELS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'models')
-SAMPLES = '/Users/jddubois/aptora/supersynth/data/samples'
-REF = '/Users/jddubois/aptora/supersynth/data/organ_ref'
+SAMPLES = os.path.join(DATA_ROOT, 'samples')
+REF = os.path.join(DATA_ROOT, 'organ_ref')
 
 
 def single_pairs(n: int, rng: random.Random):

@@ -1,0 +1,131 @@
+"""Classifier two-sample test: can a model tell the real recordings from the engine?
+
+  python discriminate.py <model-id> [--max N] [--set k=v ...]
+
+Every note is cut into 0.75 s windows of its steady sustain (real recording and engine
+rendering of the same note), plus its attack (first 0.3 s). Each window is described by
+pitch-normalised features — per-harmonic level, flutter, modulation, frequency wander,
+stereo image, noise floor between the harmonics — and a gradient-boosted classifier is
+trained to separate real from synthetic, cross-validated leaving whole notes out (it never
+sees the note it is tested on). ROC AUC 0.5 = indistinguishable; 1.0 = always told apart.
+Also prints the features the classifier relies on most: the remaining tells.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+
+import numpy as np
+
+from analysis import find_onset
+from fidelity import MODELS, attack_stats, load_stereo, render, steady_stats
+from evaluate import read_header, sustain_duration
+
+NH = 12
+WIN = 0.75
+
+
+def window_features(x, sr, f0):
+    st = steady_stats(x, sr, f0)
+    n = min(NH, len(st['level']))
+    pad = lambda v: np.concatenate([v[:n], np.full(NH - n, np.nan)])
+    lv = st['level'] - st['level'].max()
+    feats = {}
+    for key, v in (('level', lv), ('flut', st['flut_std']), ('modlo', st['mod_lo']), ('modmid', st['mod_mid']),
+                   ('modhi', st['mod_hi']), ('cents', st['cents']), ('ild', np.abs(st['ild'])), ('coh', st['coh'])):
+        for i, val in enumerate(pad(v)):
+            feats[f'{key}{i + 1}'] = val
+    for i, val in enumerate(st['noise']):
+        feats[f'noise_oct{i}'] = val
+    return feats
+
+
+def note_windows(x, sr, f0, hold):
+    out = []
+    t = 0.6
+    while t + WIN <= hold - 0.2:
+        out.append(window_features(x[int(t * sr):int((t + WIN) * sr)], sr, f0))
+        t += WIN
+    return out
+
+
+def attack_features(x, sr, f0):
+    rise = attack_stats(x[:int(1.2 * sr)], sr, f0, None)
+    f = {f'rise{i + 1}': v for i, v in enumerate(rise)}
+    # onset envelope shape: level (dB re steady) at 10/20/40/80/160 ms
+    m = x.mean(1)
+    ref = np.sqrt(np.mean(m[int(0.6 * sr):int(1.0 * sr)] ** 2)) + 1e-12
+    for ms in (10, 20, 40, 80, 160):
+        a = int(ms / 1000 * sr)
+        seg = m[max(0, a - int(0.005 * sr)):a + int(0.005 * sr)]
+        f[f'env{ms}'] = 20 * np.log10(np.sqrt(np.mean(seg ** 2)) / ref + 1e-9)
+    return f
+
+
+def collect_features(model_id, max_notes=None, sets=()):
+    from build import collect
+    from instruments import INSTRUMENTS
+    path = os.path.join(MODELS, f'{model_id}.ssm')
+    hdr = read_header(path)
+    by = {os.path.basename(f): f for f, _, _ in collect(INSTRUMENTS[model_id])}
+    zones = [z for z in hdr['zones'] if z['src'] in by]
+    if max_notes and len(zones) > max_notes:
+        idx = np.linspace(0, len(zones) - 1, max_notes).round().astype(int)
+        zones = [zones[i] for i in sorted(set(idx))]
+    rows, att = [], []
+    for gi, z in enumerate(zones):
+        x, sr = load_stereo(by[z['src']])
+        on = find_onset(x.mean(1), sr)
+        hold = sustain_duration(x.mean(1), sr)
+        x = x[on:]
+        y = render(path, int(round(z['note'])), hold, sr, sets=sets)
+        y = y[find_onset(y.mean(1), sr):]
+        for lab, sig in ((1, x), (0, y)):
+            for f in note_windows(sig, sr, z['f0'], hold):
+                rows.append((gi, lab, f))
+            att.append((gi, lab, attack_features(sig, sr, z['f0'])))
+        print(f'  {z["src"]}', flush=True)
+    return rows, att
+
+
+def two_sample(rows, label):
+    from sklearn.ensemble import HistGradientBoostingClassifier
+    from sklearn.inspection import permutation_importance
+    from sklearn.metrics import roc_auc_score
+    keys = sorted(rows[0][2])
+    X = np.array([[r[2].get(k, np.nan) for k in keys] for r in rows], float)
+    y = np.array([r[1] for r in rows])
+    g = np.array([r[0] for r in rows])
+    groups = np.unique(g)
+    folds = np.array_split(np.random.default_rng(0).permutation(groups), min(5, len(groups)))
+    prob = np.zeros(len(y))
+    imp = np.zeros(len(keys))
+    for test_g in folds:
+        te = np.isin(g, test_g)
+        clf = HistGradientBoostingClassifier(max_iter=200, learning_rate=0.05, max_leaf_nodes=8, random_state=0)
+        clf.fit(X[~te], y[~te])
+        prob[te] = clf.predict_proba(X[te])[:, 1]
+        if len(np.unique(y[te])) == 2:
+            pi = permutation_importance(clf, X[te], y[te], scoring='roc_auc', n_repeats=5, random_state=0)
+            imp += pi.importances_mean
+    auc = roc_auc_score(y, prob)
+    acc = float(np.mean((prob > 0.5) == y))
+    order = np.argsort(-imp)[:6]
+    print(f'[{label}] windows={len(y)} AUC={auc:.3f} accuracy={acc:.2f}  top tells: ' +
+          ', '.join(f'{keys[i]}({imp[i] / len(folds):.3f})' for i in order))
+    return auc, acc, [(keys[i], float(imp[i] / len(folds))) for i in order]
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('model')
+    ap.add_argument('--max', type=int, default=None)
+    ap.add_argument('--set', action='append', default=[])
+    a = ap.parse_args()
+    rows, att = collect_features(a.model, a.max, a.set)
+    two_sample(rows, f'{a.model} sustain')
+    two_sample(att, f'{a.model} attack')
+
+
+if __name__ == '__main__':
+    main()

@@ -9,10 +9,11 @@ import soundfile as sf
 
 from analysis import load_mono
 from compare import metrics, plot_pair
+from paths import DATA_ROOT
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-WAV = '/Users/jddubois/aptora/supersynth/data/samples/grandorgue/Burea_wav'
-OUT = '/Users/jddubois/aptora/supersynth/data/organ_ref'
+WAV = os.path.join(DATA_ROOT, 'samples/grandorgue/Burea_wav')
+OUT = os.path.join(DATA_ROOT, 'organ_ref')
 
 # stop id -> (folder, transpose)
 STOPS = {

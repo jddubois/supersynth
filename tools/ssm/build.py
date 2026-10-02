@@ -19,10 +19,11 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 
 from analysis import NOISE_EDGES, Zone, analyze_zone, hz_to_midi, note_name_to_midi
+from paths import DATA_ROOT
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
-DATA = os.environ.get('SUPERSYNTH_DATA', '/Users/jddubois/aptora/supersynth/data/samples')
+DATA = os.path.join(DATA_ROOT, 'samples')
 OUT_DIR = os.path.join(REPO, 'models')
 
 
@@ -52,6 +53,18 @@ def delta_pm(q: np.ndarray) -> bytes:
     return (d % 256).astype(np.uint8).tobytes()
 
 
+AMP_STEP = 1.0 / 16.0
+
+
+def delta_pm16(db: np.ndarray) -> bytes:
+    """(T,K) dB → partial-major, time-delta coded int16 in AMP_STEP dB above −160 dB (0 = silent),
+    low byte plane then high byte plane. u8 0.5 dB steps were audible as a 0.15 dB random
+    flutter on very steady tones (organ pipes are steadier than that)."""
+    q = np.where(db < -159.9, 0, np.clip(np.round((db + 160.0) / AMP_STEP), 1, 32767)).astype(np.int32)
+    d = np.ascontiguousarray(np.diff(q.T, axis=1, prepend=0).astype(np.int16)).view(np.uint8).reshape(-1, 2)
+    return d[:, 0].tobytes() + d[:, 1].tobytes()
+
+
 def write_model(path: str, header: dict, zones: list[Zone]):
     blob = bytearray()
 
@@ -69,12 +82,23 @@ def write_model(path: str, header: dict, zones: list[Zone]):
         o = {
             'ratios': put(np.asarray(z.ratios, '<f4').tobytes()),
             'phases': put(np.round((np.mod(z.phases, 2 * math.pi)) / (2 * math.pi) * 256).astype(np.int64).clip(0, 255).astype(np.uint8).tobytes()),
-            'amps': put(delta_pm(q_db(z.amps_db))),
+            'amps16': put(delta_pm16(z.amps_db)),
+            'ampsStep': AMP_STEP,
             'pitch': put(np.round(np.clip(z.pitch_cents, -300, 300) * 100).astype('<i2').tobytes()),
             'noise': put(delta_pm(q_db_coarse(z.noise_db))),
             'release': put(np.clip(np.round(z.release_db_per_s / 2.0), 0, 255).astype(np.uint8).tobytes()),
             'jitter': put(np.clip(np.round(np.asarray(z.meta.get('jitter', np.zeros(K)))[:K] * 10), 0, 255).astype(np.uint8).tobytes()),
         }
+        o['amps'] = o['amps16']        # (required key of older readers)
+        st_t = z.meta.get('stereo_t')
+        if st_t is not None and st_t[0].shape[0] == T:
+            # time-varying stereo image of the harmonics: ILD in ¼ dB around 128, inter-channel
+            # phase in 1/256 turns (delta coding mod 256 wraps the phase for free)
+            o['ild'] = put(delta_pm(np.clip(np.round(st_t[0] * 4) + 128, 0, 255).astype(np.uint8)))
+            o['iph'] = put(delta_pm((np.round(st_t[1] / (2 * math.pi) * 256).astype(np.int64) % 256).astype(np.uint8)))
+            o['imgK'] = int(st_t[0].shape[1])
+            if len(st_t) > 2:
+                o['lph'] = put(delta_pm((np.round(st_t[2] / (2 * math.pi) * 256).astype(np.int64) % 256).astype(np.uint8)))
         tr = None
         if z.transient is not None and len(z.transient):
             pkv = float(np.max(np.abs(z.transient))) or 1.0
@@ -203,6 +227,9 @@ def collect(spec: dict) -> list[tuple[str, int, str]]:
 
 
 def build(inst_id: str, spec: dict, workers: int = 8) -> str:
+    if os.environ.get('SSM_OVERRIDES'):
+        # experiments: e.g. SSM_OVERRIDES='{"phase_smooth_s": 0.1}'
+        spec = {**spec, **json.loads(os.environ['SSM_OVERRIDES'])}
     items = collect(spec)
     if spec.get('layers_keep'):
         items = [it for it in items if it[2] in spec['layers_keep']]
@@ -216,7 +243,8 @@ def build(inst_id: str, spec: dict, workers: int = 8) -> str:
               free_partials=spec.get('free_partials', 0), free_window_s=spec.get('free_window_s', 0.04),
               transient=spec.get('transient', False), transient_max_s=spec.get('transient_max_s', 0.1),
               max_loop_s=spec.get('max_loop_s'), use_cue=spec.get('use_cue', False), locked=spec.get('locked'),
-              max_stiffness=spec.get('max_stiffness', 2e-3), stereo=spec.get('stereo', False))
+              max_stiffness=spec.get('max_stiffness', 2e-3), stereo=spec.get('stereo', False),
+              steady_smooth_s=spec.get('steady_smooth_s', 0.0), phase_smooth_s=spec.get('phase_smooth_s', 0.0))
     jobs = [(f, n, l, kw) for f, n, l in items]
     with ProcessPoolExecutor(workers, initializer=_worker_init) as ex:
         results = list(ex.map(_analyze_job, jobs))

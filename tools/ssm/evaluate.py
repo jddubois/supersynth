@@ -21,11 +21,12 @@ import soundfile as sf
 
 from analysis import find_onset, load_mono, midi_to_hz
 from compare import metrics, plot_pair
+from paths import DATA_ROOT
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 SSRENDER = os.environ.get('SSRENDER', os.path.join(REPO, 'native', 'target', 'release', 'ssrender'))
-OUT = os.environ.get('SUPERSYNTH_EVAL_OUT', '/Users/jddubois/aptora/supersynth/data/eval')
+OUT = os.environ.get('SUPERSYNTH_EVAL_OUT', os.path.join(DATA_ROOT, 'eval'))
 
 
 def read_header(path):

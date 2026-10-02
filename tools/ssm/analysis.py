@@ -90,6 +90,53 @@ def smooth_to_grid(amps_c: np.ndarray, frame_t: np.ndarray, scale: float = 1.0,
     return (cs[hi + 1] - cs[lo]) / (hi - lo + 1)[:, None]
 
 
+def steady_mask(frame_t: np.ndarray, level_db: np.ndarray, t_from: float, edge_s: float) -> np.ndarray:
+    """Weight 0..1 of the steady sustain: after `t_from`, while the (150 ms-smoothed) total level
+    stays within 3 dB of its median, ramped over `edge_s` at both ends."""
+    n = len(frame_t)
+    if n < 8:
+        return np.zeros(n)
+    hop = frame_t[1] - frame_t[0]
+    w = max(1, int(round(0.15 / hop)))
+    lin = np.convolve(10 ** (level_db / 10), np.ones(w) / w, mode='same')
+    sm = 10 * np.log10(lin + 1e-30)
+    body = frame_t > t_from
+    if body.sum() < 4:
+        return np.zeros(n)
+    med = np.median(sm[body & (sm > sm.max() - 25)])
+    ok = body & (sm > med - 3) & (sm < med + 3)
+    idx = np.where(ok)[0]
+    if len(idx) < 4:
+        return np.zeros(n)
+    a, b = frame_t[idx[0]], frame_t[idx[-1]]
+    # stop before the level starts to fall: the release must keep its own shape
+    return np.clip(np.minimum((frame_t - a) / edge_s, (b - edge_s - frame_t) / edge_s), 0, 1)
+
+
+def steady_smooth(x: np.ndarray, frame_t: np.ndarray, wmask: np.ndarray, win_s: float, mode: str) -> np.ndarray:
+    """Blend frame-domain trajectories (frames × K) towards a `win_s` moving average where
+    `wmask` > 0. mode 'mag' averages magnitudes (phase kept), 'db' plain values, 'phase'
+    unit vectors (angles in, angles out)."""
+    if win_s <= 0 or not wmask.any():
+        return x
+    hop = frame_t[1] - frame_t[0]
+    w = max(1, int(round(win_s / hop)) | 1)
+    def ma(v):
+        pad = np.pad(v, ((w // 2, w // 2), (0, 0)), mode='edge')
+        cs = np.vstack([np.zeros((1, v.shape[1]), v.dtype), np.cumsum(pad, axis=0)])
+        return (cs[w:] - cs[:-w]) / w
+    m = wmask[:, None]
+    if mode == 'mag':
+        mag = np.abs(x)
+        sm = ma(mag)
+        return (mag * (1 - m) + sm * m) * np.exp(1j * np.angle(x))
+    if mode == 'phase':
+        u = np.exp(1j * x)
+        su = ma(u)
+        return np.angle(u * (1 - m) + su * m)
+    return x * (1 - m) + ma(x) * m
+
+
 def make_time_grid(duration: float) -> np.ndarray:
     """Non-uniform grid: dense during the attack, sparse in the decay tail."""
     out = []
@@ -379,7 +426,7 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                  transient_max_s: float = 0.1, release_at_s: float | None = None,
                  max_loop_s: float | None = None, locked: bool | None = None,
                  max_stiffness: float = 2e-3, keep_release_tail: bool = True,
-                 stereo: bool = False) -> Zone:
+                 stereo: bool = False, steady_smooth_s: float = 0.0, phase_smooth_s: float = 0.0) -> Zone:
     if locked is None:
         locked = kind == 'sustained'
     x, sr = load_mono(path, channel_mix)
@@ -403,6 +450,7 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
     B = 0.0
     shimmer, shimmer_tau, shim_cut = None, 0.01, None
     stereo_img = None
+    stereo_t = None
 
     if harmonic:
         f0 = estimate_f0(x, sr, nominal_hz, steady0, steady1, octave_search)
@@ -549,17 +597,54 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
             tot_p = np.maximum(PL + PR, 1e-30)
             gL = np.sqrt(2 * PL / tot_p)
             gR = np.sqrt(2 * PR / tot_p)
-            amps_c = (gL * aL + gR * np.exp(-1j * st_ph) * aR) / 2
-            mid_gain = (gL + gR * np.exp(1j * st_ph)) / 2      # what the mono mix keeps
             stereo_img = (gL, gR, st_ph)
-        # Deterministic part = trajectories smoothed to the model's time resolution;
-        # faster fluctuations (breath, bow, wind turbulence) are left for the noise model.
-        raw_c = amps_c
-        amps_c = smooth_to_grid(amps_c, centers / sr, smooth_scale, smode)
-        resid = x - _resynth(len(x), centers, amps_c * (mid_gain if mid_gain is not None else 1.0), psi, ratios)
+            # The image is not static: in a room, slight pitch wander moves each partial
+            # through the room's modes, so its left/right level and phase drift. Keep the
+            # smoothed channels themselves: source magnitude ŝ = √((|aL|² + |aR|²)/2) with the
+            # left channel's phase, plus a per-frame image (ILD, inter-channel phase).
+            aLs = smooth_to_grid(aL, centers / sr, smooth_scale, smode)
+            aRs = smooth_to_grid(aR, centers / sr, smooth_scale, smode)
+            mag_s = np.sqrt((np.abs(aLs) ** 2 + np.abs(aRs) ** 2) / 2)
+            ild_t = 20 * np.log10((np.abs(aLs) + 1e-12) / (np.abs(aRs) + 1e-12))
+            iph_t = np.angle(aRs * np.conj(aLs))
+            raw_c = (aL + aR) / 2
+            # the residual (noise model) is taken against the unsmoothed trajectories: what the
+            # steady smoothing below removes is partial fluctuation, not broadband noise
+            mono_s = (aLs + aRs) / 2
+            if steady_smooth_s > 0:
+                # A pipe's steady tone is steadier than a short analysis window can tell:
+                # what the window sees as fast partial flutter is mostly wind and room noise
+                # inside the partial's bandwidth. Average it out over the sustain (it stays
+                # in the residual, as noise). The image changes slowly too.
+                wm = steady_mask(centers / sr, 10 * np.log10(np.sum(mag_s ** 2, axis=1) + 1e-30), 0.3, 0.08)
+                mag_s = np.abs(steady_smooth(mag_s.astype(np.complex128), centers / sr, wm, steady_smooth_s, 'mag'))
+                ild_t = steady_smooth(ild_t, centers / sr, wm, steady_smooth_s, 'db')
+                iph_t = steady_smooth(iph_t, centers / sr, wm, steady_smooth_s, 'phase')
+            amps_c = mag_s * np.exp(1j * np.angle(aLs))
+            # the left channel's own phase wander around the pitch track (unwrapped; the
+            # right channel follows it plus iph)
+            lph_t = np.angle(aLs)
+            if phase_smooth_s > 0:
+                # a weak partial's measured phase is dominated by noise in its band; the
+                # pipe's real phase wander is slow. Smooth the phases over the sustain (the
+                # attack keeps full detail, for a coherent hand-over from the recorded onset).
+                wm = steady_mask(centers / sr, 10 * np.log10(np.sum(mag_s ** 2, axis=1) + 1e-30), 0.3, 0.08)
+                iph_t = steady_smooth(iph_t, centers / sr, wm, phase_smooth_s, 'phase')
+                lph_t = steady_smooth(lph_t, centers / sr, wm, phase_smooth_s, 'phase')
+            stereo_t = (ild_t, iph_t, np.unwrap(lph_t, axis=0))
+        else:
+            # Deterministic part = trajectories smoothed to the model's time resolution;
+            # faster fluctuations (breath, bow, wind turbulence) are left for the noise model.
+            raw_c = amps_c
+            amps_c = smooth_to_grid(amps_c, centers / sr, smooth_scale, smode)
+            if steady_smooth_s > 0:
+                wm = steady_mask(centers / sr, 10 * np.log10(np.sum(np.abs(amps_c) ** 2, axis=1) + 1e-30), 0.3, 0.08)
+                amps_c = steady_smooth(amps_c, centers / sr, wm, steady_smooth_s, 'mag')
+            mono_s = amps_c
+        resid = x - _resynth(len(x), centers, mono_s, psi, ratios)
         if kind == 'sustained':
             shimmer, shimmer_tau, shim_cut = measure_shimmer(
-                raw_c, amps_c, resid, ratios, f0, sr, hop, (centers / sr >= steady0) & (centers / sr <= steady1),
+                raw_c, mono_s, resid, ratios, f0, sr, hop, (centers / sr >= steady0) & (centers / sr <= steady1),
                 steady0, steady1)
     else:
         K = 0
@@ -609,6 +694,15 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
         amps_grid[:, k] = np.interp(grid, frame_t, mag[:, k])
     amps_db = 20 * np.log10(np.maximum(amps_grid, 1e-7))
     pitch_grid = np.interp(grid, frame_t, cents)
+    if stereo_t is not None:
+        ild_grid = np.empty((len(grid), stereo_t[0].shape[1]))
+        iph_grid = np.empty_like(ild_grid)
+        lph_grid = np.empty_like(ild_grid)
+        for k in range(ild_grid.shape[1]):
+            ild_grid[:, k] = np.interp(grid, frame_t, stereo_t[0][:, k])
+            iph_grid[:, k] = np.interp(grid, frame_t, np.unwrap(stereo_t[1][:, k]))
+            lph_grid[:, k] = np.interp(grid, frame_t, stereo_t[2][:, k])
+        iph_grid = np.angle(np.exp(1j * iph_grid))
 
     # keep only partials that are ever audible (within 80 dB of the loudest partial)
     pk = amps_db.max(axis=0)
@@ -626,6 +720,8 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
         shimmer = shimmer[:kh_new]
     if stereo_img is not None:
         stereo_img = tuple(v[:kh_new] for v in stereo_img)
+    if stereo_t is not None:
+        ild_grid, iph_grid, lph_grid = ild_grid[:, :kh_new], iph_grid[:, :kh_new], lph_grid[:, :kh_new]
     K_h, K = kh_new, len(sel)
 
     # phases at t = 0 for the reference psi(0)=0: phase at the first frame where the
@@ -637,6 +733,13 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
             continue
         idx = int(np.argmax(mk > mk.max() * 10 ** (-30 / 20)))
         phases[k] = float(np.angle(amps_c[idx, k]))
+    if stereo_t is not None:
+        # left-channel phase relative to the start phase, wrapped (stored mod 2π)
+        for k in range(lph_grid.shape[1]):
+            mk = mag[:, k]
+            idx = int(np.argmax(mk > mk.max() * 10 ** (-30 / 20))) if mk.max() > 0 else 0
+            lph_grid[:, k] -= stereo_t[2][idx, sel[k]] if k < len(sel) else 0.0
+        lph_grid = np.angle(np.exp(1j * lph_grid))
 
     # noise bands: band power of the residual on the grid. High bands use a short STFT
     # (good time resolution); bands below ~430 Hz need a long, low-leakage window or the
@@ -703,6 +806,8 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                 else:
                     rel_frame = None
             grid, amps_db, pitch_grid, noise_db = grid[:T], amps_db[:T], pitch_grid[:T], noise_db[:T]
+            if stereo_t is not None:
+                ild_grid, iph_grid, lph_grid = ild_grid[:T], iph_grid[:T], lph_grid[:T]
     else:
         # decaying: trim when partials *and* noise are 80 dB below the peak
         thr = tot_all.max() - 80
@@ -710,6 +815,8 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
         T = min(len(grid), (alive[-1] + 2) if len(alive) else len(grid))
         T = trim_edit_fade(grid, tot_all, T)
         grid, amps_db, pitch_grid, noise_db = grid[:T], amps_db[:T], pitch_grid[:T], noise_db[:T]
+        if stereo_t is not None:
+            ild_grid, iph_grid, lph_grid = ild_grid[:T], iph_grid[:T], lph_grid[:T]
 
     peak = float(np.max(np.abs(x)))
     rms = float(np.sqrt(np.mean(x[: int(min(len(x), sr * 1.0))] ** 2)))
@@ -745,7 +852,8 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
         meta={'B': B, 'window': L, 'sr': sr, 'K': K, 'harmonic': K_h,
               'jitter': jitter_cents, 'jitter_tau': float(jitter_tau), 'pulse': pulse,
               'shimmer': shimmer, 'shimmer_tau': float(shimmer_tau), 'rel_frame': rel_frame,
-              'stereo': stereo_img},
+              'stereo': stereo_img,
+              'stereo_t': (ild_grid, iph_grid, lph_grid) if stereo_t is not None else None},
     )
     zone_out.transient = tr
     zone_out.transient_r = tr_r
