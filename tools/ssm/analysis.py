@@ -452,6 +452,7 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
     shimmer, shimmer_tau, shim_cut = None, 0.01, None
     stereo_img = None
     stereo_t = None
+    resid_st = None
 
     if harmonic:
         f0 = estimate_f0(x, sr, nominal_hz, steady0, steady1, octave_search)
@@ -653,6 +654,27 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
             mono_s = amps_c
         resid = x - _resynth(len(x), centers, mono_s, psi, ratios)
         if kind == 'sustained':
+            # Harmonics no stronger than the noise inside their own analysis bandwidth are
+            # noise, not partials (a flue pipe's upper harmonics under its wind noise): played
+            # as steady sinusoids they would turn hiss into a faint buzz. Give them to the noise.
+            st = (centers / sr >= steady0) & (centers / sr <= steady1)
+            weak = weak_harmonics(resid, sr, f0, ratios, mono_s[st] if st.sum() >= 3 else mono_s, L, steady0, steady1)
+            if weak.any():
+                mono_s = mono_s.copy()
+                mono_s[:, weak] = 0
+                amps_c = amps_c.copy()
+                amps_c[:, weak] = 0
+                resid = x - _resynth(len(x), centers, mono_s, psi, ratios)
+                if xs is not None:
+                    aLs, aRs = aLs.copy(), aRs.copy()
+                    aLs[:, weak] = 0
+                    aRs[:, weak] = 0
+        if xs is not None:
+            # Room and wind noise is largely uncorrelated between the microphones: the mono
+            # mix holds only half of each channel's noise power. Measure noise per channel.
+            resid_st = (xs[0] - _resynth(len(x), centers, aLs, psi, ratios),
+                        xs[1] - _resynth(len(x), centers, aRs, psi, ratios))
+        if kind == 'sustained':
             shimmer, shimmer_tau, shim_cut = measure_shimmer(
                 raw_c, mono_s, resid, ratios, f0, sr, hop, (centers / sr >= steady0) & (centers / sr <= steady1),
                 steady0, steady1)
@@ -688,7 +710,11 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
             winf = np.blackman(Lf)
             amps_f, _ = _demod(resid, centers, Lf // 2, winf, np.gradient(winf), psi, fr_ratios, 0)
             amps_f = smooth_to_grid(amps_f, centers / sr, smooth_scale, smode)
-            resid = resid - _resynth(len(x), centers, amps_f, psi, fr_ratios)
+            fr_part = _resynth(len(x), centers, amps_f, psi, fr_ratios)
+            resid = resid - fr_part
+            if resid_st is not None:
+                # free partials are rendered with the voice's pan (equal in both channels)
+                resid_st = (resid_st[0] - fr_part, resid_st[1] - fr_part)
             ratios = np.concatenate([ratios, fr_ratios])
             amps_c = np.concatenate([amps_c, amps_f], axis=1)
             K = len(ratios)
@@ -757,10 +783,20 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
     nb = len(NOISE_EDGES) - 1
     short = 1024 if sr <= 50000 else 2048
     long_ = 8192 if sr <= 50000 else 16384
-    tt_s, bp_s = band_powers(resid, sr, short, 128, 'hann')
-    tt_l, bp_l = band_powers(resid, sr, long_, 1024, 'blackmanharris')
-    _, tot_s = band_powers(x, sr, short, 128, 'hann')
-    _, tot_l = band_powers(x, sr, long_, 1024, 'blackmanharris')
+    if resid_st is not None:
+        bpair = [band_powers(r, sr, short, 128, 'hann') for r in resid_st]
+        tt_s, bp_s = bpair[0][0], (bpair[0][1] + bpair[1][1]) / 2
+        bpair = [band_powers(r, sr, long_, 1024, 'blackmanharris') for r in resid_st]
+        tt_l, bp_l = bpair[0][0], (bpair[0][1] + bpair[1][1]) / 2
+        _, tot_s = band_powers(xs[0], sr, short, 128, 'hann')
+        _, tot_l = band_powers(xs[0], sr, long_, 1024, 'blackmanharris')
+        tot_s = (tot_s + band_powers(xs[1], sr, short, 128, 'hann')[1]) / 2
+        tot_l = (tot_l + band_powers(xs[1], sr, long_, 1024, 'blackmanharris')[1]) / 2
+    else:
+        tt_s, bp_s = band_powers(resid, sr, short, 128, 'hann')
+        tt_l, bp_l = band_powers(resid, sr, long_, 1024, 'blackmanharris')
+        _, tot_s = band_powers(x, sr, short, 128, 'hann')
+        _, tot_l = band_powers(x, sr, long_, 1024, 'blackmanharris')
     noise_grid = np.empty((len(grid), nb))
     for b in range(nb):
         low = NOISE_EDGES[b + 1] <= 430
@@ -894,6 +930,34 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
     zone_out.transient_r = tr_r
     zone_out.transient_fade = tfade
     return zone_out
+
+
+def weak_harmonics(resid, sr, f0, ratios, a_steady, L, t0, t1):
+    """Harmonics whose steady power is below 2× the residual noise density (between the
+    harmonics, per noise band) times the analysis window's noise bandwidth."""
+    seg = resid[int(t0 * sr):int(t1 * sr)]
+    K = len(ratios)
+    out = np.zeros(K, dtype=bool)
+    if len(seg) < 4096 or K == 0:
+        return out
+    nper = int(min(32768, 1 << int(math.ceil(math.log2(16 * sr / f0)))))
+    if len(seg) < nper:
+        nper = 1 << int(math.floor(math.log2(len(seg))))
+    fr, P = signal.welch(seg, fs=sr, window='hann', nperseg=nper, noverlap=nper // 2, scaling='density')
+    rel = (fr / f0) % 1.0
+    mid = (rel > 0.3) & (rel < 0.7)
+    enbw = 1.73 * sr / L                       # Blackman window
+    pw = np.mean(np.abs(a_steady) ** 2, axis=0) / 2
+    hk = ratios * f0
+    for b in range(len(NOISE_EDGES) - 1):
+        inb = (fr >= NOISE_EDGES[b]) & (fr < NOISE_EDGES[b + 1]) & mid
+        ks = (hk >= NOISE_EDGES[b]) & (hk < NOISE_EDGES[b + 1])
+        if inb.sum() < 3 or not ks.any():
+            continue
+        dens = P[inb].mean()
+        out[ks] = pw[ks] < 2.0 * dens * enbw
+    out[0] = False                             # never the fundamental
+    return out
 
 
 def measure_shimmer(raw_c, smooth_c, resid, ratios, f0, sr, hop, steady, t0, t1):
