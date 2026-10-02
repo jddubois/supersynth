@@ -238,6 +238,10 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
         # experiments: e.g. SSM_OVERRIDES='{"phase_smooth_s": 0.1}'
         spec = {**spec, **json.loads(os.environ['SSM_OVERRIDES'])}
     items = collect(spec)
+    if 'stereo' not in spec and items:
+        # stereo recordings keep their per-partial stereo image (and per-channel noise)
+        import soundfile as sf
+        spec = {**spec, 'stereo': sf.info(items[0][0]).channels >= 2}
     if spec.get('layers_keep'):
         items = [it for it in items if it[2] in spec['layers_keep']]
     if not items:
@@ -252,7 +256,7 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
               max_loop_s=spec.get('max_loop_s'), use_cue=spec.get('use_cue', False), locked=spec.get('locked'),
               max_stiffness=spec.get('max_stiffness', 2e-3), stereo=spec.get('stereo', False),
               steady_smooth_s=spec.get('steady_smooth_s', 0.0), phase_smooth_s=spec.get('phase_smooth_s', 0.0),
-              pitch_smooth_s=spec.get('pitch_smooth_s', 0.1 if spec.get('stereo') and spec['kind'] == 'sustained' else 0.0))
+              pitch_smooth_s=spec.get('pitch_smooth_s', 0.1 if spec.get('family') == 'organ' and spec['kind'] == 'sustained' else 0.0))
     jobs = [(f, n, l, kw) for f, n, l in items]
     with ProcessPoolExecutor(workers, initializer=_worker_init) as ex:
         results = list(ex.map(_analyze_job, jobs))

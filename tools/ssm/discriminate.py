@@ -79,7 +79,8 @@ def collect_features(model_id, max_notes=None, sets=(), path=None):
         on = find_onset(x.mean(1), sr)
         hold = sustain_duration(x.mean(1), sr)
         x = x[on:]
-        y = render(path, int(round(z['note'])), hold, sr, sets=sets)
+        vel = hdr['layers'][z['layer']]['velocity'] if z['layer'] < len(hdr['layers']) else 118
+        y = render(path, int(round(z['note'])), hold, sr, sets=sets, vel=vel)
         y = y[find_onset(y.mean(1), sr):]
         wins = {lab: note_windows(sig, sr, z['f0'], hold) for lab, sig in ((1, x), (0, y))}
         # audibility mask from the *real* note (same for both sides): per-harmonic features of

@@ -57,13 +57,13 @@ def load_stereo(path):
     return x[:, :2], sr
 
 
-def render(model_path, note, hold, sr, tail=2.0, sets=()):
+def render(model_path, note, hold, sr, tail=2.0, sets=(), vel=118):
     fd, out = tempfile.mkstemp(suffix='.wav')
     os.close(fd)
     cmd = [SSRENDER, model_path, out, '--sr', str(sr), '--tail', str(tail), '--reverb', 'off']
     for s in sets:
         cmd += ['--set', s]
-    cmd.append(f'{note}:118:0:{hold:.4f}')
+    cmd.append(f'{note}:{int(round(vel))}:0:{hold:.4f}')
     subprocess.run(cmd, check=True, capture_output=True)
     y, _ = load_stereo(out)
     os.remove(out)
@@ -205,13 +205,13 @@ def release_onset(m, sr):
     return j * 0.02
 
 
-def evaluate_note(model_path, wav, note, f0, sets=(), alt=None):
+def evaluate_note(model_path, wav, note, f0, sets=(), alt=None, vel=118):
     x, sr = load_stereo(wav)
     m = x.mean(1)
     on = find_onset(m, sr)
     hold = release_onset(m, sr)
     x = x[on:]
-    y = render(model_path, note, hold, sr, sets=sets)
+    y = render(model_path, note, hold, sr, sets=sets, vel=vel)
     y = y[find_onset(y.mean(1), sr):]
     # level-match on the steady state
     s0, s1 = int(0.6 * sr), int((hold - 0.2) * sr)
@@ -307,7 +307,8 @@ def main():
                 cand = src.replace(rr, rr[:-1] + '2')
                 if os.path.exists(cand):
                     alt = cand
-        r, x, y, sr = evaluate_note(path, src, int(round(z['note'])), z['f0'], a.set, alt)
+        vel = hdr['layers'][z['layer']]['velocity'] if z['layer'] < len(hdr['layers']) else 118
+        r, x, y, sr = evaluate_note(path, src, int(round(z['note'])), z['f0'], a.set, alt, vel)
         r['src'] = z['src']
         results.append(r)
         if a.save:

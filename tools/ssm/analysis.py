@@ -849,9 +849,13 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                 back = int(np.searchsorted(grid, grid[rel_start] - 0.04))
                 # rel_start is where the level is already well down: walk back to where the
                 # decline begins, or note-off would skip the first decibels of the release
-                steady = float(np.median(tot_all[loop[0]:loop[1] + 1]))
+                # reference: the level just before the release (players swell and fade, so
+                # not the loop's); walk back at most 0.3 s
+                pre = (grid >= grid[rel_start] - 0.8) & (grid < grid[rel_start] - 0.3)
+                steady = float(np.median(tot_all[pre])) if pre.any() else float(tot_all[max(0, rel_start - 1)])
                 j = min(back, rel_start)
-                while j - 1 > loop[1] + 2 and tot_all[j - 1] < steady - 0.75:
+                t_min = grid[rel_start] - 0.3
+                while j - 1 > loop[1] + 2 and grid[j - 1] >= t_min and tot_all[j - 1] < steady - 0.75:
                     j -= 1
                 rel_frame = max(loop[1] + 2, j - 1)
                 after = np.where((np.arange(len(grid)) > rel_start) & (tot_all < tot_all.max() - 70))[0]
