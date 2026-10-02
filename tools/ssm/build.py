@@ -233,7 +233,7 @@ def collect(spec: dict) -> list[tuple[str, int, str]]:
     return out
 
 
-def build(inst_id: str, spec: dict, workers: int = 8) -> str:
+def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) -> str:
     if os.environ.get('SSM_OVERRIDES'):
         # experiments: e.g. SSM_OVERRIDES='{"phase_smooth_s": 0.1}'
         spec = {**spec, **json.loads(os.environ['SSM_OVERRIDES'])}

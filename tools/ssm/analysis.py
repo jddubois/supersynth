@@ -18,6 +18,7 @@ lobe through vibrato and keeps neighbouring partials out of it.
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -653,7 +654,7 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                 amps_c = steady_smooth(amps_c, centers / sr, wm, steady_smooth_s, 'mag')
             mono_s = amps_c
         resid = x - _resynth(len(x), centers, mono_s, psi, ratios)
-        if kind == 'sustained':
+        if kind == 'sustained' and not os.environ.get('SSM_NO_WEAK'):
             # Harmonics no stronger than the noise inside their own analysis bandwidth are
             # noise, not partials (a flue pipe's upper harmonics under its wind noise): played
             # as steady sinusoids they would turn hiss into a faint buzz. Give them to the noise.
@@ -669,14 +670,14 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                     aLs, aRs = aLs.copy(), aRs.copy()
                     aLs[:, weak] = 0
                     aRs[:, weak] = 0
-        if xs is not None:
+        if xs is not None and not os.environ.get('SSM_MONO_NOISE'):
             # Room and wind noise is largely uncorrelated between the microphones: the mono
             # mix holds only half of each channel's noise power. Measure noise per channel.
             resid_st = (xs[0] - _resynth(len(x), centers, aLs, psi, ratios),
                         xs[1] - _resynth(len(x), centers, aRs, psi, ratios))
         if kind == 'sustained':
             shimmer, shimmer_tau, shim_cut = measure_shimmer(
-                raw_c, mono_s, resid, ratios, f0, sr, hop, (centers / sr >= steady0) & (centers / sr <= steady1),
+                raw_c, mono_s, resid_st if resid_st is not None else resid, ratios, f0, sr, hop, (centers / sr >= steady0) & (centers / sr <= steady1),
                 steady0, steady1)
     else:
         K = 0
@@ -985,11 +986,15 @@ def measure_shimmer(raw_c, smooth_c, resid, ratios, f0, sr, hop, steady, t0, t1)
     rho = float(np.clip(num / den, 0.05, 0.98))
     tau = float(np.clip(-(hop / sr) / math.log(rho), 0.002, 0.05))
     # high-resolution residual spectrum of the steady part: near-harmonic excess per band
-    seg = resid[int(t0 * sr):int(t1 * sr)]
+    chans = resid if isinstance(resid, tuple) else (resid,)
+    segs = [r[int(t0 * sr):int(t1 * sr)] for r in chans]
     nper = int(min(32768, 1 << int(math.ceil(math.log2(16 * sr / f0)))))
-    if len(seg) < nper:
-        nper = 1 << int(math.floor(math.log2(max(len(seg), 256))))
-    fr, P = signal.welch(seg, fs=sr, window='hann', nperseg=nper, noverlap=nper // 2, scaling='density')
+    if len(segs[0]) < nper:
+        nper = 1 << int(math.floor(math.log2(max(len(segs[0]), 256))))
+    # per-channel residuals (stereo): the power each channel actually carries
+    fr, P = signal.welch(np.vstack(segs), fs=sr, window='hann', nperseg=nper, noverlap=nper // 2,
+                         scaling='density', axis=-1)
+    P = P.mean(axis=0)
     df = fr[1] - fr[0]
     hk = ratios * f0
     near = np.zeros(len(fr), dtype=bool)

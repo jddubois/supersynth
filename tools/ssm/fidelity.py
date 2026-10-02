@@ -104,7 +104,8 @@ def harmonic_tracks(Z, f, f0, nh):
 
 
 def noise_floor(Z, f, f0):
-    """Median inter-harmonic power per octave band (dB), relative to the band's harmonic power."""
+    """Mean inter-harmonic power per octave band (dB), relative to the band's harmonic power.
+    (Mean, not median: real room noise is spiky across frequency, and loudness follows power.)"""
     P = (np.abs(Z) ** 2).sum(0).mean(1)
     rel = (f / f0) % 1.0
     between = (rel > 0.35) & (rel < 0.65)
@@ -116,7 +117,7 @@ def noise_floor(Z, f, f0):
         if nb.sum() < 3 or hb.sum() < 1:
             out.append(np.nan)
             continue
-        out.append(10 * np.log10(np.median(P[nb]) + 1e-30) - 10 * np.log10(P[hb].max() + 1e-30))
+        out.append(10 * np.log10(np.mean(P[nb]) + 1e-30) - 10 * np.log10(P[hb].max() + 1e-30))
     return np.array(out)
 
 
