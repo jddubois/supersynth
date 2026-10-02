@@ -286,7 +286,11 @@ def main():
     ap.add_argument('--json', default=None)
     ap.add_argument('--save', default=None, help='directory for real/synth wav pairs')
     ap.add_argument('--model-path', default=None)
+    ap.add_argument('--holdout', action='store_true',
+                    help='model built without every other pitch; test on the held-out recordings')
     a = ap.parse_args()
+    if a.holdout:
+        return main_holdout(a)
     path = a.model_path or os.path.join(MODELS, f'{a.model}.ssm')
     hdr = read_header(path)
     items = collect(INSTRUMENTS[a.model])
@@ -323,6 +327,63 @@ def main():
     summ = summarize(results, a.model)
     if a.json:
         json.dump({'summary': summ, 'results': results}, open(a.json, 'w'), indent=1, default=float)
+
+
+def sampler(src, nominal_from, f0_from, f0_to, sr):
+    """What a plain sampler does: the nearest recording, resampled to the new pitch."""
+    y, sr2 = load_stereo(src)
+    ratio = f0_to / f0_from
+    n = int(len(y) * sr / sr2 / ratio)
+    return signal.resample(y, n, axis=0)
+
+
+def main_holdout(a):
+    from analysis import estimate_f0, hz_to_midi, load_mono, midi_to_hz
+    from blind import holdout_model
+    from build import collect
+    from instruments import INSTRUMENTS
+    path, test = holdout_model(a.model)
+    hdr = read_header(path)
+    zones = hdr['zones']
+    full = read_header(os.path.join(os.path.dirname(MODELS) if False else MODELS, f'{a.model}.ssm')) \
+        if os.path.exists(os.path.join(MODELS, f'{a.model}.ssm')) else hdr
+    # the octave convention of this instrument's file names, from the full model's zones
+    nom = {os.path.basename(f): n for f, n, _ in collect(INSTRUMENTS[a.model])}
+    offs = [round((z['note'] - nom[z['src']]) / 12) * 12 for z in full['zones'] if z['src'] in nom]
+    oct_off = int(np.median(offs)) if offs else 0
+    if a.max and len(test) > a.max:
+        idx = np.linspace(0, len(test) - 1, a.max).round().astype(int)
+        test = [test[i] for i in sorted(set(idx))]
+    res, base = [], []
+    for f, nominal, layer in test:
+        xm, sr = load_mono(f)
+        on = find_onset(xm, sr)
+        f0 = estimate_f0(xm[on:], sr, midi_to_hz(nominal + oct_off), 0.3, 1.5, octave_search=False)
+        note = int(round(hz_to_midi(f0)))
+        li = [l['name'] for l in hdr['layers']].index(layer) if layer in [l['name'] for l in hdr['layers']] else len(hdr['layers']) - 1
+        vel = hdr['layers'][li]['velocity']
+        r, x, y, sr = evaluate_note(path, f, note, f0, a.set, None, vel)
+        r['src'] = os.path.basename(f)
+        res.append(r)
+        # sampler baseline: nearest kept zone of the same layer
+        cands = [z for z in zones if z['layer'] == li]
+        z = min(cands, key=lambda z: abs(z['note'] - hz_to_midi(f0)))
+        src = [g for g, _, _ in collect(INSTRUMENTS[a.model]) if os.path.basename(g) == z['src']][0]
+        yb = sampler(src, None, z['f0'], f0, sr)
+        yb = yb[find_onset(yb.mean(1), sr):]
+        s0, s1 = int(0.6 * sr), int((r['hold'] - 0.2) * sr)
+        mid = (s0 + s1) // 2
+        if len(yb) > s1:
+            ra, rb = steady_stats(x[s0:mid], sr, f0), steady_stats(x[mid:s1], sr, f0)
+            sb = compare_steady(steady_stats(yb[s0:mid], sr, f0), rb)
+            sb2 = compare_steady(steady_stats(yb[mid:s1], sr, f0), ra)
+            base.append({'synth': {k: (sb[k] + sb2[k]) / 2 for k in sb}, 'floor': r['floor']})
+        print(f"{r['src']:36s} note={note} " + ' '.join(f"{k}={r['synth'][k]:.2f}" for k in ('harm', 'noise', 'flutter', 'coh')), flush=True)
+    summ = summarize(res, f'{a.model} HOLDOUT engine')
+    if base:
+        summarize(base, f'{a.model} HOLDOUT sampler (nearest recording, pitch-shifted)')
+    if a.json:
+        json.dump({'summary': summ, 'results': res}, open(a.json, 'w'), indent=1, default=float)
 
 
 if __name__ == '__main__':
