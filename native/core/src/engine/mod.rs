@@ -1181,4 +1181,20 @@ mod tests {
         render(&mut eng, 4800);
         assert_eq!(eng.active_voices(), 2);
     }
+
+    #[test]
+    fn organ_pipe_stops_speaking_at_note_off() {
+        // the recorded release starts where the pipe's tone starts to die away: within 50 ms
+        // of note-off the level is well below the sustain (the church's reverberation remains)
+        let Some((mut eng, mut ctl)) = engine_with("organ/great-principal-8") else { return };
+        ctl.send(0, Command::NoteOn { part: 0, note: 67, velocity: 100 }).unwrap();
+        let (l, r) = render(&mut eng, 48000 * 3);
+        let sustain = rms(&l[48000 * 2..]) + rms(&r[48000 * 2..]);
+        ctl.send(0, Command::NoteOff { part: 0, note: 67 }).unwrap();
+        let (l, r) = render(&mut eng, 48000);
+        let after = rms(&l[2400..3360]) + rms(&r[2400..3360]);
+        let db = 20.0 * (after / sustain).log10();
+        assert!(db < -6.0, "50–70 ms after note-off: {db:.1} dB re sustain");
+        assert!(l.iter().chain(r.iter()).all(|v| v.is_finite()));
+    }
 }

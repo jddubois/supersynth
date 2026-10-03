@@ -144,7 +144,8 @@ describe('organ', () => {
     organ.positive.pull("Krummhorn 8'");
     synth.render(0.2);
     const after = rms(synth.render(0.5).right);
-    expect(after).toBeGreaterThan(before * 1.2);
+    // the recorded Krummhorn C4 sounds ~4.5 dB below the Gedackt: about +1.4 dB together
+    expect(after).toBeGreaterThan(before * 1.1);
   });
 });
 
