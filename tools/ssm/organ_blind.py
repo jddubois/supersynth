@@ -13,7 +13,6 @@ import os
 import random
 import subprocess
 import sys
-import tempfile
 
 import numpy as np
 import soundfile as sf
@@ -21,8 +20,8 @@ import soundfile as sf
 from analysis import find_onset
 from blind import prep  # noqa: F401  (mono variant)
 from build import wav_cue_seconds
-from evaluate import read_header, SSRENDER
-from instruments import BUREA_STOPS
+from engine import read_header, ssrender
+from instruments import BUREA, BUREA_FOLDER, BUREA_STOPS
 from paths import DATA_ROOT
 
 MODELS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'models')
@@ -32,10 +31,8 @@ REF = os.path.join(DATA_ROOT, 'organ_ref')
 
 def single_pairs(n: int, rng: random.Random):
     by_family: dict[str, list[str]] = {}
-    folders = {}
     for folder, sid, disp, offset, family in BUREA_STOPS:
         by_family.setdefault(family, []).append(sid)
-        folders[sid] = folder
     fams = sorted(by_family)
     out = []
     for i in range(n):
@@ -46,7 +43,7 @@ def single_pairs(n: int, rng: random.Random):
         h = read_header(path)
         zones = [z for z in h['zones'] if 0.2 < (z['note'] - 36) / 60 < 0.85] or h['zones']
         z = rng.choice(zones)
-        f = os.path.join(SAMPLES, 'grandorgue', 'Burea_wav', folders[sid], z['src'])
+        f = os.path.join(SAMPLES, BUREA, BUREA_FOLDER[sid], z['src'])
         x, sr = sf.read(f, dtype='float64', always_2d=True)
         x = x[:, :2]
         cue = wav_cue_seconds(f)
@@ -55,12 +52,7 @@ def single_pairs(n: int, rng: random.Random):
             continue
         hold = cue - on
         seconds = float(min(hold + 2.2, 7.0))
-        fd, tmp = tempfile.mkstemp(suffix='.wav')
-        os.close(fd)
-        subprocess.run([SSRENDER, path, tmp, '--sr', str(sr), '--tail', '3', '--reverb', 'off',
-                        f'{int(round(z["note"]))}:100:0:{hold:.3f}'], check=True, capture_output=True)
-        y, _ = sf.read(tmp, dtype='float64', always_2d=True)
-        os.remove(tmp)
+        y, _ = ssrender(path, [f'{int(round(z["note"]))}:100:0:{hold:.3f}'], sr, tail=3)
         out.append((mid, z['src'], int(round(z['note'])), x, y, sr, seconds))
         print('single', mid, z['src'], f'hold {hold:.2f}s', flush=True)
     return out

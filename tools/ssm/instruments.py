@@ -329,6 +329,20 @@ BUREA_STOPS = [
     ('Sivflojt1', 'extra-sifflote-1', "Sifflöte 1'", 36, 'flute'),
 ]
 
+# stop id -> sample-set folder / transposition (semitones from the key to the sounding pitch)
+BUREA_FOLDER = {sid: folder for folder, sid, *_ in BUREA_STOPS}
+BUREA_TRANSPOSE = {sid: offset for _, sid, _, offset, _ in BUREA_STOPS}
+
+
+def burea_pipe(stop_id: str, key: int) -> str | None:
+    """The recording of one Bureå pipe (stop id, key number), or None if that pipe is missing."""
+    import os
+    from paths import DATA_ROOT
+    folder = os.path.join(DATA_ROOT, 'samples', BUREA, BUREA_FOLDER[stop_id])
+    names = sorted(f for f in os.listdir(folder) if f.startswith(f'{key:03d}-'))
+    return os.path.join(folder, names[0]) if names else None
+
+
 for folder, sid, disp, offset, family in BUREA_STOPS:
     INSTRUMENTS[f'organ/{sid}'] = dict(
         display=f'Bureå organ — {disp}', family='organ', kind='sustained', source=BUREA_SRC,

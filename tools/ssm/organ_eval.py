@@ -9,22 +9,11 @@ import soundfile as sf
 
 from analysis import load_mono
 from compare import metrics, plot_pair
+from instruments import BUREA_TRANSPOSE, burea_pipe
 from paths import DATA_ROOT
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-WAV = os.path.join(DATA_ROOT, 'samples/grandorgue/Burea_wav')
 OUT = os.environ.get('ORGAN_EVAL_OUT', os.path.join(DATA_ROOT, 'organ_ref'))
-
-# stop id -> (folder, transpose)
-STOPS = {
-    'great-principal-8': ('HVPrincipal8', 0), 'great-octave-4': ('HVOktava4', 12),
-    'great-octave-2': ('HVOktava2', 24), 'great-mixture': ('HVMixtur', 0),
-    'great-gedackt-8': ('HVGedakt8', 0), 'great-rohrflute-4': ('HVRorflojt4', 12),
-    'great-trumpet-8': ('HVTrumpet8', 0), 'great-sesquialtera': ('HVSesquialtera', 0),
-    'positive-krummhorn-8': ('POSKrummhorn8', 0), 'positive-gedackt-8': ('POSGedakt8', 0),
-    'swell-salicional-8': ('SVSalicional8', 0), 'extra-voix-celeste-8': ('ViolCeleste8', 0),
-    'pedal-subbass-16': ('PEDSubbas16', -12), 'pedal-principal-8': ('PEDPrincipal8', 0),
-}
 
 CASES = {
     'principal-chord': (['great-principal-8'], [60, 64, 67]),
@@ -42,16 +31,14 @@ def real_sum(stops, keys, seconds, stereo=False):
     acc = None
     sr = None
     for s in stops:
-        folder, _ = STOPS[s]
         for k in keys:
-            names = [f for f in os.listdir(os.path.join(WAV, folder)) if f.startswith(f'{k:03d}-')]
             if stereo:
-                x, sr = sf.read(os.path.join(WAV, folder, names[0]), dtype='float64', always_2d=True)
+                x, sr = sf.read(burea_pipe(s, k), dtype='float64', always_2d=True)
                 x = x[:int(seconds * sr), :2]
                 if acc is None:
                     acc = np.zeros((int(seconds * sr), 2))
             else:
-                x, sr = load_mono(os.path.join(WAV, folder, names[0]))
+                x, sr = load_mono(burea_pipe(s, k))
                 x = x[:int(seconds * sr)]
                 if acc is None:
                     acc = np.zeros(int(seconds * sr))
@@ -65,10 +52,8 @@ def first_release(stops, keys):
     from fidelity import release_onset
     t = 99.0
     for s in stops:
-        folder, _ = STOPS[s]
         for k in keys:
-            names = [f for f in os.listdir(os.path.join(WAV, folder)) if f.startswith(f'{k:03d}-')]
-            x, sr = load_mono(os.path.join(WAV, folder, names[0]))
+            x, sr = load_mono(burea_pipe(s, k))
             t = min(t, release_onset(x, sr))
     return t
 
@@ -80,7 +65,7 @@ def main(cases):
         stops, keys = CASES[name]
         seconds = 4.5
         real, sr = real_sum(stops, keys, seconds)
-        spec = {'sampleRate': sr, 'layers': [{'model': f'organ/{s}', 'transpose': STOPS[s][1]} for s in stops],
+        spec = {'sampleRate': sr, 'layers': [{'model': f'organ/{s}', 'transpose': BUREA_TRANSPOSE[s]} for s in stops],
                 'keys': keys, 'hold': 4.0, 'seconds': seconds}
         sp = os.path.join(OUT, f'{name}.json')
         json.dump(spec, open(sp, 'w'))

@@ -29,9 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
-import tempfile
 
 import numpy as np
 import soundfile as sf
@@ -39,7 +37,8 @@ from scipy import signal
 
 from analysis import find_onset
 from compare import logmel
-from evaluate import SSRENDER, read_header, sustain_duration
+from engine import read_header, ssrender
+from evaluate import sustain_duration
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODELS = os.environ.get('SSM_OUT_DIR', os.path.join(HERE, '..', '..', 'models'))
@@ -58,16 +57,8 @@ def load_stereo(path):
 
 
 def render(model_path, note, hold, sr, tail=2.0, sets=(), vel=118):
-    fd, out = tempfile.mkstemp(suffix='.wav')
-    os.close(fd)
-    cmd = [SSRENDER, model_path, out, '--sr', str(sr), '--tail', str(tail), '--reverb', 'off']
-    for s in sets:
-        cmd += ['--set', s]
-    cmd.append(f'{note}:{int(round(vel))}:0:{hold:.4f}')
-    subprocess.run(cmd, check=True, capture_output=True)
-    y, _ = load_stereo(out)
-    os.remove(out)
-    return y
+    y, _ = ssrender(model_path, [f'{note}:{int(round(vel))}:0:{hold:.4f}'], sr, tail, sets)
+    return np.repeat(y, 2, axis=1) if y.shape[1] == 1 else y[:, :2]
 
 
 def stft2(x, sr):
@@ -283,9 +274,24 @@ def summarize(results, label=''):
     return summ
 
 
-def main():
+def model_zones(model_id: str, path: str | None = None, max_notes: int | None = None,
+                notes: set[int] | None = None) -> tuple[dict, list[tuple[dict, str]]]:
+    """A model's header and its zones paired with the recordings they were analysed from
+    (only `notes`, if given; at most `max_notes`, spread evenly over the range)."""
     from build import collect
     from instruments import INSTRUMENTS
+    hdr = read_header(path or os.path.join(MODELS, f'{model_id}.ssm'))
+    byname = {os.path.basename(f): f for f, _, _ in collect(INSTRUMENTS[model_id])}
+    zones = [z for z in hdr['zones'] if z['src'] in byname]
+    if notes:
+        zones = [z for z in zones if int(round(z['note'])) in notes]
+    if max_notes and len(zones) > max_notes:
+        idx = np.linspace(0, len(zones) - 1, max_notes).round().astype(int)
+        zones = [zones[i] for i in sorted(set(idx))]
+    return hdr, [(z, byname[z['src']]) for z in zones]
+
+
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('model')
     ap.add_argument('--notes', default=None)
@@ -300,19 +306,10 @@ def main():
     if a.holdout:
         return main_holdout(a)
     path = a.model_path or os.path.join(MODELS, f'{a.model}.ssm')
-    hdr = read_header(path)
-    items = collect(INSTRUMENTS[a.model])
-    byname = {os.path.basename(f): f for f, _, _ in items}
-    zones = [z for z in hdr['zones'] if z['src'] in byname]
-    if a.notes:
-        want = {int(n) for n in a.notes.split(',')}
-        zones = [z for z in zones if int(round(z['note'])) in want]
-    if a.max and len(zones) > a.max:
-        idx = np.linspace(0, len(zones) - 1, a.max).round().astype(int)
-        zones = [zones[i] for i in sorted(set(idx))]
+    want = {int(n) for n in a.notes.split(',')} if a.notes else None
+    hdr, zones = model_zones(a.model, path, a.max, want)
     results = []
-    for z in zones:
-        src = byname[z['src']]
+    for z, src in zones:
         alt = None
         for rr in ('_rr1', '_RR1'):
             if rr in src:

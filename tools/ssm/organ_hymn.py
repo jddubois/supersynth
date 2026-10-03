@@ -22,34 +22,31 @@ import soundfile as sf
 from analysis import find_onset
 from compare import metrics
 from fidelity import release_onset
-from instruments import BUREA_STOPS
-from paths import DATA_ROOT
+from instruments import burea_pipe
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-WAV = os.path.join(DATA_ROOT, 'samples/grandorgue/Burea_wav')
-FOLDER = {sid: folder for folder, sid, *_ in BUREA_STOPS}
 XF = 0.015
 
 
-def pipe(folder: str, key: int, cache: dict):
-    if (folder, key) not in cache:
-        names = [f for f in os.listdir(os.path.join(WAV, folder)) if f.startswith(f'{key:03d}-')]
-        if not names:
-            cache[(folder, key)] = None
+def pipe(stop: str, key: int, cache: dict):
+    if (stop, key) not in cache:
+        path = burea_pipe(stop, key)
+        if path is None:
+            cache[(stop, key)] = None
         else:
-            x, sr = sf.read(os.path.join(WAV, folder, names[0]), dtype='float64', always_2d=True)
+            x, sr = sf.read(path, dtype='float64', always_2d=True)
             x = x[:, :2]
             m = x.mean(1)
             on = find_onset(m, sr)
-            cache[(folder, key)] = (x[on:], sr, release_onset(m, sr))
-    return cache[(folder, key)]
+            cache[(stop, key)] = (x[on:], sr, release_onset(m, sr))
+    return cache[(stop, key)]
 
 
 def real_render(ev: dict, sr_out: int = 44100) -> np.ndarray:
     out = np.zeros((int(ev['seconds'] * sr_out) + 1, 2))
     cache: dict = {}
     for e in ev['events']:
-        p = pipe(FOLDER[e['stop']], e['key'], cache)
+        p = pipe(e['stop'], e['key'], cache)
         if p is None:
             continue
         x, sr, t_rel = p

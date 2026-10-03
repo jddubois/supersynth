@@ -20,8 +20,8 @@ import os
 import numpy as np
 
 from analysis import find_onset
-from fidelity import MODELS, OCT_EDGES, attack_stats, load_stereo, release_onset, render, steady_stats
-from evaluate import read_header, sustain_duration
+from fidelity import MODELS, OCT_EDGES, attack_stats, load_stereo, model_zones, release_onset, render, steady_stats
+from evaluate import sustain_duration
 
 NH = 12
 WIN = 0.75
@@ -85,18 +85,11 @@ def release_features(x, sr, t_off, ref_bands=None):
 
 
 def collect_features(model_id, max_notes=None, sets=(), path=None, rel=None):
-    from build import collect
-    from instruments import INSTRUMENTS
     path = path or os.path.join(MODELS, f'{model_id}.ssm')
-    hdr = read_header(path)
-    by = {os.path.basename(f): f for f, _, _ in collect(INSTRUMENTS[model_id])}
-    zones = [z for z in hdr['zones'] if z['src'] in by]
-    if max_notes and len(zones) > max_notes:
-        idx = np.linspace(0, len(zones) - 1, max_notes).round().astype(int)
-        zones = [zones[i] for i in sorted(set(idx))]
+    hdr, zones = model_zones(model_id, path, max_notes)
     rows, att = [], []
-    for gi, z in enumerate(zones):
-        x, sr = load_stereo(by[z['src']])
+    for gi, (z, src) in enumerate(zones):
+        x, sr = load_stereo(src)
         on = find_onset(x.mean(1), sr)
         hold = sustain_duration(x.mean(1), sr)
         x = x[on:]

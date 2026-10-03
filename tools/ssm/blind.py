@@ -12,9 +12,7 @@ from __future__ import annotations
 import json
 import os
 import random
-import subprocess
 import sys
-import tempfile
 
 import numpy as np
 import soundfile as sf
@@ -22,7 +20,8 @@ import soundfile as sf
 from analysis import find_onset, load_mono
 from build import build, collect
 import build as buildmod
-from evaluate import read_header, sustain_duration, SSRENDER
+from engine import read_header, ssrender
+from evaluate import sustain_duration
 from instruments import INSTRUMENTS
 from paths import DATA_ROOT
 
@@ -73,14 +72,7 @@ def prep(x: np.ndarray, sr: int, seconds: float) -> np.ndarray:
 
 
 def render(model_path: str, note: int, vel: float, dur: float, tail: float, sr: int, tune: float = 0.0) -> np.ndarray:
-    fd, out = tempfile.mkstemp(suffix='.wav')
-    os.close(fd)
-    cmd = [SSRENDER, model_path, out, '--sr', str(sr), '--tail', str(tail), '--mono', '--reverb', 'off',
-           '--set', f'tune={tune:.2f}', f'{note}:{int(round(vel))}:0:{dur}']
-    subprocess.run(cmd, check=True, capture_output=True)
-    y, _ = sf.read(out, dtype='float64')
-    os.remove(out)
-    return y
+    return ssrender(model_path, [f'{note}:{int(round(vel))}:0:{dur}'], sr, tail, [f'tune={tune:.2f}'], mono=True)[0]
 
 
 def make(out_dir: str, ids: list[str], per_instrument: int = 1, seconds: float = 3.5, seed: int = 7,

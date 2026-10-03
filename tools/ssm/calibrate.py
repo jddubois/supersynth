@@ -5,13 +5,10 @@ same RMS level (organ stops share one correction so their natural balance is kep
 """
 import glob
 import os
-import subprocess
-import tempfile
 
 import numpy as np
-import soundfile as sf
 
-from evaluate import read_header, SSRENDER
+from engine import read_header, ssrender
 from patch_header import patch
 
 TARGET_DB = -20.0
@@ -22,12 +19,7 @@ def level(path: str) -> float:
     h = read_header(path)
     lo, hi = min(z['note'] for z in h['zones']), max(z['note'] for z in h['zones'])
     note = int(round(lo + (hi - lo) * 0.45))
-    fd, out = tempfile.mkstemp(suffix='.wav')
-    os.close(fd)
-    subprocess.run([SSRENDER, path, out, '--mono', '--reverb', 'off', '--tail', '0.5', f'{note}:100:0:2'],
-                   check=True, capture_output=True)
-    y, sr = sf.read(out)
-    os.remove(out)
+    y, sr = ssrender(path, [f'{note}:100:0:2'], tail=0.5, mono=True)
     seg = y[int(0.05 * sr):int(1.5 * sr)]
     return 20 * np.log10(np.sqrt(np.mean(seg ** 2)) + 1e-12)
 

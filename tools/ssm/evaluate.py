@@ -8,33 +8,21 @@ excluded recordings: the synthesizer must *generalise* to notes it never saw.
 from __future__ import annotations
 
 import argparse
-import gzip
 import json
 import os
-import struct
-import subprocess
 import sys
-import tempfile
 
 import numpy as np
 import soundfile as sf
 
 from analysis import find_onset, load_mono, midi_to_hz
 from compare import metrics, plot_pair
+from engine import read_header, ssrender
 from paths import DATA_ROOT
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
-SSRENDER = os.environ.get('SSRENDER', os.path.join(REPO, 'native', 'target', 'release', 'ssrender'))
 OUT = os.environ.get('SUPERSYNTH_EVAL_OUT', os.path.join(DATA_ROOT, 'eval'))
-
-
-def read_header(path):
-    with gzip.open(path, 'rb') as f:
-        raw = f.read()
-    assert raw[:4] == b'SSM1'
-    n = struct.unpack('<I', raw[4:8])[0]
-    return json.loads(raw[8:8 + n])
 
 
 def sustain_duration(x, sr):
@@ -56,16 +44,7 @@ def octave_offset(hdr, items):
 
 
 def render(model_path, note, vel, dur, tail, sr, sets=(), reverb='off'):
-    fd, out = tempfile.mkstemp(suffix='.wav')
-    os.close(fd)
-    cmd = [SSRENDER, model_path, out, '--sr', str(sr), '--tail', str(tail), '--mono', '--reverb', reverb]
-    for s in sets:
-        cmd += ['--set', s]
-    cmd.append(f'{note}:{int(round(vel))}:0:{dur}')
-    subprocess.run(cmd, check=True, capture_output=True)
-    y, _ = sf.read(out, dtype='float64')
-    os.remove(out)
-    return y
+    return ssrender(model_path, [f'{note}:{int(round(vel))}:0:{dur}'], sr, tail, sets, reverb, mono=True)[0]
 
 
 def sampler_baseline(f, x, sr, nominal, layer, keep_files, items, seconds):
