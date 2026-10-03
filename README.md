@@ -114,8 +114,29 @@ organ.swell.pull("Salicional 8'", "Voix céleste 8'");
 organ.couple('swell>great');
 organ.swell.expression(0.4);              // swell pedal
 organ.tremulant(true);
-Organ.registrations;                       // plenum, flutes, cornet, trumpet, krummhorn, celeste, full, …
+organ.registrations;                       // plenum, flutes, cornet, trumpet, krummhorn, celeste, full, …
 ```
+
+### Instruments and organs are configuration
+
+Every instrument (`GRAND_PIANO`, `VIOLAS`, …) and organ (`BUREA_ORGAN`, `VCSL_ORGAN`) is a plain
+object you can import, copy and change, from `supersynth` or from `supersynth/instruments` and
+`supersynth/organs`:
+
+```ts
+import { GRAND_PIANO } from 'supersynth/instruments';
+import { BUREA_ORGAN, type OrganDef } from 'supersynth/organs';
+
+synth.add({ ...GRAND_PIANO, id: 'dark-piano', params: { brightness: -1.5 } });
+
+const organ: OrganDef = {
+  ...BUREA_ORGAN,
+  registrations: { ...BUREA_ORGAN.registrations, solo: { description: 'Krummhorn solo', positive: ["Gedackt 8'", "Krummhorn 8'"] } },
+};
+synth.organ({ instrument: organ, registration: 'solo' });
+```
+
+See [docs/organ.md](docs/organ.md#organs-are-configuration) and [docs/instruments.md](docs/instruments.md).
 
 ### Offline rendering and MIDI files
 

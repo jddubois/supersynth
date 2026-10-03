@@ -3,13 +3,22 @@
 Every instrument is a spectral model analysed from real recordings (see NOTICE.md).
 Add one with `synth.add(id, { preset })`. Aliases are accepted wherever an id is.
 
+Every instrument is also a plain configuration object (`InstrumentDef`) exported under the name
+shown with it, from `supersynth` and from `supersynth/instruments`. Pass it to `synth.add` or
+`new Instrument`, or copy and change it:
+
+```ts
+import { GRAND_PIANO } from 'supersynth/instruments';
+synth.add({ ...GRAND_PIANO, id: 'dark-piano', params: { brightness: -1.5 } });
+```
+
 ## Keyboards
 
 ### `grand-piano` — Concert Grand Piano
 
 Steinway model B, three dynamic layers, with real hammer attacks, string stiffness, damper and sympathetic resonances.
 
-Aliases: `piano`, `grand`, `steinway`. Suggested room: `hall`.
+Config: `GRAND_PIANO`. Aliases: `piano`, `grand`, `steinway`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -26,7 +35,7 @@ Aliases: `piano`, `grand`, `steinway`. Suggested room: `hall`.
 
 Yamaha upright: intimate, a little brighter and boxier than the grand.
 
-Aliases: `upright`. Suggested room: `room`.
+Config: `UPRIGHT_PIANO`. Aliases: `upright`. Suggested room: `room`.
 
 | Preset | Description |
 |---|---|
@@ -39,7 +48,7 @@ Aliases: `upright`. Suggested room: `room`.
 
 French double-manual harpsichord, plucked attack transients from the real instrument.
 
-Suggested room: `chamber`.
+Config: `HARPSICHORD`. Suggested room: `chamber`.
 
 | Preset | Description |
 |---|---|
@@ -55,7 +64,7 @@ Suggested room: `chamber`.
 
 A church organ with a full registration, recorded in its building.
 
-Aliases: `church-organ`. Suggested room: `church`.
+Config: `PIPE_ORGAN`. Aliases: `church-organ`. Suggested room: `church`.
 
 | Preset | Description |
 |---|---|
@@ -68,7 +77,7 @@ Aliases: `church-organ`. Suggested room: `church`.
 
 A small Renaissance-style positive organ: sweet wooden flutes.
 
-Aliases: `positive-organ`. Suggested room: `chamber`.
+Config: `CHAMBER_ORGAN`. Aliases: `positive-organ`. Suggested room: `chamber`.
 
 | Preset | Description |
 |---|---|
@@ -83,7 +92,7 @@ Aliases: `positive-organ`. Suggested room: `chamber`.
 
 Pedal harp with real pluck transients; notes ring until they decay.
 
-Suggested room: `hall`.
+Config: `HARP`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -96,7 +105,7 @@ Suggested room: `hall`.
 
 Plucked solo violin.
 
-Suggested room: `hall`.
+Config: `VIOLIN_PIZZICATO`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -107,7 +116,7 @@ Suggested room: `hall`.
 
 Plucked cello section.
 
-Suggested room: `hall`.
+Config: `CELLO_PIZZICATO`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -118,7 +127,7 @@ Suggested room: `hall`.
 
 Plucked double bass — also a lovely jazz walking bass.
 
-Aliases: `upright-bass`, `jazz-bass`. Suggested room: `hall`.
+Config: `CONTRABASS_PIZZICATO`. Aliases: `upright-bass`, `jazz-bass`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -129,10 +138,11 @@ Aliases: `upright-bass`, `jazz-bass`. Suggested room: `hall`.
 
 Solo violin with natural vibrato.
 
-Suggested room: `hall`.
+Config: `VIOLIN`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | As recorded |
 | `senza-vibrato` | Straight tone, no vibrato (baroque style) |
 | `expressive` | Wider romantic vibrato |
@@ -142,10 +152,11 @@ Suggested room: `hall`.
 
 Orchestral first violins.
 
-Suggested room: `hall`.
+Config: `VIOLINS`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | As recorded |
 | `lush` | Bigger, wider section |
 | `soft` | Gentle, slow bow attack |
@@ -154,10 +165,11 @@ Suggested room: `hall`.
 
 Orchestral violas.
 
-Suggested room: `hall`.
+Config: `VIOLAS`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | As recorded |
 | `soft` | Slow bow attack |
 
@@ -165,10 +177,11 @@ Suggested room: `hall`.
 
 Orchestral cellos with vibrato.
 
-Aliases: `cello`. Suggested room: `hall`.
+Config: `CELLOS`. Aliases: `cello`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | As recorded |
 | `soft` | Slow bow attack |
 
@@ -176,17 +189,18 @@ Aliases: `cello`. Suggested room: `hall`.
 
 Double bass, bowed.
 
-Aliases: `double-bass`. Suggested room: `hall`.
+Config: `CONTRABASS`. Aliases: `double-bass`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | As recorded |
 
 ### `strings` — String Orchestra
 
 Full string section split across the keyboard: basses, cellos, violas and violins.
 
-Aliases: `string-ensemble`, `orchestra-strings`. Suggested room: `hall`.
+Config: `STRINGS`. Aliases: `string-ensemble`, `orchestra-strings`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -200,10 +214,11 @@ Aliases: `string-ensemble`, `orchestra-strings`. Suggested room: `hall`.
 
 Concert flute, straight tone.
 
-Suggested room: `hall`.
+Config: `FLUTE`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | Straight tone |
 | `vibrato` | With natural flute vibrato |
 | `breathy` | More air in the tone |
@@ -213,10 +228,11 @@ Suggested room: `hall`.
 
 Oboe.
 
-Suggested room: `hall`.
+Config: `OBOE`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | As recorded |
 | `vibrato` | Light vibrato |
 
@@ -224,10 +240,11 @@ Suggested room: `hall`.
 
 B♭ clarinet.
 
-Suggested room: `hall`.
+Config: `CLARINET`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | As recorded |
 | `dark` | Dark, covered tone |
 
@@ -235,20 +252,22 @@ Suggested room: `hall`.
 
 Bassoon.
 
-Suggested room: `hall`.
+Config: `BASSOON`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | As recorded |
 
 ### `tenor-sax` — Tenor Saxophone
 
 Tenor saxophone, straight tone.
 
-Aliases: `sax`, `saxophone`. Suggested room: `room`.
+Config: `TENOR_SAX`. Aliases: `sax`, `saxophone`. Suggested room: `room`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | Straight tone |
 | `jazz` | Jazz ballad: breathy with vibrato |
 | `bright` | Edgy rock tone |
@@ -259,10 +278,11 @@ Aliases: `sax`, `saxophone`. Suggested room: `room`.
 
 B♭ trumpet.
 
-Suggested room: `hall`.
+Config: `TRUMPET`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | Open |
 | `muted` | Straight mute |
 | `vibrato` | Lyrical vibrato |
@@ -271,10 +291,11 @@ Suggested room: `hall`.
 
 Horn in F.
 
-Aliases: `horn`. Suggested room: `hall`.
+Config: `FRENCH_HORN`. Aliases: `horn`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | As recorded |
 | `distant` | Distant, at the back of the hall |
 
@@ -282,27 +303,29 @@ Aliases: `horn`. Suggested room: `hall`.
 
 Tenor trombone.
 
-Suggested room: `hall`.
+Config: `TROMBONE`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | As recorded |
 
 ### `tuba` — Tuba
 
 Tuba.
 
-Suggested room: `hall`.
+Config: `TUBA`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
+| `legato` | Slurred melody: notes connect without re-attacking |
 | `default` | As recorded |
 
 ### `brass` — Brass Section
 
 Tuba, trombone, horn and trumpet split across the keyboard.
 
-Aliases: `brass-section`. Suggested room: `hall`.
+Config: `BRASS`. Aliases: `brass-section`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -314,7 +337,7 @@ Aliases: `brass-section`. Suggested room: `hall`.
 
 Rosewood marimba.
 
-Suggested room: `hall`.
+Config: `MARIMBA`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -325,18 +348,19 @@ Suggested room: `hall`.
 
 Vibraphone with hard mallets; note-off engages the damper pedal behaviour.
 
-Aliases: `vibes`. Suggested room: `hall`.
+Config: `VIBRAPHONE`. Aliases: `vibes`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
 | `default` | As recorded |
 | `let-ring` | Pedal down: notes ring |
+| `motor` | Motor on: the classic vibraphone pulse |
 
 ### `xylophone` — Xylophone
 
 Xylophone.
 
-Suggested room: `hall`.
+Config: `XYLOPHONE`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -346,7 +370,7 @@ Suggested room: `hall`.
 
 Glockenspiel.
 
-Suggested room: `hall`.
+Config: `GLOCKENSPIEL`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -356,7 +380,7 @@ Suggested room: `hall`.
 
 Orchestral chimes.
 
-Aliases: `chimes`. Suggested room: `church`.
+Config: `TUBULAR_BELLS`. Aliases: `chimes`. Suggested room: `church`.
 
 | Preset | Description |
 |---|---|

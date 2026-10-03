@@ -7,8 +7,16 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./instruments": {
+      "types": "./dist/catalog/index.d.ts",
+      "import": "./dist/catalog/index.js"
+    },
+    "./organs": {
+      "types": "./dist/organs/index.d.ts",
+      "import": "./dist/organs/index.js"
     }
   },
   "files": [

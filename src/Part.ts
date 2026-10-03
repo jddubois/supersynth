@@ -1,22 +1,10 @@
-import type { InstrumentDef, LayerDef, PresetDef } from './catalog.js';
+import type { InstrumentDef, LayerDef, PresetDef } from './catalog/index.js';
 import { noteNumber, type NoteLike } from './notes.js';
 import { toNativeParam, type InstrumentParams } from './params.js';
+import { playNotes, playSequence, resolveTime, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
 import type { Synth } from './Synth.js';
 
-/** Timing options shared by note methods. Times are in seconds on the synth clock. */
-export interface TimeOptions {
-  /** Absolute time (seconds, `synth.currentTime` clock). */
-  at?: number;
-  /** Seconds from now. */
-  delay?: number;
-}
-
-export interface PlayOptions extends TimeOptions {
-  /** 1–127. @default 90 */
-  velocity?: number;
-  /** Seconds the key is held. @default 1 */
-  duration?: number;
-}
+export type { PlayOptions, TimeOptions } from './scheduling.js';
 
 /** Defaults of every parameter (used when switching presets). */
 export const PARAM_DEFAULTS: Required<Omit<InstrumentParams, 'leslie' | 'mono' | 'legato'>> & { leslie: 'off'; mono: false; legato: false } = {
@@ -89,42 +77,19 @@ export class Part {
    * @example part.play('C4') — part.play(['C4','E4','G4'], { duration: 2, velocity: 70 })
    */
   play(notes: NoteLike | NoteLike[], options: PlayOptions = {}): this {
-    const list = Array.isArray(notes) ? notes : [notes];
-    const vel = clampVel(options.velocity ?? 90);
-    const dur = Math.max(0, options.duration ?? 1);
-    const t = this.time(options);
-    const start = t ?? this.synth.currentTime;
-    const n = this.synth._native();
-    for (const note of list) {
-      const m = noteNumber(note);
-      n.noteOn(this.index, m, vel, t);
-      n.noteOff(this.index, m, start + dur);
-    }
+    playNotes(this, this.synth.currentTime, notes, options, clampVel(options.velocity ?? 90));
     return this;
   }
 
   /**
    * Play a sequence of notes, one after another.
    * Each step is `[note(s), beats]` or `{ note, beats, velocity }`; `null` notes are rests.
+   * Returns the sequence's length in seconds.
    *
    * @example part.sequence([['C4', 1], ['E4', 1], [['G4','C5'], 2]], { bpm: 96 })
    */
-  sequence(
-    steps: Array<[NoteLike | NoteLike[] | null, number] | { note: NoteLike | NoteLike[] | null; beats: number; velocity?: number }>,
-    options: TimeOptions & { bpm?: number; velocity?: number; legato?: number } = {},
-  ): number {
-    const beat = 60 / (options.bpm ?? 120);
-    const legato = options.legato ?? 0.95;
-    let t = this.time(options) ?? this.synth.currentTime;
-    const start = t;
-    for (const s of steps) {
-      const [note, beats, vel] = Array.isArray(s) ? [s[0], s[1], undefined] : [s.note, s.beats, s.velocity];
-      if (note !== null) {
-        this.play(note, { at: t, duration: beats * beat * legato, velocity: vel ?? options.velocity ?? 90 });
-      }
-      t += beats * beat;
-    }
-    return t - start;
+  sequence(steps: SequenceStep[], options: SequenceOptions = {}): number {
+    return playSequence((n, o) => this.play(n, o), this.synth.currentTime, steps, options);
   }
 
   /** Sustain (damper) pedal. */
@@ -213,9 +178,7 @@ export class Part {
   }
 
   private time(o: TimeOptions): number | undefined {
-    if (o.at !== undefined) return o.at;
-    if (o.delay !== undefined) return this.synth.currentTime + o.delay;
-    return undefined;
+    return resolveTime(this.synth.currentTime, o);
   }
 }
 

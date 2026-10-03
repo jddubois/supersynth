@@ -1,209 +1,28 @@
 import { SupersynthError } from './errors.js';
 import { noteNumber, type NoteLike } from './notes.js';
-import type { PlayOptions, TimeOptions } from './Part.js';
+import { CHURCH_DIVISIONS, ORGAN_DEFAULTS, SWELL_TREMULANT } from './organs/defaults.js';
+import { BUREA_ORGAN, ORGANS, type OrganInstrument } from './organs/index.js';
+import type { DivisionName, OrganDef, StopDef } from './organs/types.js';
+import { playNotes, playSequence, resolveTime, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
 import type { Synth } from './Synth.js';
 
-export type DivisionName = 'great' | 'swell' | 'positive' | 'pedal';
+export type { DivisionName, OrganDef, Registration, StopDef } from './organs/types.js';
 
-export interface StopDef {
-  /** Stop id (Bureå: model models/organ/<id>.ssm). */
-  id: string;
-  /** Model id when it is not `organ/<id>` (e.g. a VCSL organ model). */
-  model?: string;
-  /** Stop name as engraved on the stop knob, e.g. "Principal 8'". */
-  name: string;
-  division: DivisionName;
-  family: 'principal' | 'flute' | 'string' | 'reed' | 'mutation' | 'mixture';
-  /** Semitones between the key pressed and the sounding pitch of the stop's model zones. */
-  transpose: number;
-  /** Level of the stop (dB) when its recordings were normalised separately. */
-  gain?: number;
+const DIVISIONS: DivisionName[] = ['great', 'swell', 'positive', 'pedal'];
+
+/** The organ definition behind an id or a definition. */
+export function resolveOrgan(instrument: OrganInstrument | OrganDef | undefined): OrganDef {
+  if (instrument === undefined) return ORGANS.burea;
+  if (typeof instrument !== 'string') return instrument;
+  const def = (ORGANS as Record<string, OrganDef>)[instrument];
+  if (!def) throw new SupersynthError(`Unknown organ '${instrument}'. Available: ${Object.keys(ORGANS).join(', ')}`);
+  return def;
 }
 
-/**
- * The Bureå Church organ (Nils Hammarberg, 1967; sampled by Lars Palo, CC BY-SA 2.5 SE):
- * every pipe of every stop analysed into spectral models.
- */
-export const BUREA_STOPS: StopDef[] = [
-  { id: 'great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0 },
-  { id: 'great-gedackt-8', name: "Gedackt 8'", division: 'great', family: 'flute', transpose: 0 },
-  { id: 'extra-hohlflute-8', name: "Hohlflöte 8'", division: 'great', family: 'flute', transpose: 0 },
-  { id: 'great-octave-4', name: "Octave 4'", division: 'great', family: 'principal', transpose: 12 },
-  { id: 'great-rohrflute-4', name: "Rohrflöte 4'", division: 'great', family: 'flute', transpose: 12 },
-  { id: 'great-octave-2', name: "Octave 2'", division: 'great', family: 'principal', transpose: 24 },
-  { id: 'great-sesquialtera', name: 'Sesquialtera II', division: 'great', family: 'mixture', transpose: 0 },
-  { id: 'great-mixture', name: 'Mixture V', division: 'great', family: 'mixture', transpose: 0 },
-  { id: 'great-trumpet-8', name: "Trumpet 8'", division: 'great', family: 'reed', transpose: 0 },
-
-  { id: 'swell-rohrflute-8', name: "Rohrflöte 8'", division: 'swell', family: 'flute', transpose: 0 },
-  { id: 'swell-salicional-8', name: "Salicional 8'", division: 'swell', family: 'string', transpose: 0 },
-  { id: 'extra-voix-celeste-8', name: "Voix céleste 8'", division: 'swell', family: 'string', transpose: 0 },
-  { id: 'swell-principal-4', name: "Principal 4'", division: 'swell', family: 'principal', transpose: 12 },
-  { id: 'swell-hohlflute-4', name: "Hohlflöte 4'", division: 'swell', family: 'flute', transpose: 12 },
-  { id: 'extra-gemshorn-4', name: "Gemshorn 4'", division: 'swell', family: 'principal', transpose: 12 },
-  { id: 'swell-waldflute-2', name: "Waldflöte 2'", division: 'swell', family: 'flute', transpose: 24 },
-  { id: 'swell-tierce-1-3-5', name: "Terz 1 3/5'", division: 'swell', family: 'mutation', transpose: 28 },
-  { id: 'swell-nasard-1-1-3', name: "Nasat 1 1/3'", division: 'swell', family: 'mutation', transpose: 31 },
-  { id: 'swell-septime-1-1-7', name: "Septime 1 1/7'", division: 'swell', family: 'mutation', transpose: 34 },
-  { id: 'swell-scharf', name: 'Scharf III', division: 'swell', family: 'mixture', transpose: 0 },
-  { id: 'swell-schalmei-8', name: "Schalmei 8'", division: 'swell', family: 'reed', transpose: 0 },
-
-  { id: 'positive-gedackt-8', name: "Gedackt 8'", division: 'positive', family: 'flute', transpose: 0 },
-  { id: 'extra-quintadena-8', name: "Quintadena 8'", division: 'positive', family: 'flute', transpose: 0 },
-  { id: 'positive-koppelflute-4', name: "Koppelflöte 4'", division: 'positive', family: 'flute', transpose: 12 },
-  { id: 'positive-quint-2-2-3', name: "Rohrquinte 2 2/3'", division: 'positive', family: 'mutation', transpose: 19 },
-  { id: 'positive-principal-2', name: "Principal 2'", division: 'positive', family: 'principal', transpose: 24 },
-  { id: 'extra-flautino-2', name: "Flötlein 2'", division: 'positive', family: 'flute', transpose: 24 },
-  { id: 'positive-octave-1', name: "Octave 1'", division: 'positive', family: 'principal', transpose: 36 },
-  { id: 'extra-sifflote-1', name: "Sifflöte 1'", division: 'positive', family: 'flute', transpose: 36 },
-  { id: 'positive-cymbel', name: 'Cymbel II', division: 'positive', family: 'mixture', transpose: 0 },
-  { id: 'positive-krummhorn-8', name: "Krummhorn 8'", division: 'positive', family: 'reed', transpose: 0 },
-
-  { id: 'pedal-subbass-16', name: "Subbass 16'", division: 'pedal', family: 'flute', transpose: -12 },
-  { id: 'extra-violone-16', name: "Violon 16'", division: 'pedal', family: 'string', transpose: -12 },
-  { id: 'pedal-principal-8', name: "Principal 8'", division: 'pedal', family: 'principal', transpose: 0 },
-  { id: 'pedal-gedackt-8', name: "Gedackt 8'", division: 'pedal', family: 'flute', transpose: 0 },
-  { id: 'pedal-octave-4', name: "Octave 4'", division: 'pedal', family: 'principal', transpose: 12 },
-  { id: 'pedal-nachthorn-2', name: "Nachthorn 2'", division: 'pedal', family: 'flute', transpose: 24 },
-  { id: 'pedal-rauschpfeife', name: 'Rauschpfeife IV', division: 'pedal', family: 'mixture', transpose: 0 },
-  { id: 'pedal-bassoon-16', name: "Fagott 16'", division: 'pedal', family: 'reed', transpose: -12 },
-  { id: 'pedal-trumpet-4', name: "Trumpet 4'", division: 'pedal', family: 'reed', transpose: 12 },
-];
-
-/**
- * The VCSL church organ (Simon Dalzell / Ivy Audio, via the Versilian Community Sample
- * Library, CC0): a church instrument recorded in stereo with its room — a full chorus and a
- * flute registration on the manual, loud and soft pedal — with a Renaissance chamber organ
- * (separate 8' and 4' ranks) as the positive.
- */
-export const VCSL_STOPS: StopDef[] = [
-  { id: 'full', model: 'pipe-organ', name: 'Full Organ', division: 'great', family: 'mixture', transpose: 0, gain: 0 },
-  { id: 'flutes', model: 'pipe-organ-soft', name: 'Flutes', division: 'great', family: 'flute', transpose: 0, gain: -7.8 },
-  { id: 'swell-full', model: 'pipe-organ', name: 'Full Organ', division: 'swell', family: 'mixture', transpose: 0, gain: 0 },
-  { id: 'swell-flutes', model: 'pipe-organ-soft', name: 'Flutes', division: 'swell', family: 'flute', transpose: 0, gain: -7.8 },
-  { id: 'chamber-8', model: 'renaissance-organ-8', name: "Gedackt 8'", division: 'positive', family: 'flute', transpose: 0, gain: -15.4 },
-  { id: 'chamber-4', model: 'renaissance-organ-4', name: "Principal 4'", division: 'positive', family: 'principal', transpose: 0, gain: -14.5 },
-  { id: 'chamber-full', model: 'renaissance-organ-full', name: 'Chorus', division: 'positive', family: 'mixture', transpose: 0, gain: -8.7 },
-  { id: 'pedal-loud', model: 'pipe-organ-pedal', name: "Pedal 16' + 8'", division: 'pedal', family: 'principal', transpose: 0, gain: 0 },
-  { id: 'pedal-soft', model: 'pipe-organ-pedal-soft', name: "Soft Bass 16'", division: 'pedal', family: 'flute', transpose: 0, gain: -12.8 },
-];
-
-/** A registration: stops per division plus couplers. */
-export interface Registration {
-  description: string;
-  great?: string[];
-  swell?: string[];
-  positive?: string[];
-  pedal?: string[];
-  /** Couplers as `'swell>great'`, `'great>pedal'` etc. */
-  couplers?: string[];
+/** Model id of a stop. */
+export function stopModel(stop: StopDef): string {
+  return stop.model ?? `organ/${stop.id}`;
 }
-
-export const REGISTRATIONS: Record<string, Registration> = {
-  principal: {
-    description: "Principal 8' alone — the foundation tone of the organ",
-    great: ["Principal 8'"],
-    pedal: ["Subbass 16'", "Principal 8'"],
-  },
-  'principal-chorus': {
-    description: "Principal chorus 8' 4' 2' (Baroque plenum without mixture)",
-    great: ["Principal 8'", "Octave 4'", "Octave 2'"],
-    pedal: ["Subbass 16'", "Principal 8'", "Octave 4'"],
-    couplers: ['great>pedal'],
-  },
-  plenum: {
-    description: 'Organo pleno for Bach preludes and fugues: principals and mixtures',
-    great: ["Principal 8'", "Octave 4'", "Octave 2'", 'Mixture V'],
-    positive: ["Gedackt 8'", "Koppelflöte 4'", "Principal 2'", 'Cymbel II'],
-    pedal: ["Subbass 16'", "Principal 8'", "Octave 4'", 'Rauschpfeife IV', "Fagott 16'"],
-    couplers: ['great>pedal'],
-  },
-  full: {
-    description: 'Full organ with reeds and all manuals coupled',
-    great: ["Principal 8'", "Gedackt 8'", "Octave 4'", "Octave 2'", 'Mixture V', 'Sesquialtera II', "Trumpet 8'"],
-    swell: ["Rohrflöte 8'", "Principal 4'", "Waldflöte 2'", 'Scharf III', "Schalmei 8'"],
-    positive: ["Gedackt 8'", "Koppelflöte 4'", "Principal 2'", 'Cymbel II', "Krummhorn 8'"],
-    pedal: ["Subbass 16'", "Violon 16'", "Principal 8'", "Octave 4'", 'Rauschpfeife IV', "Fagott 16'", "Trumpet 4'"],
-    couplers: ['swell>great', 'positive>great', 'great>pedal'],
-  },
-  flutes: {
-    description: "Flutes 8' + 4' — gentle, for chorale preludes",
-    great: ["Gedackt 8'", "Rohrflöte 4'"],
-    pedal: ["Subbass 16'", "Gedackt 8'"],
-  },
-  'flute-8': {
-    description: "Gedackt 8' — soft stopped flute",
-    positive: ["Gedackt 8'"],
-    pedal: ["Subbass 16'"],
-  },
-  cornet: {
-    description: 'Cornet (8\' 4\' 2 2/3\' 2\' 1 3/5\') — solo voice for ornamented melodies',
-    great: ["Gedackt 8'", "Rohrflöte 4'", 'Sesquialtera II'],
-    swell: ["Rohrflöte 8'", "Hohlflöte 4'", "Waldflöte 2'", "Terz 1 3/5'"],
-    pedal: ["Subbass 16'", "Gedackt 8'"],
-  },
-  trumpet: {
-    description: "Trumpet 8' with Principal — festive solo",
-    great: ["Principal 8'", "Trumpet 8'"],
-    pedal: ["Subbass 16'", "Principal 8'", "Fagott 16'"],
-  },
-  krummhorn: {
-    description: "Krummhorn 8' — nasal Renaissance reed solo",
-    positive: ["Gedackt 8'", "Krummhorn 8'"],
-    pedal: ["Subbass 16'", "Gedackt 8'"],
-  },
-  celeste: {
-    description: "Salicional + Voix céleste — shimmering strings for romantic music",
-    swell: ["Salicional 8'", "Voix céleste 8'"],
-    pedal: ["Subbass 16'"],
-  },
-  'quiet-strings': {
-    description: "Salicional 8' alone",
-    swell: ["Salicional 8'"],
-    pedal: ["Subbass 16'"],
-  },
-  'sesquialtera-solo': {
-    description: 'Sesquialtera solo with flutes — the classic Dutch/Scandinavian chorale cantus',
-    great: ["Gedackt 8'", "Rohrflöte 4'", 'Sesquialtera II'],
-    pedal: ["Subbass 16'", "Gedackt 8'"],
-  },
-};
-
-export const VCSL_REGISTRATIONS: Record<string, Registration> = {
-  full: {
-    description: 'Full organ: the full chorus with loud pedal',
-    great: ['Full Organ'],
-    pedal: ["Pedal 16' + 8'"],
-  },
-  flutes: {
-    description: 'Soft flutes with soft pedal — gentle, for chorale preludes',
-    great: ['Flutes'],
-    pedal: ["Soft Bass 16'"],
-  },
-  chamber: {
-    description: "Chamber organ 8' + 4' — bright Renaissance consort sound",
-    positive: ["Gedackt 8'", "Principal 4'"],
-    pedal: ["Soft Bass 16'"],
-  },
-  'chamber-8': {
-    description: "Chamber organ Gedackt 8' alone",
-    positive: ["Gedackt 8'"],
-    pedal: ["Soft Bass 16'"],
-  },
-  dialogue: {
-    description: 'Full organ on the great against flutes on the swell (play the two manuals in alternation)',
-    great: ['Full Organ'],
-    swell: ['Flutes'],
-    pedal: ["Pedal 16' + 8'"],
-  },
-};
-
-/** The organs available through `synth.organ({ instrument })`. */
-export const ORGANS = {
-  burea: { stops: BUREA_STOPS, registrations: REGISTRATIONS, defaultRegistration: 'principal-chorus' },
-  vcsl: { stops: VCSL_STOPS, registrations: VCSL_REGISTRATIONS, defaultRegistration: 'full' },
-} as const;
-export type OrganInstrument = keyof typeof ORGANS;
 
 /** One keyboard (manual or pedalboard) of the organ. */
 export class Division {
@@ -221,7 +40,7 @@ export class Division {
 
   /** All stops of this division. */
   get stops(): StopDef[] {
-    return this.organ.stopDefs.filter((s) => s.division === this.name);
+    return this.organ.definition.stops.filter((s) => s.division === this.name);
   }
 
   /** Names of the stops currently drawn. */
@@ -259,7 +78,7 @@ export class Division {
       if (!on) return;
       // load the stop's model the first time it is drawn
       li = this.stopIndex.size;
-      n.addLayer(this.channel, { ...synth._layer({ model: def.model ?? `organ/${def.id}`, transpose: def.transpose, gain: def.gain ?? 0 }), enabled: on });
+      n.addLayer(this.channel, { ...synth._layer({ model: stopModel(def), transpose: def.transpose, gain: def.gain ?? 0 }), enabled: on });
       this.stopIndex.set(def.name, li);
     } else {
       n.setLayerEnabled(this.channel, li, on);
@@ -295,15 +114,13 @@ export class Division {
 
   /** Play notes for a duration (organs are not velocity sensitive). */
   play(notes: NoteLike | NoteLike[], options: PlayOptions = {}): this {
-    const list = Array.isArray(notes) ? notes : [notes];
-    const t = this.organ._time(options);
-    const start = t ?? this.organ.synth.currentTime;
-    const dur = options.duration ?? 1;
-    for (const note of list) {
-      this.noteOn(note, 100, t !== undefined ? { at: t } : {});
-      this.noteOff(note, { at: start + dur });
-    }
+    playNotes(this, this.organ.synth.currentTime, notes, options, 100);
     return this;
+  }
+
+  /** Play a sequence of notes, one after another (see {@link Part.sequence}). Returns its length in seconds. */
+  sequence(steps: SequenceStep[], options: SequenceOptions = {}): number {
+    return playSequence((n, o) => this.play(n, o), this.organ.synth.currentTime, steps, options);
   }
 
   /** Swell pedal, 0 (shutters closed) – 1 (open). On the swell division it moves the swell
@@ -322,22 +139,23 @@ export class Division {
 }
 
 export interface OrganOptions {
-  /** Which organ: `'burea'` (Bureå Church, 40 stops) or `'vcsl'` (VCSL church organ with a
-   *  Renaissance chamber organ as positive). @default 'burea' */
-  instrument?: OrganInstrument;
-  /** Registration to start with. @default 'principal-chorus' (Bureå), 'full' (VCSL) */
+  /** Which organ: a built-in id (`'burea'`: Bureå Church, 40 stops; `'vcsl'`: VCSL church
+   *  organ with a Renaissance chamber organ as positive) or any {@link OrganDef}.
+   *  @default 'burea' */
+  instrument?: OrganInstrument | OrganDef;
+  /** Registration to start with. @default the organ's `defaultRegistration` */
   registration?: string;
-  /** Tremulant on the swell. @default false */
+  /** Start with the tremulant on. @default false */
   tremulant?: boolean;
   /** Wind supply: how much the pipes of a division sag together when many start at once
    *  (pressure dip and regulator recovery). 0 = perfectly steady, 1 = flexible historic
-   *  winding. @default 0.5 */
+   *  winding. @default the organ's `wind` (0.5) */
   wind?: number;
 }
 
 /**
  * A real church organ: four divisions with drawable stops, couplers, swell pedal and
- * tremulant. Every pipe was analysed from the Bureå Church organ (Sweden).
+ * tremulant, played from an {@link OrganDef} (the Bureå Church organ by default).
  *
  * ```ts
  * const organ = synth.organ({ registration: 'plenum' });
@@ -352,33 +170,35 @@ export class Organ {
   readonly positive: Division;
   readonly pedal: Division;
   private _registration = '';
-  /** Which organ this is. */
-  readonly instrument: OrganInstrument;
+  /** The organ's definition: stops, registrations, layout. */
+  readonly definition: OrganDef;
 
   /** @internal */
   constructor(readonly synth: Synth, options: OrganOptions = {}) {
-    const inst = options.instrument ?? 'burea';
-    if (!(inst in ORGANS)) {
-      throw new SupersynthError(`Unknown organ '${inst}'. Available: ${Object.keys(ORGANS).join(', ')}`);
-    }
-    this.instrument = inst;
+    const def = resolveOrgan(options.instrument);
+    this.definition = def;
     this.great = new Division(this, 'great', synth._reserveChannel());
     this.swell = new Division(this, 'swell', synth._reserveChannel());
     this.positive = new Division(this, 'positive', synth._reserveChannel());
     this.pedal = new Division(this, 'pedal', synth._reserveChannel());
+    const layout = def.divisions ?? CHURCH_DIVISIONS;
+    const n = synth._native();
     for (const d of this.divisions) {
-      synth._native().setInstrument(d.channel, []);
-      // pipes are recorded in the church, and key-up plays each pipe's recorded release with
-      // the church's own reverberation: the artificial reverb only adds width
-      synth._native().setParam(d.channel, 'reverbSend', 0.07);
-      synth._native().setParam(d.channel, 'pan', d.name === 'pedal' ? 0 : d.name === 'swell' ? 0.15 : d.name === 'positive' ? -0.15 : 0);
+      n.setInstrument(d.channel, []);
+      n.setParam(d.channel, 'reverbSend', def.reverbSend ?? ORGAN_DEFAULTS.reverbSend);
+      n.setParam(d.channel, 'pan', layout[d.name]?.pan ?? 0);
     }
-    // the swell division stands in a swell box: its pedal moves shutters (treble is damped
-    // far more than bass, and the closed box is quieter, never silent)
-    synth._native().setParam(this.swell.channel, 'swellBox', 1);
-    this.setWind(options.wind ?? 0.5);
-    this.useRegistration(options.registration ?? ORGANS[inst].defaultRegistration);
+    for (const d of this.divisions) {
+      if (layout[d.name]?.swellBox) n.setParam(d.channel, 'swellBox', 1);
+    }
+    this.setWind(options.wind ?? def.wind ?? ORGAN_DEFAULTS.wind);
+    this.useRegistration(options.registration ?? def.defaultRegistration);
     if (options.tremulant) this.tremulant(true);
+  }
+
+  /** Id of the organ (`'burea'`, `'vcsl'`, or a custom definition's id). */
+  get instrument(): string {
+    return this.definition.id;
   }
 
   get divisions(): Division[] {
@@ -390,29 +210,29 @@ export class Organ {
     return this._registration;
   }
 
-  /** Named registrations. */
+  /** Registrations of the Bureå organ. @deprecated use `organ.registrations` or `BUREA_ORGAN` */
   static get registrations(): Record<string, string> {
-    return Object.fromEntries(Object.entries(REGISTRATIONS).map(([k, r]) => [k, r.description]));
+    return describe(BUREA_ORGAN.registrations);
   }
 
-  /** All stops of the (Bureå) organ. */
+  /** All stops of the Bureå organ. @deprecated use `BUREA_ORGAN.stops` */
   static get stops(): StopDef[] {
-    return BUREA_STOPS;
+    return BUREA_ORGAN.stops;
   }
 
-  /** @internal Stops of this organ. */
-  get stopDefs(): StopDef[] {
-    return ORGANS[this.instrument].stops;
+  /** All stops of this organ. */
+  get stops(): StopDef[] {
+    return this.definition.stops;
   }
 
-  /** Named registrations of this organ. */
+  /** Named registrations of this organ, with their descriptions. */
   get registrations(): Record<string, string> {
-    return Object.fromEntries(Object.entries(ORGANS[this.instrument].registrations).map(([k, r]) => [k, r.description]));
+    return describe(this.definition.registrations);
   }
 
   /** Apply a named registration (replaces all drawn stops and couplers). */
   useRegistration(name: string): this {
-    const regs: Record<string, Registration> = ORGANS[this.instrument].registrations;
+    const regs = this.definition.registrations;
     const r = regs[name];
     if (!r) throw new SupersynthError(`Unknown registration '${name}'. Available: ${Object.keys(regs).join(', ')}`);
     for (const d of this.divisions) {
@@ -441,14 +261,15 @@ export class Organ {
     return this;
   }
 
-  /** Tremulant (wind-pressure wobble) on the swell division. */
+  /** Tremulant: a periodic wobble of one division's wind pressure (see {@link OrganDef.tremulant}). */
   tremulant(on: boolean): this {
-    // the tremulant modulates the swell's wind pressure: all pipes pulse together in
-    // loudness and (less) in pitch — about 6 Hz, ±2.5 dB, ±8 cents
+    // all pipes of the division pulse together in loudness and (less) in pitch
+    const tr = this.definition.tremulant ?? SWELL_TREMULANT;
     const n = this.synth._native();
-    n.setParam(this.swell.channel, 'tremolo', on ? 2.5 : 0);
-    n.setParam(this.swell.channel, 'tremoloPitch', on ? 8 : 0);
-    n.setParam(this.swell.channel, 'tremoloRate', 6.2);
+    const ch = this.division(tr.division).channel;
+    n.setParam(ch, 'tremolo', on ? tr.depth : 0);
+    n.setParam(ch, 'tremoloPitch', on ? tr.pitch : 0);
+    n.setParam(ch, 'tremoloRate', tr.rate);
     return this;
   }
 
@@ -470,14 +291,16 @@ export class Organ {
 
   division(name: DivisionName): Division {
     const d = this.divisions.find((x) => x.name === name);
-    if (!d) throw new SupersynthError(`No division '${name}' (great, swell, positive, pedal)`);
+    if (!d) throw new SupersynthError(`No division '${name}' (${DIVISIONS.join(', ')})`);
     return d;
   }
 
   /** @internal */
   _time(o: TimeOptions): number | undefined {
-    if (o.at !== undefined) return o.at;
-    if (o.delay !== undefined) return this.synth.currentTime + o.delay;
-    return undefined;
+    return resolveTime(this.synth.currentTime, o);
   }
+}
+
+function describe(regs: OrganDef['registrations']): Record<string, string> {
+  return Object.fromEntries(Object.entries(regs).map(([k, r]) => [k, r.description]));
 }

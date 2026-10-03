@@ -57,7 +57,8 @@ const scenarios: Scenario[] = [
 
 console.log(`render ${SECONDS}s @ 48 kHz, stereo, with reverb + limiter\n`);
 for (const sc of scenarios) {
-  const synth = new Synth({ sampleRate: 48000, reverb: 'hall', modelsDir: process.env.SUPERSYNTH_MODELS_DIR || undefined });
+  const dir = process.env.SUPERSYNTH_MODELS_DIR;
+  const synth = new Synth({ sampleRate: 48000, reverb: 'hall', ...(dir ? { modelsDir: dir } : {}) });
   const notes = sc.setup(synth);
   synth.render(0.01); // load models outside the timing
   const t0 = performance.now();

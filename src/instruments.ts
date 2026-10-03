@@ -1,5 +1,7 @@
-import { Organ as OrganHandle, type OrganOptions } from './Organ.js';
+import { Organ as OrganHandle, resolveOrgan, type OrganOptions } from './Organ.js';
+import { ORGAN_DEFAULTS } from './organs/defaults.js';
 import { Part, type PlayOptions, type TimeOptions } from './Part.js';
+import type { InstrumentDef } from './catalog/index.js';
 import type { NoteLike } from './notes.js';
 import type { InstrumentParams } from './params.js';
 import { Synth, type SynthOptions } from './Synth.js';
@@ -12,8 +14,62 @@ export interface InstrumentOptions extends SynthOptions {
   params?: InstrumentParams;
 }
 
+type WithSynth = abstract new (...args: any[]) => { readonly synth: Synth };
+
+/** Adds the controls of an engine the object owns (start, stop, render…). */
+function OwnEngine<B extends WithSynth>(Base: B) {
+  abstract class Owned extends Base {
+    /** Engine clock (seconds). */
+    get currentTime(): number {
+      return this.synth.currentTime;
+    }
+
+    /** Start real-time playback on the default audio output. */
+    async start(): Promise<this> {
+      await this.synth.start();
+      return this;
+    }
+
+    /** Stop real-time playback. */
+    stop(): this {
+      this.synth.stop();
+      return this;
+    }
+
+    /** Stop and release the engine. */
+    close(): void {
+      this.synth.close();
+    }
+
+    /** Render offline (see {@link Synth.render}). */
+    render(seconds: number): AudioBuffer {
+      return this.synth.render(seconds);
+    }
+
+    /** Render offline to a WAV file. */
+    renderToFile(file: string, seconds: number, options: WavOptions = {}): AudioBuffer {
+      return this.synth.renderToFile(file, seconds, options);
+    }
+  }
+  return Owned;
+}
+
+class SinglePart {
+  /** The underlying engine (add more instruments to it with `synth.add`). */
+  readonly synth: Synth;
+  /** The instrument's part (channel). */
+  readonly part: Part;
+
+  constructor(instrument: string | InstrumentDef, options: InstrumentOptions = {}) {
+    const { preset, params, ...synthOptions } = options;
+    this.synth = new Synth(synthOptions);
+    this.part = this.synth.add(instrument, { ...(preset ? { preset } : {}), ...(params ? { params } : {}) });
+  }
+}
+
 /**
- * A single instrument with its own engine — the quickest way to make sound.
+ * A single instrument with its own engine — the quickest way to make sound. Takes a catalog
+ * id or any {@link InstrumentDef} (e.g. one imported from `supersynth/instruments`).
  *
  * ```ts
  * import { Piano } from 'supersynth';
@@ -22,38 +78,9 @@ export interface InstrumentOptions extends SynthOptions {
  * piano.play(['C4', 'E4', 'G4'], { duration: 2 });
  * ```
  */
-export class Instrument {
-  /** The underlying engine (add more instruments to it with `synth.add`). */
-  readonly synth: Synth;
-  /** The instrument's part (channel). */
-  readonly part: Part;
-
-  constructor(id: string, options: InstrumentOptions = {}) {
-    const { preset, params, ...synthOptions } = options;
-    this.synth = new Synth(synthOptions);
-    this.part = this.synth.add(id, { ...(preset ? { preset } : {}), ...(params ? { params } : {}) });
-  }
-
+export class Instrument extends OwnEngine(SinglePart) {
   get presets(): string[] {
     return this.part.presets;
-  }
-
-  get currentTime(): number {
-    return this.synth.currentTime;
-  }
-
-  async start(): Promise<this> {
-    await this.synth.start();
-    return this;
-  }
-
-  stop(): this {
-    this.synth.stop();
-    return this;
-  }
-
-  close(): void {
-    this.synth.close();
   }
 
   play(notes: NoteLike | NoteLike[], options: PlayOptions = {}): this {
@@ -88,14 +115,6 @@ export class Instrument {
   usePreset(name: string, extra: InstrumentParams = {}): this {
     this.part.usePreset(name, extra);
     return this;
-  }
-
-  render(seconds: number): AudioBuffer {
-    return this.synth.render(seconds);
-  }
-
-  renderToFile(file: string, seconds: number, options: WavOptions = {}): AudioBuffer {
-    return this.synth.renderToFile(file, seconds, options);
   }
 }
 
@@ -173,7 +192,7 @@ export class Vibraphone extends Instrument {
 }
 
 /**
- * The church organ with its own engine.
+ * A church organ with its own engine (any organ {@link OrganOptions.instrument} accepts).
  *
  * ```ts
  * const organ = new ChurchOrgan({ registration: 'plenum' });
@@ -182,33 +201,15 @@ export class Vibraphone extends Instrument {
  * organ.pedal.play('C2', { duration: 4 });
  * ```
  */
-export class ChurchOrgan extends OrganHandle {
+export class ChurchOrgan extends OwnEngine(OrganHandle) {
   constructor(options: OrganOptions & SynthOptions = {}) {
     const { registration, tremulant, instrument, wind, ...synthOptions } = options;
-    const synth = new Synth({ reverb: 'church', ...synthOptions });
+    const synth = new Synth({ reverb: resolveOrgan(instrument).reverb ?? ORGAN_DEFAULTS.reverb, ...synthOptions });
     super(synth, {
       ...(instrument ? { instrument } : {}),
       ...(registration ? { registration } : {}),
       ...(tremulant ? { tremulant } : {}),
       ...(wind !== undefined ? { wind } : {}),
     });
-  }
-
-  async start(): Promise<this> {
-    await this.synth.start();
-    return this;
-  }
-
-  stop(): this {
-    this.synth.stop();
-    return this;
-  }
-
-  render(seconds: number): AudioBuffer {
-    return this.synth.render(seconds);
-  }
-
-  renderToFile(file: string, seconds: number, options: WavOptions = {}): AudioBuffer {
-    return this.synth.renderToFile(file, seconds, options);
   }
 }

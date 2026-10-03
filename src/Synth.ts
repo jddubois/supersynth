@@ -2,13 +2,14 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { findInstrument, INSTRUMENTS, type InstrumentDef, type LayerDef } from './catalog.js';
+import { findInstrument, INSTRUMENTS, type InstrumentDef, type LayerDef } from './catalog/index.js';
 import { AudioBackendError, MidiError, SupersynthError } from './errors.js';
 import { parseMidiFile, type MidiFileData, type MidiFileEvent } from './midifile.js';
 import { loadNative, packageRoot, type NativeEngine, type NativeLayer } from './native.js';
 import type { InstrumentParams, ReverbOptions, ReverbPreset } from './params.js';
 import { REVERB_FIELDS } from './params.js';
-import { Division, Organ, type OrganOptions } from './Organ.js';
+import { Division, Organ, resolveOrgan, type OrganOptions } from './Organ.js';
+import { ORGAN_DEFAULTS } from './organs/defaults.js';
 import { Part } from './Part.js';
 import { deinterleave, makeAudioBuffer, writeWav, type AudioBuffer, type WavOptions } from './wav.js';
 import type { MidiEvent } from './types.js';
@@ -228,15 +229,17 @@ export class Synth extends EventEmitter {
   private used = new Set<number>();
 
   /**
-   * The church organ (four divisions with drawable stops).
+   * A church organ (four divisions with drawable stops): the Bureå organ, another built-in
+   * organ by id, or any {@link OrganDef}.
    *
    * @example
    * const organ = synth.organ({ registration: 'plenum' });
    * organ.great.play(['C4','E4','G4'], { duration: 4 });
+   * synth.organ({ instrument: VCSL_ORGAN, registration: 'flutes' });
    */
   organ(options: OrganOptions = {}): Organ {
     if (this.reverbMode === 'auto') {
-      this.engine.setReverbPreset('church');
+      this.engine.setReverbPreset(resolveOrgan(options.instrument).reverb ?? ORGAN_DEFAULTS.reverb);
       this.reverbMode = 'set';
     }
     const organ = new Organ(this, options);

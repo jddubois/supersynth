@@ -1,9 +1,13 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 import {
-  chord, encodeWav, INSTRUMENTS, noteName, noteNumber, parseMidiFile, Piano, Synth, SupersynthError,
+  chord, encodeWav, findInstrument, Instrument, INSTRUMENTS, instrumentIds, noteName, noteNumber, parseMidiFile, Piano, Synth,
+  SupersynthError, type InstrumentDef, type OrganDef,
 } from '../src/index.js';
+import * as instrumentConfigs from '../src/catalog/index.js';
+import { BUREA_ORGAN, ORGANS } from '../src/organs/index.js';
 
 const peak = (a: Float32Array) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
 const rms = (a: Float32Array) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / Math.max(1, a.length));
@@ -146,6 +150,71 @@ describe('organ', () => {
     const after = rms(synth.render(0.5).right);
     // the recorded Krummhorn C4 sounds ~4.5 dB below the Gedackt: about +1.4 dB together
     expect(after).toBeGreaterThan(before * 1.1);
+  });
+});
+
+describe('configurations', () => {
+  /** The JSON header of a model file. */
+  const header = (model: string) => {
+    const raw = gunzipSync(readFileSync(path.join(process.cwd(), 'models', `${model}.ssm`)));
+    return JSON.parse(raw.subarray(8, 8 + raw.readUInt32LE(4)).toString('utf8'));
+  };
+
+  test('every named instrument config is in the catalog, under its own id', () => {
+    const named = Object.values(instrumentConfigs).filter((v): v is InstrumentDef => typeof v === 'object' && v !== null && 'layers' in v);
+    expect(named.length).toBe(INSTRUMENTS.length);
+    for (const def of named) expect(findInstrument(def.id)).toBe(def);
+    expect(instrumentIds()).toEqual(INSTRUMENTS.map((d) => d.id));
+  });
+
+  test('an instrument config can be copied, changed and played', () => {
+    const def = instrumentConfigs.MARIMBA;
+    const inst = new Instrument({ ...def, id: 'dark-marimba', params: { brightness: -2 } }, { sampleRate: 22050 });
+    inst.play('C5', { duration: 0.3 });
+    expect(rms(inst.render(0.5).left)).toBeGreaterThan(1e-4);
+  });
+
+  test('Bureå stops agree with the stop data analysed into their models', () => {
+    for (const stop of BUREA_ORGAN.stops) {
+      const h = header(`organ/${stop.id}`);
+      expect([stop.id, h.stop.name, h.stop.footage_offset, h.stop.family]).toEqual([stop.id, stop.name, stop.transpose, stop.family]);
+    }
+  });
+
+  test('registrations only name stops of their divisions', () => {
+    for (const organ of Object.values(ORGANS)) {
+      for (const [name, reg] of Object.entries(organ.registrations)) {
+        for (const div of ['great', 'swell', 'positive', 'pedal'] as const) {
+          for (const stop of reg[div] ?? []) {
+            expect([organ.id, name, div, organ.stops.some((s) => s.division === div && s.name === stop)]).toEqual([organ.id, name, div, true]);
+          }
+        }
+      }
+    }
+  });
+
+  test('a custom organ definition plays', () => {
+    const tiny: OrganDef = {
+      id: 'tiny',
+      name: 'Two-stop chamber organ',
+      description: 'Bureå flutes as a box organ',
+      stops: BUREA_ORGAN.stops.filter((s) => ['great-gedackt-8', 'pedal-subbass-16'].includes(s.id)),
+      registrations: { soft: { description: 'Gedackt and Subbass', great: ["Gedackt 8'"], pedal: ["Subbass 16'"] } },
+      defaultRegistration: 'soft',
+      divisions: { great: { pan: -0.5 } },
+      tremulant: { division: 'great', depth: 3, pitch: 5, rate: 5 },
+    };
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const organ = synth.organ({ instrument: tiny, tremulant: true });
+    expect(organ.instrument).toBe('tiny');
+    expect(organ.great.drawn).toEqual(["Gedackt 8'"]);
+    expect(organ.registrations).toEqual({ soft: 'Gedackt and Subbass' });
+    const len = organ.great.sequence([['C4', 1], [['E4', 'G4'], 1]], { bpm: 240 });
+    expect(len).toBeCloseTo(0.5);
+    const out = synth.render(0.8);
+    // panned left
+    expect(rms(out.left)).toBeGreaterThan(rms(out.right) * 1.2);
+    expect(() => organ.great.pull("Trumpet 8'")).toThrow(SupersynthError);
   });
 });
 

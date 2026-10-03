@@ -22,9 +22,9 @@ organ.tremulant(true);
 organ.useRegistration('celeste');
 ```
 
-Divisions: `great`, `swell`, `positive`, `pedal` (each a `Division` with `play`, `noteOn`,
-`noteOff`, `pull`, `push`, `clear`, `stops`, `drawn`, `expression`). `new ChurchOrgan()` creates
-an organ with its own engine.
+Divisions: `great`, `swell`, `positive`, `pedal` (each a `Division` with `play`, `sequence`,
+`noteOn`, `noteOff`, `pull`, `push`, `clear`, `stops`, `drawn`, `expression`). `new ChurchOrgan()`
+creates an organ with its own engine.
 
 ## A second organ: the VCSL church organ
 
@@ -47,7 +47,51 @@ stops are recorded registrations rather than single ranks, and every third semit
 | pedal | Pedal 16' + 8', Soft Bass 16' |
 
 Registrations: `full`, `flutes`, `chamber`, `chamber-8`, `dialogue` (full great against
-flutes on the swell). The rest of this page describes the Bureå organ (the default).
+flutes on the swell).
+
+## Organs are configuration
+
+Each organ is a plain `OrganDef` object: its stops, named registrations, the placement of its
+divisions (stereo position, which one stands in a swell box), its tremulant, wind and reverb.
+The built-in organs are exported as `BUREA_ORGAN` and `VCSL_ORGAN` (from `supersynth` and from
+`supersynth/organs`), and `instrument` accepts an id or any `OrganDef`:
+
+```ts
+import { BUREA_ORGAN, type OrganDef } from 'supersynth/organs';
+
+synth.organ({ instrument: BUREA_ORGAN });          // same as instrument: 'burea'
+
+// your own registrations, a tremulant on the positive, a steadier wind
+const mine: OrganDef = {
+  ...BUREA_ORGAN,
+  id: 'burea-mine',
+  registrations: {
+    ...BUREA_ORGAN.registrations,
+    'flute-solo': {
+      description: 'Rohrflöte 8 + Waldflöte 2 against soft flutes',
+      swell: ["Rohrflöte 8'", "Waldflöte 2'"],
+      great: ["Gedackt 8'"],
+      pedal: ["Subbass 16'"],
+    },
+  },
+  tremulant: { division: 'positive', depth: 2, pitch: 6, rate: 5.5 },
+  wind: 0.2,
+};
+const organ = synth.organ({ instrument: mine, registration: 'flute-solo' });
+
+// or a small organ from a few of the recorded stops
+const box: OrganDef = {
+  id: 'box', name: 'Box organ', description: 'Two Bureå flutes',
+  stops: BUREA_ORGAN.stops.filter((s) => ['great-gedackt-8', 'pedal-subbass-16'].includes(s.id)),
+  registrations: { soft: { description: 'Gedackt and Subbass', great: ["Gedackt 8'"], pedal: ["Subbass 16'"] } },
+  defaultRegistration: 'soft',
+};
+```
+
+A stop plays the model `organ/<id>` (or its `model`), transposed by `transpose` semitones from
+the key. Optional fields default to `CHURCH_DIVISIONS` (great centre, swell right in its swell
+box, positive left, pedal centre), `SWELL_TREMULANT` and `ORGAN_DEFAULTS`. The rest of this page
+describes the Bureå organ (the default).
 
 ## Stops
 
