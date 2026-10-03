@@ -32,9 +32,14 @@ For every recording (one note at one dynamic):
    parameter space, so there are no loop clicks) and per-partial release rates. Loops start only
    once the phases have settled after the attack; each harmonic's mean phase drift over the loop
    is folded into its frequency, so reversing the loop never flips it. Note-off continues with
-   the recording's own release from where its level starts to fall.
+   the recording's own release from where its level starts to fall — measured on the signal
+   near the release marker (GrandOrgue cue points sit up to 200 ms before the pipe stops
+   speaking) — and the frames between the loop and the release, never played, are dropped.
 
 All on a non-uniform time grid (2 ms steps during the attack, up to 80 ms in long decays).
+A zone can carry its own frame times: organ pipes get 5 ms frames over the first 0.35 s of
+their release (a pipe falls 10 dB within ~20 ms of the pallet closing, which 40 ms frames
+smeared into a late, soft release).
 Partial envelopes are stored with 1/16 dB resolution (0.5 dB steps were audible as a faint
 flutter on steady organ tones).
 
@@ -58,12 +63,16 @@ random on every pass, so a held chord never repeats with a fixed period.
   reproducing one take's exact random fluctuations, which a second take would not either.
 - `discriminate.py <id>` is a classifier two-sample test: a gradient-boosted classifier tries to
   tell real from synthetic windows of notes it was not trained on (AUC 0.5 = indistinguishable)
-  and reports the features it relies on — the remaining tells.
+  and reports the features it relies on — the remaining tells. Sustain windows, attacks and
+  releases (octave-band decay after note-off) are tested separately.
 
 - `evaluate.py <id> --holdout` builds a model without every other recorded pitch and compares the
   synthesis of the missing notes with their recordings — and with a sampler pitch-shifting the
   nearest recording.
 - `organ_eval.py` sums the real recorded pipes of a registration and compares with the engine.
+- `organ_hymn.py` plays a hymn through the public organ API and, from the same note list, on
+  the real pipes (each pipe's recorded attack and sustain, crossfaded at note-off into its
+  recorded release, as a sampler would), and compares the two.
 - `blind.py make/score` creates loudness-matched, randomised A/B pairs (real vs synthesised
   held-out notes) for blind discrimination tests.
 

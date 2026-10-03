@@ -35,8 +35,6 @@ struct Channel {
     rng: Rng,
     /// overlap-add accumulator (N samples), `ready` samples at the front are final
     ola: Vec<f32>,
-    ready: usize,
-    read: usize,
 }
 
 pub struct NoiseBank {
@@ -53,6 +51,9 @@ pub struct NoiseBank {
     /// band containing each bin (by edges)
     bin_band: Vec<u16>,
     ch: [Channel; 2],
+    /// samples at the front of both channels' accumulators that are final / already read
+    ready: usize,
+    read: usize,
     /// band index → IIR synthesiser (None = FFT band)
     iir: Vec<Option<IirBand>>,
     pub pow_l: [f32; MAX_BANDS],
@@ -60,7 +61,7 @@ pub struct NoiseBank {
     // scratch
     re: Vec<f32>,
     im: Vec<f32>,
-    mag: Vec<f32>,
+    mag: [Vec<f32>; 2],
     active: bool,
 }
 
@@ -149,7 +150,7 @@ impl NoiseBank {
                 h.sqrt() * std::f32::consts::FRAC_1_SQRT_2
             })
             .collect();
-        let mk = |s: u64| Channel { rng: Rng::new(s), ola: vec![0.0; N], ready: 0, read: 0 };
+        let mk = |s: u64| Channel { rng: Rng::new(s), ola: vec![0.0; N] };
         Self {
             fft: Fft::new(N),
             win,
@@ -162,11 +163,13 @@ impl NoiseBank {
             bin_band,
             iir,
             ch: [mk(seed), mk(seed ^ 0xA5A5_5A5A_1234_5678)],
+            ready: 0,
+            read: 0,
             pow_l: [0.0; MAX_BANDS],
             pow_r: [0.0; MAX_BANDS],
             re: vec![0.0; N],
             im: vec![0.0; N],
-            mag: vec![0.0; N / 2 + 1],
+            mag: [vec![0.0; N / 2 + 1], vec![0.0; N / 2 + 1]],
             active: false,
         }
     }
@@ -189,21 +192,20 @@ impl NoiseBank {
             return;
         }
         self.active = any || self.ch.iter().any(|c| c.ola.iter().any(|&v| v != 0.0));
-        for c in 0..2 {
-            let out: &mut [f32] = if c == 0 { &mut *out_l } else { &mut *out_r };
-            let mut i = 0;
-            while i < out.len() {
-                if self.ch[c].read >= self.ch[c].ready {
-                    self.synth_frame(c);
-                }
-                let chn = &mut self.ch[c];
-                let take = (chn.ready - chn.read).min(out.len() - i);
-                for s in 0..take {
-                    out[i + s] += chn.ola[chn.read + s];
-                }
-                chn.read += take;
-                i += take;
+        let n = out_l.len().min(out_r.len());
+        let mut i = 0;
+        while i < n {
+            if self.read >= self.ready {
+                self.synth_frames();
             }
+            let take = (self.ready - self.read).min(n - i);
+            let (a, b) = (&self.ch[0].ola[self.read..self.read + take], &self.ch[1].ola[self.read..self.read + take]);
+            for s in 0..take {
+                out_l[i + s] += a[s];
+                out_r[i + s] += b[s];
+            }
+            self.read += take;
+            i += take;
         }
     }
 
@@ -240,30 +242,22 @@ impl NoiseBank {
         }
     }
 
-    /// Shift out consumed samples and overlap-add one new shaped noise frame.
-    fn synth_frame(&mut self, c: usize) {
-        // shift the OLA buffer by HOP
-        {
-            let chn = &mut self.ch[c];
-            chn.ola.copy_within(HOP.., 0);
-            for v in chn.ola[N - HOP..].iter_mut() {
-                *v = 0.0;
-            }
-        }
+    /// Per-bin magnitude (density shape scaled so every band carries exactly its power).
+    fn shape(&mut self, c: usize) {
         // spectral magnitude from band powers: per-bin one-sided density D(k),
         // |M(k)|² = N·D(k)/2 on both halves → output variance Σ D(k)
         let pows = if c == 0 { self.pow_l } else { self.pow_r };
         let nb = self.band_center.len();
-        let mut dens = [0.0f32; MAX_BANDS];
         let mut ldens = [-60.0f32; MAX_BANDS];
         for b in 0..nb {
-            dens[b] = pows[b] / self.band_bins[b];
-            ldens[b] = if dens[b] > 1e-30 { dens[b].ln() } else { -69.0 };
+            let d = pows[b] / self.band_bins[b];
+            ldens[b] = if d > 1e-30 { d.ln() } else { -69.0 };
         }
+        let mag = &mut self.mag[c];
         // pass 1: smooth shape (log-log interpolation between band centres)
         let mut bsum = [0.0f32; MAX_BANDS];
         for k in 0..=N / 2 {
-            self.mag[k] = if self.bin_valid[k] {
+            mag[k] = if self.bin_valid[k] {
                 let b = self.bin_lo[k] as usize;
                 let w = self.bin_w[k];
                 let ld = if w > 0.0 && b + 1 < nb { ldens[b] + (ldens[b + 1] - ldens[b]) * w } else { ldens[b] };
@@ -281,33 +275,60 @@ impl NoiseBank {
         }
         let scale = N as f32 * 0.5;
         for k in 0..=N / 2 {
-            if self.mag[k] > 0.0 {
-                self.mag[k] = (self.mag[k] * bscale[self.bin_band[k] as usize] * scale).sqrt();
+            if mag[k] > 0.0 {
+                mag[k] = (mag[k] * bscale[self.bin_band[k] as usize] * scale).sqrt();
             }
         }
-        // white noise frame → FFT → shape → IFFT
-        let chn = &mut self.ch[c];
-        for i in 0..N {
-            self.re[i] = chn.rng.gauss();
-            self.im[i] = 0.0;
-        }
-        self.fft.process(&mut self.re, &mut self.im, false);
-        for k in 0..=N / 2 {
-            let m = self.mag[k];
-            self.re[k] *= m;
-            self.im[k] *= m;
-            if k > 0 && k < N / 2 {
-                self.re[N - k] *= m;
-                self.im[N - k] *= m;
+    }
+
+    /// Shift out consumed samples and overlap-add one new shaped noise frame per channel.
+    ///
+    /// The spectrum of a white Gaussian noise frame is itself white complex Gaussian noise
+    /// (variance N per bin, real at DC and Nyquist), so it is drawn directly instead of
+    /// transforming time-domain noise; and the two channels' real frames come out of one
+    /// complex inverse transform of Z = X_L + i·X_R.
+    fn synth_frames(&mut self) {
+        for chn in self.ch.iter_mut() {
+            chn.ola.copy_within(HOP.., 0);
+            for v in chn.ola[N - HOP..].iter_mut() {
+                *v = 0.0;
             }
+        }
+        self.shape(0);
+        self.shape(1);
+        // white spectrum: Re and Im each of variance N/2 (DC and Nyquist: real, variance N)
+        let h = (N as f32 * 0.5).sqrt();
+        let full = (N as f32).sqrt();
+        let half = N / 2;
+        let (ml, mr) = (&self.mag[0], &self.mag[1]);
+        let (rl, rr) = self.ch.split_at_mut(1);
+        let (gl, gr) = (&mut rl[0].rng, &mut rr[0].rng);
+        for k in [0, half] {
+            let xl = gl.gauss() * full * ml[k];
+            let xr = gr.gauss() * full * mr[k];
+            self.re[k] = xl;
+            self.im[k] = xr;
+        }
+        for k in 1..half {
+            let (al, bl) = (gl.gauss() * h * ml[k], gl.gauss() * h * ml[k]);
+            let (ar, br) = (gr.gauss() * h * mr[k], gr.gauss() * h * mr[k]);
+            // Z[k] = X_L[k] + i·X_R[k];  Z[N−k] = conj(X_L[k]) + i·conj(X_R[k])
+            self.re[k] = al - br;
+            self.im[k] = bl + ar;
+            self.re[N - k] = al + br;
+            self.im[N - k] = ar - bl;
         }
         self.fft.process(&mut self.re, &mut self.im, true);
         let inv = 1.0 / N as f32;
+        let (c0, c1) = self.ch.split_at_mut(1);
+        let (ol, or) = (&mut c0[0].ola, &mut c1[0].ola);
         for i in 0..N {
-            chn.ola[i] += self.re[i] * inv * self.win[i];
+            let w = inv * self.win[i];
+            ol[i] += self.re[i] * w;
+            or[i] += self.im[i] * w;
         }
-        chn.ready = HOP;
-        chn.read = 0;
+        self.ready = HOP;
+        self.read = 0;
     }
 }
 
@@ -336,6 +357,33 @@ mod tests {
             }
         }
         acc / cnt as f64
+    }
+
+    #[test]
+    fn channels_are_calibrated_and_independent() {
+        let edges = [20.0, 200.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0];
+        let mut nb = NoiseBank::new(48000.0, &edges, 11);
+        for b in 0..7 {
+            nb.pow_l[b] = 0.001;
+            nb.pow_r[b] = 0.004;
+        }
+        let (mut ll, mut rr, mut lr) = (0.0f64, 0.0f64, 0.0f64);
+        for blk in 0..3000 {
+            let mut l = [0.0f32; BLOCK];
+            let mut r = [0.0f32; BLOCK];
+            nb.render(&mut l, &mut r);
+            if blk > 100 {
+                for i in 0..BLOCK {
+                    ll += (l[i] as f64).powi(2);
+                    rr += (r[i] as f64).powi(2);
+                    lr += l[i] as f64 * r[i] as f64;
+                }
+            }
+        }
+        let ratio = rr / ll;
+        assert!((ratio - 4.0).abs() < 0.4, "right/left power {ratio}");
+        let corr = lr / (ll * rr).sqrt();
+        assert!(corr.abs() < 0.05, "left/right correlation {corr}");
     }
 
     #[test]

@@ -194,6 +194,9 @@ pub struct SpectralVoice {
 
     base_w: [f32; MAX_PARTIALS],
     re: [f32; MAX_PARTIALS],
+    /// rotation (rad) owed to a partial while its group of lanes was silent: applied when the
+    /// group sounds again (phases keep running without a sin/cos per silent partial per block)
+    pend: [f32; MAX_PARTIALS],
     im: [f32; MAX_PARTIALS],
     gl: [f32; MAX_PARTIALS],
     gr: [f32; MAX_PARTIALS],
@@ -288,6 +291,7 @@ impl Default for SpectralVoice {
             one_shot: false,
             base_w: [0.0; MAX_PARTIALS],
             re: [0.0; MAX_PARTIALS],
+            pend: [0.0; MAX_PARTIALS],
             im: [0.0; MAX_PARTIALS],
             gl: [0.0; MAX_PARTIALS],
             gr: [0.0; MAX_PARTIALS],
@@ -483,6 +487,7 @@ impl SpectralVoice {
             let ph = if i < dz.harmonic { dz.phases[i] } else { on.rng.uniform() * std::f32::consts::TAU };
             self.re[i] = ph.cos();
             self.im[i] = ph.sin();
+            self.pend[i] = 0.0;
             self.gl[i] = 0.0;
             self.gr[i] = 0.0;
             self.rel_db[i] = 0.0;
@@ -574,6 +579,7 @@ impl SpectralVoice {
                 let ph = z.phases[i];
                 self.re[k] = ph.cos();
                 self.im[k] = ph.sin();
+                self.pend[k] = 0.0;
                 self.gl[k] = 0.0;
                 self.gr[k] = 0.0;
                 self.rel_db[k] = 0.0;
@@ -705,6 +711,7 @@ impl SpectralVoice {
             self.base_w[i] = 0.0;
             self.re[i] = 0.0;
             self.im[i] = 0.0;
+            self.pend[i] = 0.0;
             self.gl[i] = 0.0;
             self.gr[i] = 0.0;
         }
@@ -783,7 +790,7 @@ impl SpectralVoice {
             }
         }
         if self.has_img {
-            self.update_image(m);
+            self.update_image(m, None);
         }
         self.gain_db = gain;
         self.nb = m.noise_bands().min(MAX_BANDS);
@@ -807,6 +814,7 @@ impl SpectralVoice {
         }
         let old_pitch = self.cur_pitch + self.glide_cents / 100.0;
         let old_kh = self.k_h;
+        self.apply_pending(0, MAX_PARTIALS);
         let (re, im, gl, gr) = (self.re, self.im, self.gl, self.gr);
         let t = self.t;
         let vib = self.vib_phase;
@@ -836,10 +844,16 @@ impl SpectralVoice {
 
     /// Per-partial stereo gains and inter-channel phase from the zones' time-varying images at
     /// the current playheads (zones without one contribute their static image).
-    fn update_image(&mut self, m: &Model) {
+    fn update_image(&mut self, m: &Model, live: Option<&[f32]>) {
         let lut = phase_lut();
         let pg = self.voice_pan;
         for i in 0..self.k.min(self.k_h) {
+            // a partial that is silent now and was silent at the last block needs no image
+            if let Some(a) = live {
+                if a[i] == 0.0 && self.gl[i] == 0.0 && self.gr[i] == 0.0 && self.grs[i] == 0.0 && self.gls[i] == 0.0 {
+                    continue;
+                }
+            }
             let (mut gl, mut gr, mut vc, mut vs) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
             let (mut lc, mut ls) = (0.0f32, 0.0f32);
             for j in 0..self.nz {
@@ -907,6 +921,20 @@ impl SpectralVoice {
             // right = left phase + inter-channel phase
             self.st_c[i] = lc * ic - ls * is;
             self.st_s[i] = ls * ic + lc * is;
+        }
+    }
+
+    /// Apply the rotation owed to partials [a, b) while they were silent.
+    fn apply_pending(&mut self, a: usize, b: usize) {
+        for i in a..b.min(MAX_PARTIALS) {
+            let p = self.pend[i];
+            if p != 0.0 {
+                let (sn, cs) = p.sin_cos();
+                let (r0, i0) = (self.re[i], self.im[i]);
+                self.re[i] = r0 * cs - i0 * sn;
+                self.im[i] = r0 * sn + i0 * cs;
+                self.pend[i] = 0.0;
+            }
         }
     }
 
@@ -1165,9 +1193,6 @@ impl SpectralVoice {
             kh_z[j] = z.harmonic;
             zgain[j] = z.gain_db;
         }
-        if self.has_img {
-            self.update_image(m);
-        }
         // partials more than 96 dB below the loudest are inaudible: skip them
         let cull = (self.peak_db - 96.0).max(SILENT_DB);
         let mut tgt_l = [0.0f32; MAX_PARTIALS];
@@ -1228,11 +1253,18 @@ impl SpectralVoice {
             }
             db += self.stat_db[i] - self.rel_db[i] + common;
             peak = peak.max(db);
-            let amp = if db < cull { 0.0 } else { fast_db_to_amp(db) };
+            tgt_l[i] = if db < cull { 0.0 } else { fast_db_to_amp(db) };
+        }
+        self.peak_db = peak;
+        // stereo image (time-varying) of the partials that sound
+        if self.has_img {
+            self.update_image(m, Some(&tgt_l[..k]));
+        }
+        for i in 0..k {
+            let amp = tgt_l[i];
             tgt_l[i] = amp * self.pan_l[i];
             tgt_r[i] = amp * self.pan_r[i];
         }
-        self.peak_db = peak;
         // crossfade from the recorded transient into the model
         let ga = if self.has_tr { smoothstep(self.tr_fade.0, self.tr_fade.1, self.t) } else { 1.0 };
         if ga < 1.0 {
@@ -1397,14 +1429,15 @@ impl SpectralVoice {
                 // still advance the phases: a partial fading in later (after a stored attack
                 // transient, or after a cull) must continue the recording's phase
                 for i in c0..(c0 + LANES).min(kp) {
-                    let (sn, cs) = (self.base_w[i] * ratio + jstep[i]).clamp(0.0, std::f32::consts::PI * 0.98).mul_add(n as f32, 0.0).sin_cos();
-                    let (r0, i0) = (self.re[i], self.im[i]);
-                    self.re[i] = r0 * cs - i0 * sn;
-                    self.im[i] = r0 * sn + i0 * cs;
+                    let w = (self.base_w[i] * ratio + jstep[i]).clamp(0.0, std::f32::consts::PI * 0.98);
+                    let a = self.pend[i] + w * n as f32;
+                    const INV_TAU: f32 = 1.0 / std::f32::consts::TAU;
+                    self.pend[i] = a - std::f32::consts::TAU * (a * INV_TAU).floor();
                 }
                 c0 += LANES;
                 continue;
             }
+            self.apply_pending(c0, c0 + LANES);
             re.copy_from_slice(&self.re[c0..c0 + LANES]);
             im.copy_from_slice(&self.im[c0..c0 + LANES]);
             gl.copy_from_slice(&self.gl[c0..c0 + LANES]);
