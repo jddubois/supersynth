@@ -527,7 +527,7 @@ impl SpectralVoice {
             let mut ok = true;
             for j in 0..self.nz {
                 let z = &m.zones[self.zone[j]];
-                let rf = z.loop_range.map(|(a, _)| a).unwrap_or_else(|| m.grid.iter().position(|&g| g >= 0.5).unwrap_or(0)).min(z.frames - 1);
+                let rf = z.loop_range.map(|(a, _)| a).unwrap_or_else(|| z.grid.iter().position(|&g| g >= 0.5).unwrap_or(0)).min(z.frames - 1);
                 let ii = self.look_i[j][i] as usize;
                 let fr = self.look_f[j][i];
                 let q = |idx: usize| z.harm_db(rf, idx);
@@ -823,7 +823,7 @@ impl SpectralVoice {
             let z = &m.zones[self.zone[j]];
             self.pos[j] = match z.loop_range {
                 Some((a, _)) => a as f32,
-                None => m.grid.iter().position(|&g| g >= 0.3).unwrap_or(0).min(z.frames - 1) as f32,
+                None => z.grid.iter().position(|&g| g >= 0.3).unwrap_or(0).min(z.frames - 1) as f32,
             };
         }
         self.has_tr = false;
@@ -912,8 +912,8 @@ impl SpectralVoice {
 
     /// Next ping-pong turning point inside the loop [a, b]: at least 75 % of the loop (and
     /// 0.4 s) away from the current turn `from`, at a random place beyond that.
-    fn draw_turn(&mut self, m: &Model, a: usize, b: usize, from: f32, upward: bool) -> f32 {
-        let g = |f: usize| m.grid.get(f).copied().unwrap_or(0.0);
+    fn draw_turn(&mut self, grid: &[f32], a: usize, b: usize, from: f32, upward: bool) -> f32 {
+        let g = |f: usize| grid.get(f).copied().unwrap_or(0.0);
         let (ta, tb) = (g(a), g(b));
         let span = tb - ta;
         let min_len = (0.75 * span).max(0.4).min(span);
@@ -946,17 +946,18 @@ impl SpectralVoice {
         // Measure the decay over [end − 1.0 s, end − 0.25 s]: the last moments of a
         // recording are often an edit fade-out, not the instrument's own decay.
         let end = z.frames - 1;
-        let t_end = m.grid[end.min(m.grid.len() - 1)];
+        let g = &z.grid;
+        let t_end = g[end.min(g.len() - 1)];
         let mut last = end;
-        while last > 0 && t_end - m.grid[last] < 0.25 {
+        while last > 0 && t_end - g[last] < 0.25 {
             last -= 1;
         }
-        let t_last = m.grid[last];
+        let t_last = g[last];
         let mut first = last;
-        while first > 0 && t_last - m.grid[first] < 0.75 {
+        while first > 0 && t_last - g[first] < 0.75 {
             first -= 1;
         }
-        let span = (t_last - m.grid[first]).max(1e-3);
+        let span = (t_last - g[first]).max(1e-3);
         for i in 0..self.k {
             let idx = if i < self.k_h { self.look_i[dj][i] as usize } else if self.slot_zone[i] as usize == dj { self.slot_idx[i] as usize } else { usize::MAX };
             let rate = if idx < z.partials {
@@ -1048,7 +1049,7 @@ impl SpectralVoice {
             let z = &m.zones[self.zone[j]];
             let fi = self.pos[j].floor() as usize;
             let fi = fi.min(z.frames - 1);
-            let seg = if fi + 1 < m.grid.len() { (m.grid[fi + 1] - m.grid[fi]).max(1e-4) } else { 0.05 };
+            let seg = if fi + 1 < z.grid.len() { (z.grid[fi + 1] - z.grid[fi]).max(1e-4) } else { 0.05 };
             let in_attack = z.loop_range.map(|(a, _)| fi < a).unwrap_or(self.t < 0.25);
             let rate = if self.in_rel_tail {
                 1.0 / p.release_scale.max(0.05)
@@ -1066,11 +1067,11 @@ impl SpectralVoice {
                     if np >= hi {
                         np = hi - (np - hi);
                         self.dir[j] = -1.0;
-                        self.turn_lo[j] = self.draw_turn(m, a, b, hi, false);
+                        self.turn_lo[j] = self.draw_turn(&z.grid, a, b, hi, false);
                     } else if self.dir[j] < 0.0 && np <= lo {
                         np = lo + (lo - np);
                         self.dir[j] = 1.0;
-                        self.turn_hi[j] = self.draw_turn(m, a, b, lo, true);
+                        self.turn_hi[j] = self.draw_turn(&z.grid, a, b, lo, true);
                     }
                 }
             }

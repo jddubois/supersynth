@@ -134,6 +134,8 @@ pub struct Zone {
     /// recordings, the smooth envelopes are mixed and only the nearest zone's own detail
     /// (beating, timbre drift) is added back, instead of averaging it away.
     pub amps_smooth: Vec<u16>,
+    /// frame times (s): the zone's own grid (dense around a recorded release) or the model's
+    pub grid: Vec<f32>,
     /// frames, cents relative to f0.
     pub pitch: Vec<f32>,
     /// frames × bands, quantised dB.
@@ -293,6 +295,9 @@ struct HOffsets {
     /// harmonics that have image rows (absent: the first `imgK` harmonics)
     #[serde(rename = "imgIdx", default)]
     img_idx: Option<Vec<usize>>,
+    /// the zone's own frame times (f32 seconds, `frames` values); absent: the model's grid
+    #[serde(default)]
+    grid: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -498,8 +503,17 @@ impl Model {
             let k = hz.partials.min(MAX_PARTIALS);
             let kk = hz.partials;
             let t = hz.frames;
-            if t == 0 || t > h.grid.len() {
-                return Err("zone frame count out of range".into());
+            let zgrid = match hz.o.grid {
+                Some(o) => f32s(slice(blob, o, t * 4, "grid")?),
+                None => {
+                    if t > h.grid.len() {
+                        return Err("zone frame count out of range".into());
+                    }
+                    h.grid[..t].to_vec()
+                }
+            };
+            if t == 0 || zgrid.windows(2).any(|w| w[1] <= w[0]) {
+                return Err("zone frames out of range".into());
             }
             let ratios_all = f32s(slice(blob, hz.o.ratios, kk * 4, "ratios")?);
             let phases_q = slice(blob, hz.o.phases, kk, "phases")?;
@@ -526,6 +540,7 @@ impl Model {
                 phases: phases_q[..k].iter().map(|&q| q as f32 * (std::f32::consts::TAU / 256.0)).collect(),
                 amps,
                 amps_smooth: Vec::new(),
+                grid: zgrid,
                 pitch: pitch_q.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 100.0).collect(),
                 noise,
                 release: rel_q[..k].iter().map(|&q| q as f32 * 2.0).collect(),
@@ -653,7 +668,7 @@ impl Model {
 
         let mut zones = zones;
         for z in zones.iter_mut() {
-            z.amps_smooth = smooth_rows(&z.amps, z.frames, z.partials, &h.grid, 0.3);
+            z.amps_smooth = smooth_rows(&z.amps, z.frames, z.partials, &z.grid, 0.3);
         }
 
         Ok(Model {

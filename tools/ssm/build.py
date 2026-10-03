@@ -68,6 +68,7 @@ def delta_pm16(db: np.ndarray) -> bytes:
 
 def write_model(path: str, header: dict, zones: list[Zone]):
     blob = bytearray()
+    hgrid = np.asarray(header['grid'], dtype=np.float64)
 
     def put(b: bytes) -> int:
         off = len(blob)
@@ -91,6 +92,10 @@ def write_model(path: str, header: dict, zones: list[Zone]):
             'jitter': put(np.clip(np.round(np.asarray(z.meta.get('jitter', np.zeros(K)))[:K] * 10), 0, 255).astype(np.uint8).tobytes()),
         }
         o['amps'] = o['amps16']        # (required key of older readers)
+        zt = np.asarray(z.times, dtype=np.float64)
+        if T > len(hgrid) or not np.allclose(zt, hgrid[:T], atol=1e-5):
+            # the zone's own frame times (dense around a recorded release)
+            o['grid'] = put(zt.astype('<f4').tobytes())
         st_t = z.meta.get('stereo_t')
         if st_t is not None and st_t[0].shape[0] == T:
             # time-varying stereo image of the harmonics that matter (within IMG_RANGE_DB of the
@@ -242,6 +247,9 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
         # stereo recordings keep their per-partial stereo image (and per-channel noise)
         import soundfile as sf
         spec = {**spec, 'stereo': sf.info(items[0][0]).channels >= 2}
+    if os.environ.get('SSM_ONLY'):
+        # experiments: only the recordings whose file name matches this regex
+        items = [it for it in items if re.search(os.environ['SSM_ONLY'], os.path.basename(it[0]))]
     if spec.get('layers_keep'):
         items = [it for it in items if it[2] in spec['layers_keep']]
     if not items:
@@ -313,8 +321,10 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
             n = struct.unpack('<I', raw[4:8])[0]
             gain = json.loads(raw[8:8 + n])['params']['gainDb'] - spec.get('params', {}).get('gainDb', 0.0)
     grid_len = max(len(z.times) for z in zones)
-    longest = max(zones, key=lambda z: len(z.times))
-    grid = [round(float(t), 5) for t in longest.times]
+    # shared frame times (every zone's grid is a prefix of the plain grid unless it carries
+    # its own, e.g. dense around a recorded release)
+    from analysis import make_time_grid
+    grid = [round(float(t), 5) for t in make_time_grid(max(float(z.times[-1]) for z in zones) + 0.01)]
     params = dict(spec.get('params', {}))
     params['gainDb'] = round(gain + params.get('gainDb', 0.0), 2)
     header = {

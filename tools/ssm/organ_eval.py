@@ -13,7 +13,7 @@ from paths import DATA_ROOT
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 WAV = os.path.join(DATA_ROOT, 'samples/grandorgue/Burea_wav')
-OUT = os.path.join(DATA_ROOT, 'organ_ref')
+OUT = os.environ.get('ORGAN_EVAL_OUT', os.path.join(DATA_ROOT, 'organ_ref'))
 
 # stop id -> (folder, transpose)
 STOPS = {

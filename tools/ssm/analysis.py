@@ -148,6 +148,37 @@ def make_time_grid(duration: float) -> np.ndarray:
     return np.concatenate(out)
 
 
+def release_decline(x: np.ndarray, sr: int, f0: float, cue_t: float) -> float | None:
+    """Where the recorded tone actually starts to die away near a release marker (s from
+    onset). GrandOrgue cue points sit 0–200 ms before the pipe stops speaking."""
+    w = max(int(0.01 * sr), int(2.0 * sr / max(f0, 20.0)))
+    hop = int(0.002 * sr)
+    p = np.convolve(x * x, np.ones(w) / w, mode='same')[::hop]
+    lv = 10 * np.log10(p + 1e-20)
+    t = np.arange(len(lv)) * hop / sr
+    pre = (t >= cue_t - 0.8) & (t < cue_t - 0.25)
+    if pre.sum() < 10:
+        return None
+    steady = float(np.median(lv[pre]))
+    hold = int(0.03 * sr / hop)
+    for i in np.where((t >= cue_t - 0.15) & (t <= cue_t + 0.5))[0]:
+        if lv[i] < steady - 1.0 and np.all(lv[i:i + hold] < steady - 1.0):
+            return float(t[i])
+    return None
+
+
+def release_grid(duration: float, t_d: float) -> np.ndarray:
+    """Time grid with 5 ms steps over the first 0.35 s of a recorded release (organ pipes
+    fall 10 dB within ~20 ms of the pallet closing), 10 ms over the next 0.45 s."""
+    g = make_time_grid(duration)
+    a, b, c = t_d - 0.04, t_d + 0.35, t_d + 0.8
+    dense = np.concatenate([np.arange(a, b, 0.005), np.arange(b, min(c, duration), 0.01)])
+    dense = dense[(dense > 0) & (dense < duration)]
+    g = np.unique(np.concatenate([g[(g < a) | (g >= c)], dense]))
+    keep = np.concatenate([[True], np.diff(g) > 1e-3])
+    return g[keep]
+
+
 def load_mono(path: str, channel_mix: str = 'mean') -> tuple[np.ndarray, int]:
     x, sr = sf.read(path, dtype='float64', always_2d=True)
     if channel_mix == 'left':
@@ -723,7 +754,10 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
         raise ValueError('no partials found')
 
     # ── sample everything on the shared grid ───────────────────────────────
-    grid = make_time_grid(dur)
+    t_decl = None
+    if kind == 'sustained' and release_at_s is not None and not os.environ.get('SSM_OLD_RELEASE'):
+        t_decl = release_decline(x, sr, f0, release_at_s - on / sr)
+    grid = release_grid(dur, t_decl) if t_decl is not None else make_time_grid(dur)
     frame_t = centers / sr
     mag = np.abs(amps_c)
     amps_grid = np.empty((len(grid), K))
@@ -858,6 +892,9 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                 while j - 1 > loop[1] + 2 and grid[j - 1] >= t_min and tot_all[j - 1] < steady - 0.75:
                     j -= 1
                 rel_frame = max(loop[1] + 2, j - 1)
+                if t_decl is not None:
+                    # the measured start of the decline (fine grid), 10 ms early
+                    rel_frame = max(loop[1] + 2, int(np.searchsorted(grid, t_decl - 0.01)) - 1)
                 after = np.where((np.arange(len(grid)) > rel_start) & (tot_all < tot_all.max() - 70))[0]
                 end = int(after[0]) + 1 if len(after) else len(grid)
                 end = min(end, int(np.searchsorted(grid, grid[rel_start] + 2.5)) + 1, len(grid))
@@ -865,9 +902,15 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                     T = end
                 else:
                     rel_frame = None
-            grid, amps_db, pitch_grid, noise_db = grid[:T], amps_db[:T], pitch_grid[:T], noise_db[:T]
+            keep = np.arange(T)
+            if rel_frame is not None and t_decl is not None and rel_frame - 1 > loop[1] + 3:
+                # frames between the loop and the release are never played: drop them (the
+                # zone keeps its own frame times)
+                keep = np.concatenate([np.arange(loop[1] + 3), np.arange(rel_frame - 1, T)])
+                rel_frame = loop[1] + 4
+            grid, amps_db, pitch_grid, noise_db = grid[keep], amps_db[keep], pitch_grid[keep], noise_db[keep]
             if stereo_t is not None:
-                ild_grid, iph_grid, lph_grid = ild_grid[:T], iph_grid[:T], lph_grid[:T]
+                ild_grid, iph_grid, lph_grid = ild_grid[keep], iph_grid[keep], lph_grid[keep]
     else:
         # decaying: trim when partials *and* noise are 80 dB below the peak
         thr = tot_all.max() - 80
@@ -1022,7 +1065,9 @@ def measure_shimmer(raw_c, smooth_c, resid, ratios, f0, sr, hop, steady, t0, t1)
         rel = (fr[inb] / f0) % 1.0
         mid = (rel > 0.3) & (rel < 0.7)
         dens = P[inb][mid].mean() if mid.sum() >= 3 else P[bm].mean()
-        ks_b = (hk >= NOISE_EDGES[b]) & (hk < NOISE_EDGES[b + 1])
+        # harmonics whose neighbourhood reaches into the band (one just below a band edge
+        # leaves its residual skirt inside the band)
+        ks_b = (hk + 0.25 * f0 >= NOISE_EDGES[b]) & (hk - 0.25 * f0 < NOISE_EDGES[b + 1])
         # only where the band's partials are actually above its noise does the residual near
         # them hold partial fluctuation; elsewhere all of it is noise
         if np.sum(pk[ks_b]) / 2 > dens * inb.sum() * df:

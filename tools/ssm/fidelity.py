@@ -111,10 +111,13 @@ def noise_floor(Z, f, f0):
     between = (rel > 0.35) & (rel < 0.65)
     near = (rel < 0.08) | (rel > 0.92)
     out = []
+    top = P[(f >= 0.7 * f0) & near].max() if np.any((f >= 0.7 * f0) & near) else P.max()
     for lo, hi in zip(OCT_EDGES[:-1], OCT_EDGES[1:]):
         band = (f >= max(lo, 0.7 * f0)) & (f < hi)
         nb, hb = band & between, band & near
-        if nb.sum() < 3 or hb.sum() < 1:
+        # (a band whose harmonics are 70 dB below the strongest is at the recording's
+        # quantisation floor: nothing there is audible)
+        if nb.sum() < 3 or hb.sum() < 1 or P[hb].max() < top * 1e-7:
             out.append(np.nan)
             continue
         out.append(10 * np.log10(np.mean(P[nb]) + 1e-30) - 10 * np.log10(P[hb].max() + 1e-30))

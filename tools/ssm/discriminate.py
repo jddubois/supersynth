@@ -3,7 +3,9 @@
   python discriminate.py <model-id> [--max N] [--set k=v ...]
 
 Every note is cut into 0.75 s windows of its steady sustain (real recording and engine
-rendering of the same note), plus its attack (first 0.3 s). Each window is described by
+rendering of the same note), plus its attack (first 0.3 s) and its release (octave-band
+decay after note-off, the synthetic note released where the recording starts to die away).
+Each window is described by
 pitch-normalised features — per-harmonic level, flutter, modulation, frequency wander,
 stereo image, noise floor between the harmonics — and a gradient-boosted classifier is
 trained to separate real from synthetic, cross-validated leaving whole notes out (it never
@@ -18,7 +20,7 @@ import os
 import numpy as np
 
 from analysis import find_onset
-from fidelity import MODELS, attack_stats, load_stereo, render, steady_stats
+from fidelity import MODELS, OCT_EDGES, attack_stats, load_stereo, release_onset, render, steady_stats
 from evaluate import read_header, sustain_duration
 
 NH = 12
@@ -63,7 +65,26 @@ def attack_features(x, sr, f0):
     return f
 
 
-def collect_features(model_id, max_notes=None, sets=(), path=None):
+def release_features(x, sr, t_off, ref_bands=None):
+    """Octave-band level (dB re the 0.4 s before note-off) at 20/50/100/200/400 ms after it."""
+    from scipy import signal
+    m = x.mean(1)
+    def bands(seg):
+        f, P = signal.welch(seg, fs=sr, nperseg=min(len(seg), 2048))
+        return np.array([10 * np.log10(P[(f >= lo) & (f < hi)].sum() + 1e-20) for lo, hi in zip(OCT_EDGES[:-1], OCT_EDGES[1:])])
+    ref = bands(m[int((t_off - 0.4) * sr):int(t_off * sr)])
+    use = ref > ref.max() - 40 if ref_bands is None else ref_bands
+    f = {}
+    for ms in (20, 50, 100, 200, 400):
+        a = int((t_off + ms / 1000 - 0.01) * sr)
+        seg = m[a:a + int(0.02 * sr)]
+        d = bands(seg) - ref if len(seg) >= 256 else np.full(len(ref), np.nan)
+        for b in range(len(ref)):
+            f[f'rel{ms}_oct{b}'] = d[b] if use[b] else np.nan
+    return f, use
+
+
+def collect_features(model_id, max_notes=None, sets=(), path=None, rel=None):
     from build import collect
     from instruments import INSTRUMENTS
     path = path or os.path.join(MODELS, f'{model_id}.ssm')
@@ -98,6 +119,15 @@ def collect_features(model_id, max_notes=None, sets=(), path=None):
                 rows.append((gi, lab, f))
         for lab, sig in ((1, x), (0, y)):
             att.append((gi, lab, attack_features(sig, sr, z['f0'])))
+        if rel is not None:
+            # release: note-off where the recorded tone starts to die away
+            t_r = release_onset(x.mean(1), sr)
+            if len(x) / sr > t_r + 0.5:
+                yr = render(path, int(round(z['note'])), t_r, sr, sets=sets, vel=vel)
+                yr = yr[find_onset(yr.mean(1), sr):]
+                fr, use = release_features(x, sr, t_r)
+                rel.append((gi, 1, fr))
+                rel.append((gi, 0, release_features(yr, sr, t_r, use)[0]))
         print(f'  {z["src"]}', flush=True)
     return rows, att
 
@@ -151,13 +181,16 @@ def main():
     import pickle
     cache = os.environ.get('DISC_CACHE')
     if cache and os.path.exists(cache):
-        rows, att = pickle.load(open(cache, 'rb'))
+        rows, att, rel = pickle.load(open(cache, 'rb'))
     else:
-        rows, att = collect_features(a.model, a.max, a.set, a.model_path)
+        rel = []
+        rows, att = collect_features(a.model, a.max, a.set, a.model_path, rel)
         if cache:
-            pickle.dump((rows, att), open(cache, 'wb'))
+            pickle.dump((rows, att, rel), open(cache, 'wb'))
     two_sample(rows, f'{a.model} sustain')
     two_sample(att, f'{a.model} attack')
+    if rel:
+        two_sample(rel, f'{a.model} release')
 
 
 if __name__ == '__main__':

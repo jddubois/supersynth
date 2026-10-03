@@ -5,7 +5,8 @@ import { Synth } from '../../src/index.ts';
 const spec = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as {
   sampleRate: number; layers: { model: string; transpose: number }[]; keys: number[]; hold: number; seconds: number;
 };
-const synth = new Synth({ sampleRate: spec.sampleRate, reverb: false, volume: 1 });
+// SSM_OUT_DIR: evaluate models built into a scratch directory
+const synth = new Synth({ sampleRate: spec.sampleRate, reverb: false, volume: 1, modelsDir: process.env.SSM_OUT_DIR || undefined });
 const part = synth.add({
   id: 'organ-test', name: 'test', family: 'organ', description: '', range: [0, 127], reverb: 'church',
   layers: spec.layers, presets: { default: { description: '' } },
