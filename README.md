@@ -153,15 +153,20 @@ Append `-- out.wav` to the first four to render to a file instead of the speaker
 ## Performance
 
 The engine runs on its own audio thread, outside Node's event loop and garbage collector; the API
-talks to it through a lock-free queue. Measured with `npm run bench` (Apple M1 Max, one core,
-48 kHz stereo including reverb):
+talks to it through a lock-free queue. Measured with `npm run bench` on one core of a 2.1 GHz Xeon
+cloud VM (48 kHz stereo including reverb; single-core speed in the range of a Raspberry Pi 5,
+about a third of an Apple M1 core):
 
 | Scenario | CPU |
 |---|---|
-| 16 held piano notes with pedal | 5.5 % |
-| 8-note string-orchestra chord | 5.2 % |
-| Organ plenum chord + pedal | 6.0 % |
-| Full organ, all couplers (116 voices) | 19.6 % |
+| 16 held piano notes with pedal | 12.0 % |
+| 8-note string-orchestra chord | 16.7 % |
+| Organ plenum chord + pedal (25 pipes) | 18.1 % |
+| Full organ, all couplers (116 pipes) | 98 % |
+
+Voices render on one core, at roughly 0.8 % of such a core per sounding pipe. Small and medium
+registrations fit comfortably on a Raspberry Pi 5; a full organ with every coupler needs about one
+whole core there.
 
 ## Architecture
 
