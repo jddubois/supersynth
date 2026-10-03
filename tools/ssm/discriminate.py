@@ -158,10 +158,16 @@ def two_sample(rows, label):
             clf = make_pipeline(SimpleImputer(), StandardScaler(), LogisticRegression(C=0.3, max_iter=2000))
         else:
             clf = HistGradientBoostingClassifier(max_iter=200, learning_rate=0.05, max_leaf_nodes=8, random_state=0)
-        clf.fit(X[~te], y[~te])
-        prob[te] = clf.predict_proba(X[te])[:, 1]
+        # features constant (or missing) within this training fold carry nothing: blank them
+        Xf = X.copy()
+        for c in range(X.shape[1]):
+            v = X[~te, c]
+            if len(np.unique(v[np.isfinite(v)])) < 2:
+                Xf[:, c] = 0.0
+        clf.fit(Xf[~te], y[~te])
+        prob[te] = clf.predict_proba(Xf[te])[:, 1]
         if len(np.unique(y[te])) == 2:
-            pi = permutation_importance(clf, X[te], y[te], scoring='roc_auc', n_repeats=5, random_state=0)
+            pi = permutation_importance(clf, Xf[te], y[te], scoring='roc_auc', n_repeats=5, random_state=0)
             imp += pi.importances_mean
     auc = roc_auc_score(y, prob)
     acc = float(np.mean((prob > 0.5) == y))

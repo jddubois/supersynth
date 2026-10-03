@@ -508,6 +508,19 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
 
     # ── window setup ───────────────────────────────────────────────────────
     L = int(round(periods * sr / f0))
+    if harmonic and free_partials > 0:
+        # Mixtures: a pipe of one rank can be far out of tune with the others (a tierce
+        # 120 cents flat sits at 4.66 f0). Inside a harmonic's analysis main lobe (±f0 for
+        # 3 periods) it would be swallowed by that harmonic, played at the wrong pitch, and
+        # the free partial search would see only a remnant: lengthen the window until no
+        # strong off-comb component falls inside a harmonic's main lobe.
+        kk_ = np.arange(1, int(0.45 * sr / f0) + 1) * f0
+        pf, pl = find_free_peaks(x, sr, steady0, steady1, 24, kk_, prominence_db=15, range_db=40)
+        if len(pf):
+            d = np.abs(pf[:, None] - kk_[None, :]).min(axis=1)
+            d = d[d > 0.015 * pf]
+            if len(d):
+                L = max(L, int(min(3.0 * sr / (0.8 * d.min()), 0.1 * sr)))
     L = max(L, int(min_window_s * sr), 64)
     L += (L % 2 == 0)  # odd
     half = L // 2
@@ -582,8 +595,13 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
         amps_c, dev = _demod(x, centers, half, win, dwin, psi, ratios, 0)
         mags = np.abs(amps_c)
         kmax = min(K, 8)
-        wts = mags[:, :kmax] ** 2
-        rel = dev[:, :kmax] / ratios[None, :kmax]
+        # the lowest partials that actually sound (within 30 dB of the strongest): a high
+        # mixture (Cymbel) has nothing but noise at its nominal 8' harmonics 1–8, and a pitch
+        # track measured there would put that noise on every partial as frequency modulation
+        strength = mags.mean(axis=0)
+        trk = np.where(strength > strength.max() * 10 ** (-30 / 20))[0][:kmax]
+        wts = mags[:, trk] ** 2
+        rel = dev[:, trk] / ratios[None, trk]
         wsum = wts.sum(axis=1)
         f0dev = np.where(wsum > 0, (wts * rel).sum(axis=1) / np.maximum(wsum, 1e-30), 0.0)
         level = 10 * np.log10(wsum + 1e-30)
@@ -612,7 +630,7 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
             # its frame-to-frame noise would become vibrato on every partial. Smooth it over
             # the sustain; per-partial phase wander that remains is kept by the demodulation
             # below (stereo phase trajectories) or by the jitter measurement.
-            lvl = 10 * np.log10(np.sum(mags[:, :kmax] ** 2, axis=1) + 1e-30)
+            lvl = 10 * np.log10(np.sum(mags[:, trk] ** 2, axis=1) + 1e-30)
             wm = steady_mask(centers / sr, lvl, 0.3, 0.08)
             cents = steady_smooth(cents[:, None], centers / sr, wm, pitch_smooth_s, 'db')[:, 0]
 
@@ -740,13 +758,22 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
             Lf = max(int(free_window_s * sr), 64)
             Lf += (Lf % 2 == 0)
             winf = np.blackman(Lf)
-            amps_f, _ = _demod(resid, centers, Lf // 2, winf, np.gradient(winf), psi, fr_ratios, 0)
-            amps_f = smooth_to_grid(amps_f, centers / sr, smooth_scale, smode)
-            fr_part = _resynth(len(x), centers, amps_f, psi, fr_ratios)
-            resid = resid - fr_part
             if resid_st is not None:
-                # free partials are rendered with the voice's pan (equal in both channels)
-                resid_st = (resid_st[0] - fr_part, resid_st[1] - fr_part)
+                # per channel: the room microphones can see a partial in opposite phase, which
+                # the mono mix cancels. Free partials are rendered with the voice's pan (equal
+                # in both channels), at the energy-correct level of the two channels.
+                aLf, _ = _demod(resid_st[0], centers, Lf // 2, winf, np.gradient(winf), psi, fr_ratios, 0)
+                aRf, _ = _demod(resid_st[1], centers, Lf // 2, winf, np.gradient(winf), psi, fr_ratios, 0)
+                aLf = smooth_to_grid(aLf, centers / sr, smooth_scale, smode)
+                aRf = smooth_to_grid(aRf, centers / sr, smooth_scale, smode)
+                amps_f = np.sqrt((np.abs(aLf) ** 2 + np.abs(aRf) ** 2) / 2) * np.exp(1j * np.angle(aLf))
+                resid_st = (resid_st[0] - _resynth(len(x), centers, aLf, psi, fr_ratios),
+                            resid_st[1] - _resynth(len(x), centers, aRf, psi, fr_ratios))
+                resid = resid - _resynth(len(x), centers, (aLf + aRf) / 2, psi, fr_ratios)
+            else:
+                amps_f, _ = _demod(resid, centers, Lf // 2, winf, np.gradient(winf), psi, fr_ratios, 0)
+                amps_f = smooth_to_grid(amps_f, centers / sr, smooth_scale, smode)
+                resid = resid - _resynth(len(x), centers, amps_f, psi, fr_ratios)
             ratios = np.concatenate([ratios, fr_ratios])
             amps_c = np.concatenate([amps_c, amps_f], axis=1)
             K = len(ratios)

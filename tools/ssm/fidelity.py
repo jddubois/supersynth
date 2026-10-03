@@ -194,16 +194,21 @@ def attack_stats(x, sr, f0, steady_level):
 
 def release_onset(m, sr):
     """Seconds from onset to where the recording's level starts to fall at its release
-    (walking back from the −8 dB point to the first 20 ms frame 0.75 dB below the sustain)."""
+    (walking back from the −8 dB point to the first 20 ms frame 0.75 dB below the level just
+    before the release, at most 0.4 s: a player's diminuendo earlier in the note is not the
+    release)."""
     on = find_onset(m, sr)
     y = m[on:]
     t8 = sustain_duration(m, sr)
     w = int(0.02 * sr)
     n = len(y) // w
     env = 10 * np.log10(np.mean(y[:n * w].reshape(n, w) ** 2, axis=1) + 1e-20)
-    steady = np.median(env[int(0.5 / 0.02):max(int(0.5 / 0.02) + 1, int((t8 - 0.3) / 0.02))])
-    j = min(int(t8 / 0.02), n - 1)
-    while j > 0 and env[j - 1] < steady - 0.75:
+    j8 = min(int(t8 / 0.02), n - 1)
+    a = max(int(0.3 / 0.02), j8 - int(0.9 / 0.02))
+    b = max(a + 1, j8 - int(0.4 / 0.02))
+    steady = np.median(env[a:b])
+    j = j8
+    while j > max(1, j8 - int(0.4 / 0.02)) and env[j - 1] < steady - 0.75:
         j -= 1
     return j * 0.02
 

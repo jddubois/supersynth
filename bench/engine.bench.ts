@@ -2,7 +2,7 @@
  * Engine throughput: how many times faster than real time each scenario renders
  * (single core, offline). CPU % is the share of one core needed in real time.
  *
- *   npm run bench
+ *   npm run bench              (SUPERSYNTH_MODELS_DIR=<dir> to benchmark other models)
  */
 import { Synth } from '../src/index.ts';
 
@@ -57,7 +57,7 @@ const scenarios: Scenario[] = [
 
 console.log(`render ${SECONDS}s @ 48 kHz, stereo, with reverb + limiter\n`);
 for (const sc of scenarios) {
-  const synth = new Synth({ sampleRate: 48000, reverb: 'hall' });
+  const synth = new Synth({ sampleRate: 48000, reverb: 'hall', modelsDir: process.env.SUPERSYNTH_MODELS_DIR || undefined });
   const notes = sc.setup(synth);
   synth.render(0.01); // load models outside the timing
   const t0 = performance.now();
