@@ -137,7 +137,8 @@ INSTRUMENTS: dict[str, dict] = {
     'violas': dict(
         display='Viola Section', family='strings', kind='sustained', source=CC0_VSCO,
         files=[f'{VSCO}/Strings/Viola Section/susvib/*.wav'],
-        layer_regex=r'_v(\d)_', exclude=RR_EXTRA, transient=True, transient_max_s=0.09, max_partials=512,
+        layer_regex=r'_v(\d)_', exclude=RR_EXTRA, transient=True, transient_max_s=0.15, max_partials=512,
+        weak_after_attack=True,
         params=dict(releaseMode='natural', spread=0.6, reverb='hall', reverbSend=0.2, formant=0.8,
                     minReleaseDbS=30.0),
     ),

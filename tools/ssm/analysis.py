@@ -459,7 +459,7 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                  max_loop_s: float | None = None, locked: bool | None = None,
                  max_stiffness: float = 2e-3, keep_release_tail: bool = True,
                  stereo: bool = False, steady_smooth_s: float = 0.0, phase_smooth_s: float = 0.0,
-                 pitch_smooth_s: float = 0.0) -> Zone:
+                 pitch_smooth_s: float = 0.0, weak_after_attack: bool = False) -> Zone:
     if locked is None:
         locked = kind == 'sustained'
     x, sr = load_mono(path, channel_mix)
@@ -710,15 +710,20 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
             st = (centers / sr >= steady0) & (centers / sr <= steady1)
             weak = weak_harmonics(resid, sr, f0, ratios, mono_s[st] if st.sum() >= 3 else mono_s, L, steady0, steady1)
             if weak.any():
+                keep = np.zeros((len(centers), 1))
+                if weak_after_attack:
+                    # only once the tone has settled: during a bowed attack these harmonics are
+                    # well above the noise, and dropping them there turns the onset into noise
+                    keep = (1.0 - np.clip((centers / sr - steady0) / 0.1, 0.0, 1.0))[:, None]
                 mono_s = mono_s.copy()
-                mono_s[:, weak] = 0
+                mono_s[:, weak] *= keep
                 amps_c = amps_c.copy()
-                amps_c[:, weak] = 0
+                amps_c[:, weak] *= keep
                 resid = x - _resynth(len(x), centers, mono_s, psi, ratios)
                 if xs is not None:
                     aLs, aRs = aLs.copy(), aRs.copy()
-                    aLs[:, weak] = 0
-                    aRs[:, weak] = 0
+                    aLs[:, weak] *= keep
+                    aRs[:, weak] *= keep
         if xs is not None and not os.environ.get('SSM_MONO_NOISE'):
             # Room and wind noise is largely uncorrelated between the microphones: the mono
             # mix holds only half of each channel's noise power. Measure noise per channel.

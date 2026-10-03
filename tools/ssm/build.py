@@ -264,6 +264,7 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
               max_loop_s=spec.get('max_loop_s'), use_cue=spec.get('use_cue', False), locked=spec.get('locked'),
               max_stiffness=spec.get('max_stiffness', 2e-3), stereo=spec.get('stereo', False),
               steady_smooth_s=spec.get('steady_smooth_s', 0.0), phase_smooth_s=spec.get('phase_smooth_s', 0.0),
+              weak_after_attack=spec.get('weak_after_attack', False),
               pitch_smooth_s=spec.get('pitch_smooth_s', 0.1 if spec.get('family') == 'organ' and spec['kind'] == 'sustained' else 0.0))
     jobs = [(f, n, l, kw) for f, n, l in items]
     with ProcessPoolExecutor(workers, initializer=_worker_init) as ex:
