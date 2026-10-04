@@ -1,10 +1,10 @@
 import { CHURCH_DIVISIONS, SWELL_TREMULANT } from './defaults.js';
-import type { OrganDef, Registration, StopDef } from './types.js';
+import type { OrganDef, OrganPreset, StopDef } from './types.js';
 
 /**
  * The VCSL church organ (Simon Dalzell / Ivy Audio, via the Versilian Community Sample
  * Library, CC0): a church instrument recorded in stereo with its room — a full chorus and a
- * flute registration on the manual, loud and soft pedal — with a Renaissance chamber organ
+ * flute stop on the manual, loud and soft pedal — with a Renaissance chamber organ
  * (separate 8' and 4' ranks) as the positive.
  */
 const STOPS: StopDef[] = [
@@ -19,7 +19,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-soft', model: 'pipe-organ-pedal-soft', name: "Soft Bass 16'", division: 'pedal', family: 'flute', transpose: 0, gain: -12.8 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   full: {
     description: 'Full organ: the full chorus with loud pedal',
     great: ['Full Organ'],
@@ -56,8 +56,8 @@ export const VCSL_ORGAN: OrganDef = {
   name: 'VCSL church organ',
   description: 'A church organ recorded in stereo with its room (full chorus, flutes, loud and soft pedal), with a Renaissance chamber organ as positive.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'full',
+  presets: PRESETS,
+  defaultPreset: 'full',
   divisions: CHURCH_DIVISIONS,
   tremulant: SWELL_TREMULANT,
 };

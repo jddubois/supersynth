@@ -10,6 +10,7 @@ import type { InstrumentParams, ReverbOptions, ReverbPreset } from './params.js'
 import { REVERB_FIELDS } from './params.js';
 import { Division, Organ, resolveOrgan, type OrganOptions } from './Organ.js';
 import { ORGAN_DEFAULTS } from './organs/defaults.js';
+import type { OrganInstrument } from './organs/index.js';
 import { Part } from './Part.js';
 import { deinterleave, makeAudioBuffer, writeWav, type AudioBuffer, type WavOptions } from './wav.js';
 import type { MidiEvent } from './types.js';
@@ -233,18 +234,20 @@ export class Synth extends EventEmitter {
    * organ by id, or any {@link OrganDef}.
    *
    * @example
-   * const organ = synth.organ({ registration: 'plenum' });
+   * const organ = synth.organ({ preset: 'plenum' });
    * organ.great.play(['C4','E4','G4'], { duration: 4 });
-   * synth.organ({ instrument: VCSL_ORGAN, registration: 'flutes' });
+   * synth.organ('vcsl');
+   * synth.organ({ instrument: VCSL_ORGAN, preset: 'flutes' });
    */
-  organ(options: OrganOptions = {}): Organ {
+  organ(options: OrganOptions | OrganInstrument = {}): Organ {
+    if (typeof options === 'string') options = { instrument: options };
     if (this.reverbMode === 'auto') {
       this.engine.setReverbPreset(resolveOrgan(options.instrument).reverb ?? ORGAN_DEFAULTS.reverb);
       this.reverbMode = 'set';
     }
     const organ = new Organ(this, options);
     if (this.maxPartials < 512) {
-      for (const d of organ.divisions) this.engine.setParam(d.channel, 'maxPartials', this.maxPartials);
+      for (const d of organ.divisions()) this.engine.setParam(d.channel, 'maxPartials', this.maxPartials);
     }
     return organ;
   }
@@ -448,7 +451,8 @@ export class Synth extends EventEmitter {
 
   /**
    * Connect a hardware MIDI input. With `route` (default), channel N plays the part on
-   * channel N−1 with no JS round-trip. Emits `'midi'` events for every message.
+   * channel N−1 with no JS round-trip (an organ's {@link Organ.midi} assigns channels to its
+   * divisions). Emits `'midi'` events for every message.
    */
   async enableMidi(device?: string, options: { route?: boolean } = {}): Promise<this> {
     try {

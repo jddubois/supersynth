@@ -10,7 +10,7 @@ import { Synth, type MidiTarget } from '../src/index.ts';
 const args = process.argv.slice(2);
 const file = args.find((a) => !a.startsWith('--') && !args[args.indexOf(a) - 1]?.startsWith('--'));
 if (!file) {
-  console.error('usage: midi-file.ts <file.mid> [--instrument id] [--organ] [--out file.wav]');
+  console.error('usage: midi-file.ts <file.mid> [--instrument id] [--organ [--preset name]] [--out file.wav]');
   process.exit(1);
 }
 const opt = (name: string) => {
@@ -22,7 +22,7 @@ const synth = new Synth();
 
 let instrument: MidiTarget = opt('instrument') ?? 'grand-piano';
 if (args.includes('--organ')) {
-  const organ = synth.organ({ registration: opt('registration') ?? 'plenum' });
+  const organ = synth.organ({ preset: opt('preset') ?? 'plenum' });
   instrument = organ.great;
 }
 

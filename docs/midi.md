@@ -27,3 +27,6 @@ synth.on('midi', (e) => console.log(e.type, e.note, e.velocity));
 
 With `route: true` (default) messages are applied inside the engine without a JavaScript round
 trip; set `route: false` to handle everything yourself in the `'midi'` event.
+
+An organ assigns its divisions to channels with `organ.midi({ great: 1, swell: 2, pedal: 3 })`
+(couplers apply, program changes select presets; see [organ.md](organ.md#midi-keyboards)).

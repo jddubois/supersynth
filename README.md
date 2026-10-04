@@ -105,16 +105,22 @@ synth.add('grand-piano', { preset: 'honky-tonk', params: { volume: -3 } });
 ### The church organ
 
 ```ts
-const organ = synth.organ({ registration: 'plenum' });
+const organ = synth.organ({ preset: 'plenum' });
 organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
 organ.pedal.play('C2', { duration: 4 });
 
 organ.great.pull("Trumpet 8'");           // draw a stop, even while notes are held
 organ.swell.pull("Salicional 8'", "Voix céleste 8'");
-organ.couple('swell>great');
+organ.great.couple('swell');              // Swell to Great
 organ.swell.expression(0.4);              // swell pedal
 organ.tremulant(true);
-organ.registrations;                       // plenum, flutes, cornet, trumpet, krummhorn, celeste, full, …
+
+organ.preset('celeste');                  // plenum, flutes, cornet, trumpet, krummhorn, celeste, full, …
+organ.preset({ great: ["Principal 8'"], pedal: ["Subbass 16'"], couple: { pedal: ['great'] } });
+organ.savePreset('mine');                 // what is drawn now, under a name
+
+await synth.enableMidi();
+organ.midi({ great: 1, swell: 2, pedal: 3 });   // keyboards per channel, couplers included
 ```
 
 ### Instruments and organs are configuration
@@ -131,9 +137,9 @@ synth.add({ ...GRAND_PIANO, id: 'dark-piano', params: { brightness: -1.5 } });
 
 const organ: OrganDef = {
   ...BUREA_ORGAN,
-  registrations: { ...BUREA_ORGAN.registrations, solo: { description: 'Krummhorn solo', positive: ["Gedackt 8'", "Krummhorn 8'"] } },
+  presets: { ...BUREA_ORGAN.presets, solo: { description: 'Krummhorn solo', positive: ["Gedackt 8'", "Krummhorn 8'"] } },
 };
-synth.organ({ instrument: organ, registration: 'solo' });
+synth.organ({ instrument: organ, preset: 'solo' });
 ```
 
 See [docs/organ.md](docs/organ.md#organs-are-configuration) and [docs/instruments.md](docs/instruments.md).
@@ -163,7 +169,7 @@ synth.on('midi', (e) => console.log(e));
 ```bash
 npm run example:tour          # every instrument family
 npm run example:piano         # pedal, dynamics, presets
-npm run example:organ         # hymn in four parts across registrations
+npm run example:organ         # hymn in four parts across presets
 npm run example:orchestra     # strings, harp, oboe, horn, pizzicato bass
 npm run example:midi          # a Bach organ work from a MIDI file
 npm run demos -- demos/       # render every instrument × preset to WAV

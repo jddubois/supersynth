@@ -1,12 +1,13 @@
 import { SupersynthError } from './errors.js';
 import { noteNumber, type NoteLike } from './notes.js';
 import { CHURCH_DIVISIONS, ORGAN_DEFAULTS, SWELL_TREMULANT } from './organs/defaults.js';
-import { BUREA_ORGAN, ORGANS, type OrganInstrument } from './organs/index.js';
-import type { DivisionName, OrganDef, StopDef } from './organs/types.js';
+import { ORGANS, type OrganInstrument } from './organs/index.js';
+import type { DivisionName, OrganDef, OrganPreset, StopDef } from './organs/types.js';
 import { playNotes, playSequence, resolveTime, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
 import type { Synth } from './Synth.js';
+import type { MidiEvent } from './types.js';
 
-export type { DivisionName, OrganDef, Registration, StopDef } from './organs/types.js';
+export type { DivisionName, OrganDef, OrganPreset, StopDef } from './organs/types.js';
 
 const DIVISIONS: DivisionName[] = ['great', 'swell', 'positive', 'pedal'];
 
@@ -24,11 +25,14 @@ export function stopModel(stop: StopDef): string {
   return stop.model ?? `organ/${stop.id}`;
 }
 
+/** Stop names (or ids) as one list: `('a', 'b')`, `(['a', 'b'])` and `('a', ['b'])` are the same. */
+type StopList = (string | string[])[];
+
 /** One keyboard (manual or pedalboard) of the organ. */
 export class Division {
-  private stopIndex = new Map<string, number>(); // stop name -> layer index in the engine
+  private layers = new Map<string, number>(); // stop name -> layer index in the engine
   private pulled = new Set<string>();
-  private couplersTo = new Set<Division>();
+  private couplers = new Set<DivisionName>();
 
   /** @internal */
   constructor(
@@ -39,76 +43,68 @@ export class Division {
   ) {}
 
   /** All stops of this division. */
-  get stops(): StopDef[] {
+  stops(): StopDef[] {
     return this.organ.definition.stops.filter((s) => s.division === this.name);
   }
 
   /** Names of the stops currently drawn. */
-  get drawn(): string[] {
+  drawn(): string[] {
     return [...this.pulled];
   }
 
-  /** Draw (pull) a stop. Takes effect on held notes too. */
-  pull(...names: string[]): this {
-    for (const name of names) this.setStop(name, true);
+  /** Draw exactly these stops (by name or id) and retire the others; `set()` silences the
+   *  division. Takes effect on held notes too. */
+  set(...stops: StopList): this {
+    const want = new Set(stops.flat().map((s) => this._stop(s).name));
+    for (const n of [...this.pulled]) if (!want.has(n)) this.toggle(n, false);
+    for (const n of want) this.toggle(n, true);
+    this.organ._changed();
     return this;
   }
 
-  /** Retire (push in) a stop. */
-  push(...names: string[]): this {
-    for (const name of names) this.setStop(name, false);
+  /** Draw (pull) stops, by name (`"Trumpet 8'"`) or id. Takes effect on held notes too. */
+  pull(...stops: StopList): this {
+    for (const s of stops.flat()) this.toggle(this._stop(s).name, true);
+    this.organ._changed();
     return this;
   }
 
-  /** Retire all stops. */
-  clear(): this {
-    for (const n of [...this.pulled]) this.setStop(n, false);
+  /** Retire (push in) stops. */
+  push(...stops: StopList): this {
+    for (const s of stops.flat()) this.toggle(this._stop(s).name, false);
+    this.organ._changed();
     return this;
   }
 
-  private setStop(name: string, on: boolean): void {
-    const def = this.stops.find((s) => s.name.toLowerCase() === name.toLowerCase() || s.id === name);
-    if (!def) {
-      throw new SupersynthError(`No stop '${name}' on the ${this.name}. Stops: ${this.stops.map((s) => s.name).join(', ')}`);
-    }
-    const synth = this.organ.synth;
-    const n = synth._native();
-    let li = this.stopIndex.get(def.name);
-    if (li === undefined) {
-      if (!on) return;
-      // load the stop's model the first time it is drawn
-      li = this.stopIndex.size;
-      n.addLayer(this.channel, { ...synth._layer({ model: stopModel(def), transpose: def.transpose, gain: def.gain ?? 0 }), enabled: on });
-      this.stopIndex.set(def.name, li);
-    } else {
-      n.setLayerEnabled(this.channel, li, on);
-    }
-    if (on) this.pulled.add(def.name);
-    else this.pulled.delete(def.name);
+  /** Couple other divisions to this keyboard: playing it also sounds their drawn stops.
+   *  `organ.great.couple('swell')` is the "Swell to Great" coupler. Couplers act on every
+   *  note, whether it comes from the API, a MIDI keyboard or a MIDI file. */
+  couple(...divisions: (DivisionName | Division)[]): this {
+    this._couplers([...this.couplers, ...divisions.map((d) => (typeof d === 'string' ? d : d.name))]);
+    this.organ._changed();
+    return this;
   }
 
-  /** @internal */
-  _couple(to: Division, on: boolean): void {
-    if (on) this.couplersTo.add(to);
-    else this.couplersTo.delete(to);
+  /** Release couplers to this keyboard; `uncouple()` releases all of them. */
+  uncouple(...divisions: (DivisionName | Division)[]): this {
+    const off = new Set(divisions.map((d) => (typeof d === 'string' ? d : d.name)));
+    this._couplers(divisions.length ? [...this.couplers].filter((d) => !off.has(d)) : []);
+    this.organ._changed();
+    return this;
   }
 
-  /** @internal */
-  get _coupledTo(): Division[] {
-    return [...this.couplersTo];
+  /** Divisions coupled to this keyboard. */
+  coupled(): DivisionName[] {
+    return [...this.couplers];
   }
 
   noteOn(note: NoteLike, velocity = 100, options: TimeOptions = {}): this {
-    const m = noteNumber(note);
-    const t = this.organ._time(options);
-    for (const d of this.targets()) this.organ.synth._native().noteOn(d.channel, m, velocity, t);
+    this.organ.synth._native().noteOn(this.channel, noteNumber(note), velocity, this.organ._time(options));
     return this;
   }
 
   noteOff(note: NoteLike, options: TimeOptions = {}): this {
-    const m = noteNumber(note);
-    const t = this.organ._time(options);
-    for (const d of this.targets()) this.organ.synth._native().noteOff(d.channel, m, t);
+    this.organ.synth._native().noteOff(this.channel, noteNumber(note), this.organ._time(options));
     return this;
   }
 
@@ -131,10 +127,37 @@ export class Division {
     return this;
   }
 
-  private targets(): Division[] {
-    const out = new Set<Division>([this]);
-    for (const d of this.couplersTo) out.add(d);
-    return [...out];
+  /** @internal The stop called `name` (name, case-insensitive, or id). */
+  _stop(name: string): StopDef {
+    const def = this.stops().find((s) => s.name.toLowerCase() === name.toLowerCase() || s.id === name);
+    if (!def) {
+      throw new SupersynthError(`No stop '${name}' on the ${this.name}. Stops: ${this.stops().map((s) => s.name).join(', ')}`);
+    }
+    return def;
+  }
+
+  /** @internal Replace the couplers (one engine change, so held notes are not restruck). */
+  _couplers(names: DivisionName[]): void {
+    const targets = [...new Set(names)].filter((n) => n !== this.name).map((n) => this.organ.division(n));
+    this.couplers = new Set(targets.map((d) => d.name));
+    this.organ.synth._native().setCouplers(this.channel, targets.map((d) => d.channel));
+  }
+
+  private toggle(name: string, on: boolean): void {
+    if (this.pulled.has(name) === on) return;
+    const def = this._stop(name);
+    const synth = this.organ.synth;
+    const n = synth._native();
+    const li = this.layers.get(def.name);
+    if (li === undefined) {
+      // load the stop's model the first time it is drawn
+      this.layers.set(def.name, this.layers.size);
+      n.addLayer(this.channel, { ...synth._layer({ model: stopModel(def), transpose: def.transpose, gain: def.gain ?? 0 }), enabled: true });
+    } else {
+      n.setLayerEnabled(this.channel, li, on);
+    }
+    if (on) this.pulled.add(def.name);
+    else this.pulled.delete(def.name);
   }
 }
 
@@ -143,8 +166,10 @@ export interface OrganOptions {
    *  organ with a Renaissance chamber organ as positive) or any {@link OrganDef}.
    *  @default 'burea' */
   instrument?: OrganInstrument | OrganDef;
-  /** Registration to start with. @default the organ's `defaultRegistration` */
-  registration?: string;
+  /** Preset to start with: a name or a preset. @default the organ's `defaultPreset` */
+  preset?: string | OrganPreset;
+  /** Presets added to the organ's own (a preset of the same name replaces the built-in one). */
+  presets?: Record<string, OrganPreset>;
   /** Start with the tremulant on. @default false */
   tremulant?: boolean;
   /** Wind supply: how much the pipes of a division sag together when many start at once
@@ -153,15 +178,25 @@ export interface OrganOptions {
   wind?: number;
 }
 
+/** MIDI channel (1–16) of each keyboard, for {@link Organ.midi}. */
+export type OrganMidiChannels = Partial<Record<DivisionName, number>>;
+
+export interface OrganMidiOptions {
+  /** Program change on any of the organ's channels selects a preset: program 0 the first of
+   *  these, 1 the second, … `false` ignores program changes. @default all presets, in order */
+  presets?: string[] | false;
+}
+
 /**
  * A real church organ: four divisions with drawable stops, couplers, swell pedal and
  * tremulant, played from an {@link OrganDef} (the Bureå Church organ by default).
  *
  * ```ts
- * const organ = synth.organ({ registration: 'plenum' });
+ * const organ = synth.organ({ preset: 'plenum' });
  * organ.great.play(['C4', 'E4', 'G4'], { duration: 3 });
  * organ.pedal.play('C2', { duration: 3 });
  * organ.great.pull("Trumpet 8'");
+ * organ.preset({ swell: ["Salicional 8'", "Voix céleste 8'"], pedal: ["Subbass 16'"], couple: { great: ['swell'] } });
  * ```
  */
 export class Organ {
@@ -169,100 +204,134 @@ export class Organ {
   readonly swell: Division;
   readonly positive: Division;
   readonly pedal: Division;
-  private _registration = '';
-  /** The organ's definition: stops, registrations, layout. */
+  /** The organ's definition: stops, presets, layout. */
   readonly definition: OrganDef;
+  private saved: Record<string, OrganPreset>;
+  private active: string | undefined;
+  private midiListener: ((e: MidiEvent) => void) | undefined;
 
   /** @internal */
   constructor(readonly synth: Synth, options: OrganOptions = {}) {
     const def = resolveOrgan(options.instrument);
     this.definition = def;
+    this.saved = { ...options.presets };
     this.great = new Division(this, 'great', synth._reserveChannel());
     this.swell = new Division(this, 'swell', synth._reserveChannel());
     this.positive = new Division(this, 'positive', synth._reserveChannel());
     this.pedal = new Division(this, 'pedal', synth._reserveChannel());
     const layout = def.divisions ?? CHURCH_DIVISIONS;
     const n = synth._native();
-    for (const d of this.divisions) {
+    for (const d of this.divisions()) {
       n.setInstrument(d.channel, []);
       n.setParam(d.channel, 'reverbSend', def.reverbSend ?? ORGAN_DEFAULTS.reverbSend);
       n.setParam(d.channel, 'pan', layout[d.name]?.pan ?? 0);
     }
-    for (const d of this.divisions) {
+    for (const d of this.divisions()) {
       if (layout[d.name]?.swellBox) n.setParam(d.channel, 'swellBox', 1);
     }
-    this.setWind(options.wind ?? def.wind ?? ORGAN_DEFAULTS.wind);
-    this.useRegistration(options.registration ?? def.defaultRegistration);
+    this.wind(options.wind ?? def.wind ?? ORGAN_DEFAULTS.wind);
+    this.preset(options.preset ?? def.defaultPreset);
     if (options.tremulant) this.tremulant(true);
   }
 
-  /** Id of the organ (`'burea'`, `'vcsl'`, or a custom definition's id). */
-  get instrument(): string {
-    return this.definition.id;
-  }
-
-  get divisions(): Division[] {
+  /** The four divisions: great, swell, positive, pedal. */
+  divisions(): Division[] {
     return [this.great, this.swell, this.positive, this.pedal];
   }
 
-  /** Name of the last registration applied. */
-  get registration(): string {
-    return this._registration;
-  }
-
-  /** Registrations of the Bureå organ. @deprecated use `organ.registrations` or `BUREA_ORGAN` */
-  static get registrations(): Record<string, string> {
-    return describe(BUREA_ORGAN.registrations);
-  }
-
-  /** All stops of the Bureå organ. @deprecated use `BUREA_ORGAN.stops` */
-  static get stops(): StopDef[] {
-    return BUREA_ORGAN.stops;
+  division(name: DivisionName): Division {
+    const d = this.divisions().find((x) => x.name === name);
+    if (!d) throw new SupersynthError(`No division '${name}' (${DIVISIONS.join(', ')})`);
+    return d;
   }
 
   /** All stops of this organ. */
-  get stops(): StopDef[] {
+  stops(): StopDef[] {
     return this.definition.stops;
   }
 
-  /** Named registrations of this organ, with their descriptions. */
-  get registrations(): Record<string, string> {
-    return describe(this.definition.registrations);
-  }
-
-  /** Apply a named registration (replaces all drawn stops and couplers). */
-  useRegistration(name: string): this {
-    const regs = this.definition.registrations;
-    const r = regs[name];
-    if (!r) throw new SupersynthError(`Unknown registration '${name}'. Available: ${Object.keys(regs).join(', ')}`);
-    for (const d of this.divisions) {
-      d.clear();
-      for (const o of this.divisions) d._couple(o, false);
-      const stops = r[d.name];
-      if (stops) d.pull(...stops);
+  /**
+   * Apply a preset: a name from {@link presets} or a preset object. Replaces every drawn stop
+   * and coupler; divisions the preset leaves out fall silent.
+   *
+   * ```ts
+   * organ.preset('plenum');
+   * organ.preset({ great: ["Principal 8'", "Octave 4'"], pedal: ["Subbass 16'"], couple: { pedal: ['great'] } });
+   * ```
+   */
+  preset(preset: string | OrganPreset): this {
+    const p = typeof preset === 'string' ? this.lookup(preset) : preset;
+    // check everything before changing anything
+    for (const d of this.divisions()) for (const s of p[d.name] ?? []) d._stop(s);
+    for (const [k, v] of Object.entries(p.couple ?? {})) for (const n of [k, ...v]) this.division(n as DivisionName);
+    for (const d of this.divisions()) {
+      d.set(p[d.name] ?? []);
+      d._couplers(p.couple?.[d.name] ?? []);
     }
-    for (const c of r.couplers ?? []) this.couple(c, true);
-    this._registration = name;
+    this.active = typeof preset === 'string' ? preset : undefined;
     return this;
   }
 
-  /** Wind flexibility, 0 (steady) – 1 (flexible winding); see {@link OrganOptions.wind}. */
-  setWind(amount: number): this {
-    for (const d of this.divisions) this.synth._native().setParam(d.channel, 'wind', Math.max(0, amount));
+  /** The organ's presets, its own and those added with {@link savePreset} or
+   *  {@link OrganOptions.presets}, by name. */
+  presets(): Record<string, OrganPreset> {
+    return { ...this.definition.presets, ...this.saved };
+  }
+
+  /** Store a preset under a name, like the "set" button of a combination action: by default
+   *  the stops and couplers drawn now. */
+  savePreset(name: string, preset: OrganPreset = this.current()): this {
+    this.saved[name] = preset;
     return this;
   }
 
-  /** Engage or release a coupler, e.g. `organ.couple('swell>great')`. */
-  couple(spec: string, on = true): this {
-    const [from, to] = spec.split('>').map((s) => s.trim()) as [DivisionName, DivisionName];
-    const src = this.division(to); // playing on `to` also sounds `from`
-    const dst = this.division(from);
-    src._couple(dst, on);
+  /** The stops drawn and couplers engaged now, as a preset. */
+  current(): OrganPreset {
+    const p: OrganPreset = {};
+    const couple: OrganPreset['couple'] = {};
+    for (const d of this.divisions()) {
+      if (d.drawn().length) p[d.name] = d.drawn();
+      if (d.coupled().length) couple[d.name] = d.coupled();
+    }
+    if (Object.keys(couple).length) p.couple = couple;
+    return p;
+  }
+
+  /** Name of the preset in use, or `undefined` once stops or couplers were changed by hand. */
+  activePreset(): string | undefined {
+    return this.active;
+  }
+
+  /**
+   * Play the organ from MIDI keyboards (after `synth.enableMidi()`): each division listens on
+   * its channel, couplers included, and the swell pedal is CC 11 on a division's channel.
+   * Program changes select presets.
+   *
+   * ```ts
+   * await synth.enableMidi();
+   * organ.midi({ great: 1, swell: 2, pedal: 3 }, { presets: ['flutes', 'principal-chorus', 'plenum', 'full'] });
+   * ```
+   */
+  midi(channels: OrganMidiChannels = { great: 1, swell: 2, positive: 3, pedal: 4 }, options: OrganMidiOptions = {}): this {
+    const n = this.synth._native();
+    for (const [name, ch] of Object.entries(channels)) n.setMidiRoute(ch, this.division(name as DivisionName).channel);
+    if (this.midiListener) this.synth.off('midi', this.midiListener);
+    this.midiListener = undefined;
+    if (options.presets !== false) {
+      const ours = new Set(Object.values(channels));
+      const names = () => (options.presets === undefined ? Object.keys(this.presets()) : options.presets) as string[];
+      this.midiListener = (e: MidiEvent) => {
+        if (e.type !== 'programChange' || !ours.has(e.channel)) return;
+        const name = names()[e.program ?? 0];
+        if (name !== undefined) this.preset(name);
+      };
+      this.synth.on('midi', this.midiListener);
+    }
     return this;
   }
 
   /** Tremulant: a periodic wobble of one division's wind pressure (see {@link OrganDef.tremulant}). */
-  tremulant(on: boolean): this {
+  tremulant(on = true): this {
     // all pipes of the division pulse together in loudness and (less) in pitch
     const tr = this.definition.tremulant ?? SWELL_TREMULANT;
     const n = this.synth._native();
@@ -270,6 +339,12 @@ export class Organ {
     n.setParam(ch, 'tremolo', on ? tr.depth : 0);
     n.setParam(ch, 'tremoloPitch', on ? tr.pitch : 0);
     n.setParam(ch, 'tremoloRate', tr.rate);
+    return this;
+  }
+
+  /** Wind flexibility, 0 (steady) – 1 (flexible winding); see {@link OrganOptions.wind}. */
+  wind(amount: number): this {
+    for (const d of this.divisions()) this.synth._native().setParam(d.channel, 'wind', Math.max(0, amount));
     return this;
   }
 
@@ -289,18 +364,20 @@ export class Organ {
     return this;
   }
 
-  division(name: DivisionName): Division {
-    const d = this.divisions.find((x) => x.name === name);
-    if (!d) throw new SupersynthError(`No division '${name}' (${DIVISIONS.join(', ')})`);
-    return d;
-  }
-
   /** @internal */
   _time(o: TimeOptions): number | undefined {
     return resolveTime(this.synth.currentTime, o);
   }
-}
 
-function describe(regs: OrganDef['registrations']): Record<string, string> {
-  return Object.fromEntries(Object.entries(regs).map(([k, r]) => [k, r.description]));
+  /** @internal Stops or couplers changed by hand. */
+  _changed(): void {
+    this.active = undefined;
+  }
+
+  private lookup(name: string): OrganPreset {
+    const all = this.presets();
+    const p = all[name];
+    if (!p) throw new SupersynthError(`Unknown preset '${name}'. Available: ${Object.keys(all).join(', ')}`);
+    return p;
+  }
 }

@@ -17,7 +17,7 @@
 | | |
 |---|---|
 | `add(id \| def, { preset, params, channel })` | add an instrument → `Part` |
-| `organ({ registration, tremulant })` | the church organ → `Organ` |
+| `organ(id \| { instrument, preset, presets, tremulant, wind })` | a church organ → `Organ` |
 | `part(channel)`, `remove(part)` | |
 | `start()` / `stop()` / `close()` | real-time output |
 | `render(seconds)` | offline → `{ sampleRate, left, right }` |

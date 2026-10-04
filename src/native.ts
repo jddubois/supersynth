@@ -37,6 +37,8 @@ export interface NativeEngine {
   setReverbPreset(name: string, time?: number | null): void;
   setLayerEnabled(part: number, layer: number, enabled: boolean, time?: number | null): void;
   setLayerGain(part: number, layer: number, gainDb: number, time?: number | null): void;
+  setCouplers(part: number, targets: number[], time?: number | null): void;
+  setMidiRoute(channel: number, part: number): void;
   allNotesOff(part?: number | null, time?: number | null): void;
   allSoundOff(): void;
   start(): void;

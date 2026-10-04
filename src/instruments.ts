@@ -195,7 +195,7 @@ export class Vibraphone extends Instrument {
  * A church organ with its own engine (any organ {@link OrganOptions.instrument} accepts).
  *
  * ```ts
- * const organ = new ChurchOrgan({ registration: 'plenum' });
+ * const organ = new ChurchOrgan({ preset: 'plenum' });
  * await organ.start();
  * organ.great.play(['C3', 'G3', 'C4', 'E4'], { duration: 4 });
  * organ.pedal.play('C2', { duration: 4 });
@@ -203,11 +203,12 @@ export class Vibraphone extends Instrument {
  */
 export class ChurchOrgan extends OwnEngine(OrganHandle) {
   constructor(options: OrganOptions & SynthOptions = {}) {
-    const { registration, tremulant, instrument, wind, ...synthOptions } = options;
+    const { preset, presets, tremulant, instrument, wind, ...synthOptions } = options;
     const synth = new Synth({ reverb: resolveOrgan(instrument).reverb ?? ORGAN_DEFAULTS.reverb, ...synthOptions });
     super(synth, {
       ...(instrument ? { instrument } : {}),
-      ...(registration ? { registration } : {}),
+      ...(preset ? { preset } : {}),
+      ...(presets ? { presets } : {}),
       ...(tremulant ? { tremulant } : {}),
       ...(wind !== undefined ? { wind } : {}),
     });

@@ -12,6 +12,18 @@ import { BUREA_ORGAN, ORGANS } from '../src/organs/index.js';
 const peak = (a: Float32Array) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
 const rms = (a: Float32Array) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / Math.max(1, a.length));
 
+/** A format-0 MIDI file (480 ticks per beat, 120 bpm) of `[delta ticks, status, data1, data2]` events. */
+function midiFile(events: [number, number, number, number][]): Uint8Array {
+  const vlq = (n: number) => {
+    const out = [n & 0x7f];
+    while ((n >>= 7)) out.unshift((n & 0x7f) | 0x80);
+    return out;
+  };
+  const body = events.flatMap(([dt, st, a, b]) => [...vlq(dt), st, a, b]).concat([0, 0xff, 0x2f, 0]);
+  const u32 = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+  return Uint8Array.from([0x4d, 0x54, 0x68, 0x64, ...u32(6), 0, 0, 0, 1, 0x01, 0xe0, 0x4d, 0x54, 0x72, 0x6b, ...u32(body.length), ...body]);
+}
+
 describe('notes', () => {
   test('names and numbers', () => {
     expect(noteNumber('C4')).toBe(60);
@@ -124,25 +136,69 @@ describe('instruments', () => {
 });
 
 describe('organ', () => {
-  test('registrations, stops and couplers', () => {
+  test('presets, stops and couplers', () => {
     const synth = new Synth({ sampleRate: 48000 });
-    const organ = synth.organ({ registration: 'flutes' });
-    expect(organ.great.drawn).toEqual(["Gedackt 8'", "Rohrflöte 4'"]);
+    const organ = synth.organ({ preset: 'flutes' });
+    expect(organ.great.drawn()).toEqual(["Gedackt 8'", "Rohrflöte 4'"]);
+    expect(organ.activePreset()).toBe('flutes');
     organ.great.play(['C4', 'E4'], { duration: 0.5 });
     organ.pedal.play('C2', { duration: 0.5 });
     expect(rms(synth.render(0.8).left)).toBeGreaterThan(1e-3);
-    organ.useRegistration('plenum');
-    expect(organ.great.drawn).toContain('Mixture V');
+    organ.preset('plenum');
+    expect(organ.great.drawn()).toContain('Mixture V');
+    expect(organ.pedal.coupled()).toEqual(['great']);
     organ.great.pull("Trumpet 8'");
-    expect(organ.great.drawn).toContain("Trumpet 8'");
-    organ.great.push("Trumpet 8'");
-    expect(organ.great.drawn).not.toContain("Trumpet 8'");
+    expect(organ.great.drawn()).toContain("Trumpet 8'");
+    expect(organ.activePreset()).toBeUndefined();
+    organ.great.push('great-trumpet-8'); // by id
+    expect(organ.great.drawn()).not.toContain("Trumpet 8'");
+    organ.great.set("Principal 8'", ["Octave 4'"]);
+    expect(organ.great.drawn()).toEqual(["Principal 8'", "Octave 4'"]);
     expect(() => organ.great.pull('Bombarde 32')).toThrow(SupersynthError);
+  });
+
+  test('a preset can be an object, saved and read back', () => {
+    const synth = new Synth({ sampleRate: 22050 });
+    const organ = synth.organ({ presets: { soft: { description: 'Soft', swell: ["Salicional 8'"], pedal: ["Subbass 16'"] } }, preset: 'soft' });
+    expect(organ.swell.drawn()).toEqual(["Salicional 8'"]);
+    organ.preset({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] } });
+    expect(organ.current()).toEqual({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] } });
+    expect(organ.activePreset()).toBeUndefined();
+    organ.savePreset('mine');
+    organ.preset('plenum').preset('mine');
+    expect(organ.current()).toEqual({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] } });
+    expect(Object.keys(organ.presets())).toContain('mine');
+    // a bad preset changes nothing
+    expect(() => organ.preset({ great: ['Bombarde 32'] })).toThrow(SupersynthError);
+    expect(() => organ.preset('nope')).toThrow(SupersynthError);
+    expect(organ.great.drawn()).toEqual(["Principal 8'"]);
+  });
+
+  test('couplers act in the engine, for every note source', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const organ = synth.organ({ preset: { swell: ["Rohrflöte 8'"] } });
+    // a MIDI file played on the great (straight to the engine, like a MIDI keyboard)
+    const great = () => rms(synth.renderMidi(midiFile([[0, 0x90, 60, 100], [240, 0x80, 60, 0]]), { instrument: organ.great, tail: 0.1 }).left);
+    expect(great()).toBeLessThan(1e-6); // nothing drawn on the great
+    organ.great.couple('swell');
+    expect(great()).toBeGreaterThan(1e-3); // sounds the swell
+    organ.great.uncouple();
+    synth.render(3);
+    expect(great()).toBeLessThan(1e-6);
+  });
+
+  test('program changes select presets', () => {
+    const synth = new Synth({ sampleRate: 22050 });
+    const organ = synth.organ().midi({ great: 1, pedal: 2 }, { presets: ['flutes', 'plenum'] });
+    synth.emit('midi', { type: 'programChange', channel: 2, program: 1, raw: Buffer.from([0xc1, 1]) });
+    expect(organ.activePreset()).toBe('plenum');
+    synth.emit('midi', { type: 'programChange', channel: 5, program: 0, raw: Buffer.from([0xc4, 0]) });
+    expect(organ.activePreset()).toBe('plenum'); // not one of the organ's channels
   });
 
   test('pulling a stop while a note is held adds it to the sounding note', () => {
     const synth = new Synth({ sampleRate: 48000, reverb: false });
-    const organ = synth.organ({ registration: 'flute-8' });
+    const organ = synth.organ({ preset: 'flute-8' });
     organ.positive.noteOn('C4');
     const before = rms(synth.render(0.5).right);
     organ.positive.pull("Krummhorn 8'");
@@ -181,9 +237,9 @@ describe('configurations', () => {
     }
   });
 
-  test('registrations only name stops of their divisions', () => {
+  test('presets only name stops of their divisions', () => {
     for (const organ of Object.values(ORGANS)) {
-      for (const [name, reg] of Object.entries(organ.registrations)) {
+      for (const [name, reg] of Object.entries(organ.presets)) {
         for (const div of ['great', 'swell', 'positive', 'pedal'] as const) {
           for (const stop of reg[div] ?? []) {
             expect([organ.id, name, div, organ.stops.some((s) => s.division === div && s.name === stop)]).toEqual([organ.id, name, div, true]);
@@ -199,16 +255,16 @@ describe('configurations', () => {
       name: 'Two-stop chamber organ',
       description: 'Bureå flutes as a box organ',
       stops: BUREA_ORGAN.stops.filter((s) => ['great-gedackt-8', 'pedal-subbass-16'].includes(s.id)),
-      registrations: { soft: { description: 'Gedackt and Subbass', great: ["Gedackt 8'"], pedal: ["Subbass 16'"] } },
-      defaultRegistration: 'soft',
+      presets: { soft: { description: 'Gedackt and Subbass', great: ["Gedackt 8'"], pedal: ["Subbass 16'"] } },
+      defaultPreset: 'soft',
       divisions: { great: { pan: -0.5 } },
       tremulant: { division: 'great', depth: 3, pitch: 5, rate: 5 },
     };
     const synth = new Synth({ sampleRate: 22050, reverb: false });
     const organ = synth.organ({ instrument: tiny, tremulant: true });
-    expect(organ.instrument).toBe('tiny');
-    expect(organ.great.drawn).toEqual(["Gedackt 8'"]);
-    expect(organ.registrations).toEqual({ soft: 'Gedackt and Subbass' });
+    expect(organ.definition.id).toBe('tiny');
+    expect(organ.great.drawn()).toEqual(["Gedackt 8'"]);
+    expect(Object.keys(organ.presets())).toEqual(['soft']);
     const len = organ.great.sequence([['C4', 1], [['E4', 'G4'], 1]], { bpm: 240 });
     expect(len).toBeCloseTo(0.5);
     const out = synth.render(0.8);

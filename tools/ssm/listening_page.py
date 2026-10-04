@@ -45,7 +45,7 @@ def main(out, blind_dir, key_path, demos, holdout=None, score=None):
         if files:
             insts.append({**inst, 'demos': files})
     organ = []
-    for reg, desc in cat['registrations'].items():
+    for reg, desc in cat['organPresets'].items():
         src = os.path.join(demos, 'organ', f'{reg}.wav')
         if os.path.exists(src):
             name = f'organ_{reg}.mp3'

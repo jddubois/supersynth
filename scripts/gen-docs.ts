@@ -1,4 +1,4 @@
-// Generates docs/instruments.md and the stop/registration tables of docs/organ.md from the catalog.
+// Generates docs/instruments.md and the stop/preset tables of docs/organ.md from the catalog.
 import { writeFileSync } from 'node:fs';
 import { BUREA_ORGAN, INSTRUMENTS, type InstrumentDef } from '../src/index.ts';
 import * as configs from '../src/catalog/index.ts';
@@ -34,7 +34,7 @@ for (const div of ['great', 'swell', 'positive', 'pedal']) {
   org += `\n### ${div[0]!.toUpperCase() + div.slice(1)}\n\n| Stop | Family |\n|---|---|\n`;
   for (const s of BUREA_ORGAN.stops.filter((x) => x.division === div)) org += `| ${s.name} | ${s.family} |\n`;
 }
-org += '\n## Registrations\n\n| Name | Description |\n|---|---|\n';
-for (const [k, r] of Object.entries(BUREA_ORGAN.registrations)) org += `| \`${k}\` | ${r.description} |\n`;
+org += '\n## Bureå presets\n\n| Name | Description |\n|---|---|\n';
+for (const [k, r] of Object.entries(BUREA_ORGAN.presets)) org += `| \`${k}\` | ${r.description ?? ''} |\n`;
 writeFileSync('docs/organ-stops.generated.md', org); // spliced into organ.md
 console.log('docs generated');

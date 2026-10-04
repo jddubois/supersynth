@@ -1,5 +1,5 @@
 /**
- * Render a demo of every instrument and every preset (and every organ registration)
+ * Render a demo of every instrument and every preset (and every organ preset)
  * to WAV files, so they can all be auditioned.
  *
  *   npm run demos -- [out-dir]        (default ./demos)
@@ -7,7 +7,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
-import { INSTRUMENTS, Organ, Synth } from '../src/index.ts';
+import { BUREA_ORGAN, INSTRUMENTS, Synth } from '../src/index.ts';
 import {
   AMAZING_GRACE, BWV846, CANON_CHORDS, fitToRange, GREENSLEEVES, ODE_TO_JOY, OLD_HUNDREDTH, playSteps,
   WESTMINSTER, type Step,
@@ -57,9 +57,9 @@ for (const def of INSTRUMENTS) {
 }
 
 if (!only || only === 'organ') {
-  for (const reg of Object.keys(Organ.registrations)) {
+  for (const reg of Object.keys(BUREA_ORGAN.presets)) {
     const synth = new Synth({ sampleRate: 48000 });
-    const organ = synth.organ({ registration: reg });
+    const organ = synth.organ({ preset: reg });
     const beat = 60 / 84;
     let t = 0.3;
     for (const [s, a, tn, b, beats] of OLD_HUNDREDTH.slice(0, 8)) {

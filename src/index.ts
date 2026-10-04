@@ -3,7 +3,7 @@ export type { SynthOptions, AddOptions, InstrumentInfo, MidiPlayOptions, MidiTar
 export { Part, PARAM_DEFAULTS } from './Part.js';
 export type { PlayOptions, TimeOptions, SequenceStep, SequenceOptions } from './scheduling.js';
 export { Organ, Division } from './Organ.js';
-export type { OrganOptions } from './Organ.js';
+export type { OrganOptions, OrganMidiChannels, OrganMidiOptions } from './Organ.js';
 export {
   Instrument, Piano, UprightPiano, Harpsichord, Harp, Violin, Cello, Strings, Flute, Oboe, Clarinet,
   Bassoon, Saxophone, Trumpet, FrenchHorn, Trombone, Tuba, Marimba, Vibraphone, ChurchOrgan,
