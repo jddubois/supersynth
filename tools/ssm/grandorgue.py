@@ -307,8 +307,10 @@ def render_pipe(p: Pipe, hold_s: float = 3.4) -> tuple[np.ndarray, int, int]:
             rel = signal.resample_poly(rel, sr, sr2, axis=0)
         loops = wav_loops(p.attack)
         loop_a = loops[0][0] if loops else int(0.5 * len(att))
-        # key-up well into the sustain: at least `hold_s`, at least 1.8 s past the loop start
-        at = int(min(len(att) - 0.06 * sr, max(hold_s * sr, loop_a + 1.8 * sr)))
+        # key-up well into the sustain: at least `hold_s`, 1.8 s past the loop start (a loop
+        # starting later than 2.5 s counts as 2.5 s: the model loops within the first ~2 s of
+        # steady sound and drops the rest of the sustain before the release)
+        at = int(min(len(att) - 0.06 * sr, max(hold_s * sr, min(loop_a, 2.5 * sr) + 1.8 * sr)))
         y, up = splice_release(att, rel, sr, at, f0, p.crossfade_ms)
     else:
         y = att

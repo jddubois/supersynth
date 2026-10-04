@@ -1,0 +1,331 @@
+{
+ "id": "skrzatusz",
+ "church": "Skrzatusz sanctuary",
+ "address": "Poland",
+ "builder": "Wilhelm Sauer",
+ "year": "1876",
+ "pitch": 0.11,
+ "reference": "great-principal-8",
+ "swellBoxes": [],
+ "tremulants": [
+  {
+   "division": "positive",
+   "depth": 0.98,
+   "pitch": 7.2,
+   "rate": 5.18,
+   "sampled": false
+  }
+ ],
+ "stops": [
+  {
+   "id": "pedal-violon-16",
+   "name": "Violon 16'",
+   "odfName": "P Violon 16",
+   "section": "stop001",
+   "manual": 0,
+   "division": "pedal",
+   "family": "string",
+   "transpose": -12,
+   "keys": [
+    36,
+    62
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-subbass-16",
+   "name": "Subbass 16'",
+   "odfName": "P Subbass 16",
+   "section": "stop002",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    62
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-octavbass-8",
+   "name": "Octavbass 8'",
+   "odfName": "P Octavbass 8",
+   "section": "stop003",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    62
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-bassflote-8",
+   "name": "Bassflöte 8'",
+   "odfName": "P Bassflote 8",
+   "section": "stop004",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    62
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-posaune-16",
+   "name": "Posaune 16'",
+   "odfName": "P Posaune 16",
+   "section": "stop005",
+   "manual": 0,
+   "division": "pedal",
+   "family": "reed",
+   "transpose": -12,
+   "keys": [
+    36,
+    62
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-bordun-16",
+   "name": "Bordun 16'",
+   "odfName": "I Bordun 16",
+   "section": "stop006",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-principal-8",
+   "name": "Principal 8'",
+   "odfName": "I Principal 8",
+   "section": "stop007",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-fugara-8",
+   "name": "Fugara 8'",
+   "odfName": "I Fugara 8",
+   "section": "stop008",
+   "manual": 1,
+   "division": "great",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-flute-harmonique-8",
+   "name": "Flûte harmonique 8'",
+   "odfName": "I Flute harmonique 8",
+   "section": "stop009",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-octave-4",
+   "name": "Octave 4'",
+   "odfName": "I Octave 4",
+   "section": "stop010",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-quinte-2-2-3",
+   "name": "Quinte 2 2/3'",
+   "odfName": "I Quinte 2 2/3",
+   "section": "stop011",
+   "manual": 1,
+   "division": "great",
+   "family": "mutation",
+   "transpose": 19,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-octave-2",
+   "name": "Octave 2'",
+   "odfName": "I Octave 2",
+   "section": "stop012",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-cornett-4f",
+   "name": "Cornett 4f",
+   "odfName": "I Cornett 4f",
+   "section": "stop013",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    60,
+    89
+   ],
+   "missing": [
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59
+   ]
+  },
+  {
+   "id": "great-mixtur-3f",
+   "name": "Mixtur 3f",
+   "odfName": "I Mixtur 3f",
+   "section": "stop014",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-geigenprincipal-8",
+   "name": "Geigenprincipal 8'",
+   "odfName": "II Geigenprincipal 8",
+   "section": "stop015",
+   "manual": 2,
+   "division": "positive",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-gedact-8",
+   "name": "Gedact 8'",
+   "odfName": "II Gedact 8",
+   "section": "stop016",
+   "manual": 2,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-viola-di-gamba-8",
+   "name": "Viola di Gamba 8'",
+   "odfName": "II Viola di Gamba 8",
+   "section": "stop017",
+   "manual": 2,
+   "division": "positive",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-praestant-4",
+   "name": "Praestant 4'",
+   "odfName": "II Praestant 4",
+   "section": "stop018",
+   "manual": 2,
+   "division": "positive",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-flauto-dolce-4",
+   "name": "Flauto dolce 4'",
+   "odfName": "II Flauto dolce 4",
+   "section": "stop019",
+   "manual": 2,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  }
+ ]
+}
