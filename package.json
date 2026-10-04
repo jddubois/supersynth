@@ -1,7 +1,7 @@
 {
   "name": "supersynth",
   "version": "0.2.0",
-  "description": "Real instrument sounds for Node.js: spectral resynthesis of real recordings (piano, 17 pipe organs, strings, winds, brass, mallets) in a native Rust engine",
+  "description": "Real instrument sounds for Node.js: spectral resynthesis of real recordings (piano, 16 pipe organs and a harmonium, strings, winds, brass, mallets) in a native Rust engine",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

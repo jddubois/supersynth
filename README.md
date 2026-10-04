@@ -1,6 +1,6 @@
 # supersynth
 
-Real instrument sounds for Node.js — a concert grand, seventeen real pipe organs (and a harmonium), an orchestra
+Real instrument sounds for Node.js — a concert grand, sixteen real pipe organs and a harmonium, an orchestra
 of strings, winds, brass and mallets — synthesised in real time by a native Rust engine.
 
 ```ts
