@@ -57,6 +57,9 @@ ORGANS: dict[str, dict] = {
                    names={'II  Geigen Principal 8 Fuß': "Geigenprincipal 8'"}),
     'raszczyce': dict(odf='Raszczyce.organ', divisions={0: 'pedal', 1: 'positive', 2: 'great'}),
     'strassburg': dict(odf='Strassburg.organ', divisions={0: 'pedal', 1: 'great', 2: 'positive'}),
+    'friesach': dict(odf='Friesach.organ', divisions={0: 'pedal', 1: 'great', 2: 'swell', 3: 'positive'},
+                     names={"SL  Cornet a pavilon 1-8f. 8'": "Cornet à pavillon 8'"},
+                     families={"Corno dolce 8'": 'flute', "Contrabaß 16'": 'principal'}),
     # Hauptwerk only: divisions are Hauptwerk division ids
     'harmonium': dict(hauptwerk='OrganDefinitions/Harmonium Emil Muller.Organ_Hauptwerk_xml',
                       divisions={1: 'pedal', 2: 'great', 3: 'swell'},
@@ -78,7 +81,7 @@ def clean_name(name: str, manual_name: str) -> str:
     """Stop knob name without the division prefix, footage written as N'."""
     n = name.strip()
     # division prefixes: "P  Subbaß", "M  Principal", "I Bordun", "II Gedact", "PED  Soubasse", "GO  …"
-    n = re.sub(r"^(?:P|M|I{1,3}|IV|PED|Ped|GO|REC|POS|HW|SW|OW|BW|RP|RW|SO|SOL|GT|SR|CH|Pos|Man|Hw|Sw|Pd)\.?\s+(?=\S)", '', n)
+    n = re.sub(r"^(?:P|M|I{1,3}|IV|PED|Ped|GO|REC|POS|HW|SW|OW|BW|RP|RW|SO|SOL|SL|GT|SR|CH|Pos|Man|Hw|Sw|Pd)\.?\s+(?=\S)", '', n)
     n = re.sub(r'^\d+\.\s*', '', n)
     n = re.sub(r'\s*(?:Fuß|Fuss|Fus|ft\.?|stóp)(?=\s|$)', "'", n, flags=re.I)
     n = re.sub(r'\s+st\.?$', '', n)
@@ -309,7 +312,8 @@ def catalog(organ: str) -> dict:
         name = names.get(s.section) or names.get(s.name) or clean_name(s.name, s.manual_name)
         hns = sorted({p.harmonic for ps in s.keys.values() for p in ps})
         per_key = max(len(ps) for ps in s.keys.values())
-        fam = ORGANS[organ].get('family') or family_of(name, hns if per_key > 1 else hns[:1])
+        fam = (ORGANS[organ].get('families', {}).get(name) or ORGANS[organ].get('family')
+               or family_of(name, hns if per_key > 1 else hns[:1]))
         division = divs[s.manual]
         base = f'{division}-{slug(name)}'
         sid, n = base, 2
