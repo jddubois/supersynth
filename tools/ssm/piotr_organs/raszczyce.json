@@ -1,0 +1,328 @@
+{
+ "id": "raszczyce",
+ "church": "Raszczyce",
+ "address": "Raszczyce, Poland",
+ "builder": "Vermeulen, Alkmaar",
+ "year": "1965",
+ "pitch": -0.01,
+ "reference": "great-prestant-8",
+ "swellBoxes": [],
+ "tremulants": [],
+ "stops": [
+  {
+   "id": "pedal-subbas-16",
+   "name": "Subbas 16'",
+   "odfName": "P  Subbas 16'",
+   "section": "stop001",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-prestant-8",
+   "name": "Prestant 8'",
+   "odfName": "P  Prestant 8'",
+   "section": "stop002",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-gedekt-8",
+   "name": "Gedekt 8'",
+   "odfName": "P  Gedekt 8'",
+   "section": "stop003",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-octaaf-4",
+   "name": "Octaaf 4'",
+   "odfName": "P  Octaaf 4'",
+   "section": "stop004",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-fagot-16",
+   "name": "Fagot 16'",
+   "odfName": "P  Fagot 16'",
+   "section": "stop005",
+   "manual": 0,
+   "division": "pedal",
+   "family": "reed",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-holpijp-8",
+   "name": "Holpijp 8'",
+   "odfName": "RW  Holpijp 8'",
+   "section": "stop006",
+   "manual": 1,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-prestant-4",
+   "name": "Prestant 4'",
+   "odfName": "RW  Prestant 4'",
+   "section": "stop007",
+   "manual": 1,
+   "division": "positive",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-roerfluit-4",
+   "name": "Roerfluit 4'",
+   "odfName": "RW  Roerfluit 4'",
+   "section": "stop008",
+   "manual": 1,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-octaaf-2",
+   "name": "Octaaf 2'",
+   "odfName": "RW  Octaaf 2'",
+   "section": "stop009",
+   "manual": 1,
+   "division": "positive",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-scherp-iv",
+   "name": "Scherp IV",
+   "odfName": "RW  Scherp IV st.",
+   "section": "stop010",
+   "manual": 1,
+   "division": "positive",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-cymbel-iii",
+   "name": "Cymbel III",
+   "odfName": "RW  Cymbel III st.",
+   "section": "stop011",
+   "manual": 1,
+   "division": "positive",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-kromhoorn-8",
+   "name": "Kromhoorn 8'",
+   "odfName": "RW  Kromhoorn 8'",
+   "section": "stop012",
+   "manual": 1,
+   "division": "positive",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-prestant-8",
+   "name": "Prestant 8'",
+   "odfName": "HW  Prestant 8'",
+   "section": "stop013",
+   "manual": 2,
+   "division": "great",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-roerfluit-8",
+   "name": "Roerfluit 8'",
+   "odfName": "HW  Roerfluit 8'",
+   "section": "stop014",
+   "manual": 2,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-octaaf-4",
+   "name": "Octaaf 4'",
+   "odfName": "HW  Octaaf 4'",
+   "section": "stop015",
+   "manual": 2,
+   "division": "great",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-gedekt-fluit-4",
+   "name": "Gedekt fluit 4'",
+   "odfName": "HW  Gedekt fluit 4'",
+   "section": "stop016",
+   "manual": 2,
+   "division": "great",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-nasard-2-2-3",
+   "name": "Nasard 2 2/3'",
+   "odfName": "HW  Nasard 2 2/3'",
+   "section": "stop017",
+   "manual": 2,
+   "division": "great",
+   "family": "mutation",
+   "transpose": 19,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-woudfluit-2",
+   "name": "Woudfluit 2'",
+   "odfName": "HW  Woudfluit 2'",
+   "section": "stop018",
+   "manual": 2,
+   "division": "great",
+   "family": "flute",
+   "transpose": 24,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-sesquialter-ii",
+   "name": "Sesquialter II",
+   "odfName": "HW  Sesquialter II st.",
+   "section": "stop019",
+   "manual": 2,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-mixtuur-iv",
+   "name": "Mixtuur IV",
+   "odfName": "HW  Mixtuur IV st.",
+   "section": "stop020",
+   "manual": 2,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-trompet-8",
+   "name": "Trompet 8'",
+   "odfName": "HW  Trompet 8'",
+   "section": "stop021",
+   "manual": 2,
+   "division": "great",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  }
+ ]
+}

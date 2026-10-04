@@ -8,15 +8,17 @@
  */
 import { BUREA_ORGAN } from './burea.js';
 import { VCSL_ORGAN } from './vcsl.js';
+import { PIOTR_ORGANS } from './piotr/index.js';
 import type { OrganDef } from './types.js';
 
 export { BUREA_ORGAN } from './burea.js';
 export { VCSL_ORGAN } from './vcsl.js';
+export * from './piotr/index.js';
 export { CHURCH_DIVISIONS, SWELL_TREMULANT, ORGAN_DEFAULTS } from './defaults.js';
 export type { DivisionDef, DivisionName, OrganDef, Registration, StopDef, StopFamily, TremulantDef } from './types.js';
 
 /** The built-in organs by id (`synth.organ({ instrument: 'vcsl' })`). */
-export const ORGANS = { burea: BUREA_ORGAN, vcsl: VCSL_ORGAN } as const satisfies Record<string, OrganDef>;
+export const ORGANS = { burea: BUREA_ORGAN, vcsl: VCSL_ORGAN, ...PIOTR_ORGANS } as const satisfies Record<string, OrganDef>;
 export type OrganInstrument = keyof typeof ORGANS;
 
 /** All stops of the Bureå organ. @deprecated use `BUREA_ORGAN.stops` */

@@ -1,0 +1,294 @@
+{
+ "id": "melcer",
+ "church": "Melcer Chamber Music Hall",
+ "address": "Warsaw, Poland",
+ "builder": "Walcker Orgelbau",
+ "year": "1993",
+ "pitch": 0.13,
+ "reference": "pedal-gedacktbass-8",
+ "swellBoxes": [
+  "swell"
+ ],
+ "tremulants": [
+  {
+   "division": "swell",
+   "depth": 1.97,
+   "pitch": 8.2,
+   "rate": 3.75,
+   "sampled": true,
+   "pipes": 27
+  }
+ ],
+ "stops": [
+  {
+   "id": "pedal-subbass-16",
+   "name": "Subbass 16'",
+   "odfName": "P Subbass 16'",
+   "section": "stop001",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-gedacktbass-8",
+   "name": "Gedacktbass 8'",
+   "odfName": "P Gedacktbass 8'",
+   "section": "stop002",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-choralbas-4",
+   "name": "Choralbas 4'",
+   "odfName": "P Choralbas 4'",
+   "section": "stop003",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-oktave-2",
+   "name": "Oktave 2'",
+   "odfName": "P Oktave 2'",
+   "section": "stop004",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-trompete-8",
+   "name": "Trompete 8'",
+   "odfName": "P Trompete 8'",
+   "section": "stop005",
+   "manual": 0,
+   "division": "pedal",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-nachthorn-8",
+   "name": "Nachthorn 8'",
+   "odfName": "I Nachthorn 8'",
+   "section": "stop006",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-prinzipal-4",
+   "name": "Prinzipal 4'",
+   "odfName": "I Prinzipal 4'",
+   "section": "stop007",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-nasard-2-2-3",
+   "name": "Nasard 2 2/3'",
+   "odfName": "I Nasard 2 2/3'",
+   "section": "stop008",
+   "manual": 1,
+   "division": "great",
+   "family": "mutation",
+   "transpose": 19,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-oktave-2",
+   "name": "Oktave 2'",
+   "odfName": "I Oktave 2'",
+   "section": "stop009",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-mixtur-1-1-3-4f",
+   "name": "Mixtur 1 1/3' 4f",
+   "odfName": "I Mixtur 1 1/3' 4f",
+   "section": "stop010",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-trompete-8",
+   "name": "Trompete 8'",
+   "odfName": "I Trompete 8'",
+   "section": "stop011",
+   "manual": 1,
+   "division": "great",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-gedackt-8",
+   "name": "Gedackt 8'",
+   "odfName": "II Gedackt 8'",
+   "section": "stop012",
+   "manual": 2,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-quintaton-8",
+   "name": "Quintatön 8'",
+   "odfName": "II Quintatön 8'",
+   "section": "stop013",
+   "manual": 2,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-rohrflote-4",
+   "name": "Rohrflöte 4'",
+   "odfName": "II Rohrflöte 4'",
+   "section": "stop014",
+   "manual": 2,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-prinzipal-2",
+   "name": "Prinzipal 2'",
+   "odfName": "II Prinzpal 2'",
+   "section": "stop015",
+   "manual": 2,
+   "division": "swell",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-quinte-1-1-3",
+   "name": "Quinte 1 1/3'",
+   "odfName": "II Quinte 1 1/3'",
+   "section": "stop016",
+   "manual": 2,
+   "division": "swell",
+   "family": "mutation",
+   "transpose": 31,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-sifflote-1",
+   "name": "Sifflöte 1'",
+   "odfName": "II Sifflöte 1'",
+   "section": "stop017",
+   "manual": 2,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 36,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-krumhorn-8",
+   "name": "Krumhorn 8'",
+   "odfName": "II Krumhorn 8'",
+   "section": "stop018",
+   "manual": 2,
+   "division": "swell",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  }
+ ]
+}

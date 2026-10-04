@@ -1,0 +1,238 @@
+{
+ "id": "azzio",
+ "church": "Azzio",
+ "address": "Azzio, Italy",
+ "builder": "Mascioni",
+ "year": "2016",
+ "pitch": -0.815,
+ "reference": "great-principale-8",
+ "swellBoxes": [],
+ "tremulants": [
+  {
+   "division": "great",
+   "depth": 0.77,
+   "pitch": 3.4,
+   "rate": 3.94,
+   "sampled": true,
+   "pipes": 27
+  }
+ ],
+ "stops": [
+  {
+   "id": "pedal-subbasso-16",
+   "name": "Subbasso 16'",
+   "odfName": "PED  Subbasso 16'",
+   "section": "stop001",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    61
+   ],
+   "missing": [
+    37,
+    62
+   ]
+  },
+  {
+   "id": "pedal-trombone-16",
+   "name": "Trombone 16'",
+   "odfName": "PED  Trombone 16'",
+   "section": "stop002",
+   "manual": 0,
+   "division": "pedal",
+   "family": "reed",
+   "transpose": -12,
+   "keys": [
+    36,
+    61
+   ],
+   "missing": [
+    37,
+    62
+   ]
+  },
+  {
+   "id": "great-principale-8",
+   "name": "Principale 8'",
+   "odfName": "GO  Principale 8'",
+   "section": "stop003",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    85
+   ],
+   "missing": [
+    37,
+    86
+   ]
+  },
+  {
+   "id": "great-flauto-camino-8",
+   "name": "Flauto camino 8'",
+   "odfName": "GO  Flauto camino 8'",
+   "section": "stop004",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    85
+   ],
+   "missing": [
+    37,
+    86
+   ]
+  },
+  {
+   "id": "great-ottava-4",
+   "name": "Ottava 4'",
+   "odfName": "GO  Ottava 4'",
+   "section": "stop005",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    85
+   ],
+   "missing": [
+    37,
+    86
+   ]
+  },
+  {
+   "id": "great-sesquialtera-2-2-3",
+   "name": "Sesquialtera 2 2/3'",
+   "odfName": "GO  Sesquialtera 2 file (first rank only)",
+   "section": "stop006",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    85
+   ],
+   "missing": [
+    37,
+    86
+   ]
+  },
+  {
+   "id": "great-sesquialtera-ii",
+   "name": "Sesquialtera II",
+   "odfName": "GO  Sesquialtera 2 file (both ranks)",
+   "section": "stop007",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    86
+   ],
+   "missing": [
+    37,
+    47
+   ]
+  },
+  {
+   "id": "great-ripieno-3-4-file",
+   "name": "Ripieno 3-4 file",
+   "odfName": "GO  Ripieno 3-4 file",
+   "section": "stop008",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    85
+   ],
+   "missing": [
+    37,
+    86
+   ]
+  },
+  {
+   "id": "positive-bordone-8",
+   "name": "Bordone 8'",
+   "odfName": "POS  Bordone 8'",
+   "section": "stop009",
+   "manual": 2,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    85
+   ],
+   "missing": [
+    37,
+    86
+   ]
+  },
+  {
+   "id": "positive-flauto-conico-4",
+   "name": "Flauto conico 4'",
+   "odfName": "POS  Flauto conico 4'",
+   "section": "stop010",
+   "manual": 2,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    85
+   ],
+   "missing": [
+    37,
+    86
+   ]
+  },
+  {
+   "id": "positive-nazardo-3",
+   "name": "Nazardo 3'",
+   "odfName": "POS  Nazardo 3'",
+   "section": "stop011",
+   "manual": 2,
+   "division": "positive",
+   "family": "mutation",
+   "transpose": 19,
+   "keys": [
+    36,
+    85
+   ],
+   "missing": [
+    37,
+    86
+   ]
+  },
+  {
+   "id": "positive-quintadecima-2",
+   "name": "Quintadecima 2'",
+   "odfName": "POS  Quintadecima 2'",
+   "section": "stop012",
+   "manual": 2,
+   "division": "positive",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    85
+   ],
+   "missing": [
+    37,
+    86
+   ]
+  }
+ ]
+}

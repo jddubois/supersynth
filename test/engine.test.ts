@@ -7,7 +7,8 @@ import {
   SupersynthError, type InstrumentDef, type OrganDef,
 } from '../src/index.js';
 import * as instrumentConfigs from '../src/catalog/index.js';
-import { BUREA_ORGAN, ORGANS } from '../src/organs/index.js';
+import { BUREA_ORGAN, ORGANS, PIOTR_ORGANS } from '../src/organs/index.js';
+import { stopModel } from '../src/Organ.js';
 
 const peak = (a: Float32Array) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
 const rms = (a: Float32Array) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / Math.max(1, a.length));
@@ -178,6 +179,25 @@ describe('configurations', () => {
     for (const stop of BUREA_ORGAN.stops) {
       const h = header(`organ/${stop.id}`);
       expect([stop.id, h.stop.name, h.stop.footage_offset, h.stop.family]).toEqual([stop.id, stop.name, stop.transpose, stop.family]);
+    }
+  });
+
+  test("Piotr Grabowski's organs: stops agree with the stop data analysed into their models", () => {
+    for (const organ of Object.values(PIOTR_ORGANS)) {
+      for (const stop of organ.stops) {
+        const h = header(stopModel(stop));
+        expect([organ.id, stop.id, h.stop.organ, h.stop.name, h.stop.footage_offset, h.stop.family])
+          .toEqual([organ.id, stop.id, organ.id, stop.name, stop.transpose, stop.family]);
+      }
+    }
+  });
+
+  test("each of Piotr Grabowski's organs plays its default registration", () => {
+    for (const organ of Object.values(PIOTR_ORGANS)) {
+      const synth = new Synth({ sampleRate: 22050, reverb: false });
+      const o = synth.organ({ instrument: organ });
+      for (const d of o.divisions) if (d.drawn.length) d.play(d.name === 'pedal' ? 'C2' : ['C4', 'G4'], { duration: 0.4 });
+      expect([organ.id, rms(synth.render(0.6).left) > 1e-4]).toEqual([organ.id, true]);
     }
   });
 

@@ -56,6 +56,7 @@ ORGANS: dict[str, dict] = {
     'lipiny': dict(odf='Lipiny.organ', divisions={0: 'pedal', 1: 'great', 2: 'positive'},
                    names={'II  Geigen Principal 8 Fuß': "Geigenprincipal 8'"}),
     'raszczyce': dict(odf='Raszczyce.organ', divisions={0: 'pedal', 1: 'positive', 2: 'great'}),
+    'strassburg': dict(odf='Strassburg.organ', divisions={0: 'pedal', 1: 'great', 2: 'positive'}),
 }
 
 NOISE_RE = re.compile(r'noise|action|blower|ambient|motor|traktur|szum|dmuchaw|tremul|cymbelstern|'
@@ -102,7 +103,7 @@ STRING_RE = re.compile(r'gamb|viol(?!-?princ)|fugara|salic|aeolin|eolin|celest|c
 FLUTE_RE = re.compile(r'fl[oöôe]t|floet|flut|flaut|flet|gedac|gedak|bourdon|bordun|burdon|subbas|subbaß|rohr|hohl|'
                       r'nacht|koppel|spitz|wald|portun|jubal|trichter|quer|bassfl|untersatz|tibia|'
                       r'doppel|lieblich|still|zart|nasard|nazard|larigot|piccolo|pikolo|siffl|echobas|'
-                      r'flageol|cor de nuit|bordon|soubasse|clarabel|melodia|fernfl|harmonique|kryty|otwart|quintat|quintad(?!ecima)|pijp|fluit|gedekt', re.I)
+                      r'flageol|cor de nuit|bordon|soubasse|clarabel|melodia|fernfl|harmonique|kryty|otwart|quintat|quintad(?!ecima)|pijp|fluit|gedekt|gedeck', re.I)
 
 
 FLUTE_FIRST_RE = re.compile(r'^(?:fl[oöôe]t|flaut|flet|gedac|gedak|bourdon|bordun)', re.I)

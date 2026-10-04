@@ -1,0 +1,548 @@
+{
+ "id": "szczecinek",
+ "church": "Szczecinek",
+ "address": "Szczecinek, Poland",
+ "builder": "P. B. Voelkner, Bromberg",
+ "year": "1908",
+ "pitch": 0.0,
+ "reference": "great-principal-8",
+ "swellBoxes": [
+  "swell"
+ ],
+ "tremulants": [
+  {
+   "division": "swell",
+   "depth": 0.83,
+   "pitch": 6.0,
+   "rate": 5.0,
+   "sampled": false
+  }
+ ],
+ "stops": [
+  {
+   "id": "pedal-principalbass-16",
+   "name": "Principalbass 16'",
+   "odfName": "P  Principalbass 16'",
+   "section": "stop001",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-violon-16",
+   "name": "Violon 16'",
+   "odfName": "P  Violon 16'",
+   "section": "stop002",
+   "manual": 0,
+   "division": "pedal",
+   "family": "string",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-subbass-16",
+   "name": "Subbass 16'",
+   "odfName": "P  Subbass 16'",
+   "section": "stop003",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-echobass-16",
+   "name": "Echobass 16'",
+   "odfName": "P  Echobass 16'",
+   "section": "stop004",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-quintbass-10-2-3",
+   "name": "Quintbass 10 2/3'",
+   "odfName": "P  Quintbass 10 2/3'",
+   "section": "stop005",
+   "manual": 0,
+   "division": "pedal",
+   "family": "mutation",
+   "transpose": -5,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-octavbass-8",
+   "name": "Octavbass 8'",
+   "odfName": "P  Octavbass 8'",
+   "section": "stop006",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-violoncello-8",
+   "name": "Violoncello 8'",
+   "odfName": "P  Violoncello 8'",
+   "section": "stop007",
+   "manual": 0,
+   "division": "pedal",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-bassflote-8",
+   "name": "Bassflöte 8'",
+   "odfName": "P  Bassflöte 8'",
+   "section": "stop008",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-octave-4",
+   "name": "Octave 4'",
+   "odfName": "P  Octave 4'",
+   "section": "stop009",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-posaune-16",
+   "name": "Posaune 16'",
+   "odfName": "P  Posaune 16'",
+   "section": "stop010",
+   "manual": 0,
+   "division": "pedal",
+   "family": "reed",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-principal-16",
+   "name": "Principal 16'",
+   "odfName": "I  Principal 16'",
+   "section": "stop011",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": -12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-bordun-16",
+   "name": "Bordun 16'",
+   "odfName": "I  Bordun 16'",
+   "section": "stop012",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-principal-8",
+   "name": "Principal 8'",
+   "odfName": "I  Principal 8'",
+   "section": "stop013",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-gambe-8",
+   "name": "Gambe 8'",
+   "odfName": "I  Gambe 8'",
+   "section": "stop014",
+   "manual": 1,
+   "division": "great",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-salicional-8",
+   "name": "Salicional 8'",
+   "odfName": "I  Salicional 8'",
+   "section": "stop015",
+   "manual": 1,
+   "division": "great",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-rohrflote-8",
+   "name": "Röhrflöte 8'",
+   "odfName": "I  Röhrflöte 8'",
+   "section": "stop016",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-flute-harmonique-8",
+   "name": "Flûte harmonique 8'",
+   "odfName": "I  Flûte harmonique 8'",
+   "section": "stop017",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-octave-4",
+   "name": "Octave 4'",
+   "odfName": "I  Octave 4'",
+   "section": "stop018",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-hohlflote-4",
+   "name": "Hohlflöte 4'",
+   "odfName": "I  Hohlflöte 4'",
+   "section": "stop019",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-piccolo-2",
+   "name": "Piccolo 2'",
+   "odfName": "I  Piccolo 2'",
+   "section": "stop020",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 24,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-rauschquinte-2-2-3-u-2",
+   "name": "Rauschquinte 2 2/3' u. 2'",
+   "odfName": "I  Rauschquinte 2 2/3' u. 2'",
+   "section": "stop021",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-cornett-2-4-fach",
+   "name": "Cornett 2-4 fach",
+   "odfName": "I  Cornett 2-4 fach",
+   "section": "stop022",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-mixtur-5-fach",
+   "name": "Mixtur 5 fach",
+   "odfName": "I  Mixtur 5 fach",
+   "section": "stop023",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-trompete-8",
+   "name": "Trompete 8'",
+   "odfName": "I  Trompete 8'",
+   "section": "stop024",
+   "manual": 1,
+   "division": "great",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-lieblich-gedackt-16",
+   "name": "Lieblich Gedackt 16'",
+   "odfName": "II  Lieblich Gedackt 16'",
+   "section": "stop025",
+   "manual": 2,
+   "division": "swell",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-geigenprincipal-8",
+   "name": "Geigenprincipal 8'",
+   "odfName": "II  Geigenprincipal 8'",
+   "section": "stop026",
+   "manual": 2,
+   "division": "swell",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-gedackt-8",
+   "name": "Gedackt 8'",
+   "odfName": "II  Gedackt 8'",
+   "section": "stop027",
+   "manual": 2,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-konzertfloete-8",
+   "name": "Konzertfloete 8'",
+   "odfName": "II  Konzertfloete 8'",
+   "section": "stop028",
+   "manual": 2,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-gemshorn-8",
+   "name": "Gemshorn 8'",
+   "odfName": "II  Gemshorn 8'",
+   "section": "stop029",
+   "manual": 2,
+   "division": "swell",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-schalmey-8",
+   "name": "Schalmeÿ 8'",
+   "odfName": "II  Schalmeÿ 8'",
+   "section": "stop030",
+   "manual": 2,
+   "division": "swell",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-aeoline-8",
+   "name": "Aeoline 8'",
+   "odfName": "II  Aeoline 8'",
+   "section": "stop031",
+   "manual": 2,
+   "division": "swell",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-vox-coelestis-8",
+   "name": "Vox coelestis 8'",
+   "odfName": "II  Vox coelestis 8'",
+   "section": "stop032",
+   "manual": 2,
+   "division": "swell",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-fugara-4",
+   "name": "Fugara 4'",
+   "odfName": "II  Fugara 4'",
+   "section": "stop033",
+   "manual": 2,
+   "division": "swell",
+   "family": "string",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-traversfloete-4",
+   "name": "Traversfloete 4'",
+   "odfName": "II  Traversfloete 4'",
+   "section": "stop034",
+   "manual": 2,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-progressio-2-4-fach",
+   "name": "Progressio 2-4 fach",
+   "odfName": "II  Progressio 2-4 fach",
+   "section": "stop035",
+   "manual": 2,
+   "division": "swell",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  }
+ ]
+}

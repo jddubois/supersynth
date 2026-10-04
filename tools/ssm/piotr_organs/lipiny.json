@@ -1,0 +1,388 @@
+{
+ "id": "lipiny",
+ "church": "Lipiny",
+ "address": "Świętochłowice, Poland",
+ "builder": "Adolf Volkmann",
+ "year": "1898",
+ "pitch": 0.0,
+ "reference": "great-principal-8",
+ "swellBoxes": [],
+ "tremulants": [],
+ "stops": [
+  {
+   "id": "pedal-principalbass-16",
+   "name": "Principalbaß 16'",
+   "odfName": "P  Principalbaß 16 Fuß",
+   "section": "stop001",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-violonbass-16",
+   "name": "Violonbaß 16'",
+   "odfName": "P  Violonbaß 16 Fuß",
+   "section": "stop002",
+   "manual": 0,
+   "division": "pedal",
+   "family": "string",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-subbass-16",
+   "name": "Subbaß 16'",
+   "odfName": "P  Subbaß 16 Fuß",
+   "section": "stop003",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-octavbass-8",
+   "name": "Octavbaß 8'",
+   "odfName": "P  Octavbaß 8 Fuß",
+   "section": "stop004",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-flautbass-8",
+   "name": "Flautbaß 8'",
+   "odfName": "P  Flautbaß 8 Fuß",
+   "section": "stop005",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-octave-4",
+   "name": "Octave 4'",
+   "odfName": "P  Octave 4 Fuß",
+   "section": "stop006",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-posaune-16",
+   "name": "Posaune 16'",
+   "odfName": "P  Posaune 16 Fuß",
+   "section": "stop007",
+   "manual": 0,
+   "division": "pedal",
+   "family": "reed",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-bordun-16",
+   "name": "Bordun 16'",
+   "odfName": "I  Bordun 16 Fuß",
+   "section": "stop008",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-principal-8",
+   "name": "Principal 8'",
+   "odfName": "I  Principal 8 Fuß",
+   "section": "stop009",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-viola-di-gamba-8",
+   "name": "Viola di Gamba 8'",
+   "odfName": "I  Viola di Gamba 8 Fuß",
+   "section": "stop010",
+   "manual": 1,
+   "division": "great",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-gemshorn-8",
+   "name": "Gemshorn 8'",
+   "odfName": "I  Gemshorn 8 Fuß",
+   "section": "stop011",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-doppelrohrflote-8",
+   "name": "Doppelröhrflöte 8'",
+   "odfName": "I  Doppelröhrflöte 8 Fuß",
+   "section": "stop012",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-octave-4",
+   "name": "Octave 4'",
+   "odfName": "I  Octave 4 Fuß",
+   "section": "stop013",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-doppelrohrflote-4",
+   "name": "Doppelröhrflöte 4'",
+   "odfName": "I  Doppelröhrflöte 4 Fuß",
+   "section": "stop014",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-quinte-2-2-3",
+   "name": "Quinte 2 2/3'",
+   "odfName": "I  Quinte 2 2/3 Fuß",
+   "section": "stop015",
+   "manual": 1,
+   "division": "great",
+   "family": "mutation",
+   "transpose": 19,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-octave-2",
+   "name": "Octave 2'",
+   "odfName": "I  Octave 2 Fuß",
+   "section": "stop016",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-cornett-3-fach",
+   "name": "Cornett 3 Fach",
+   "odfName": "I  Cornett 3 Fach",
+   "section": "stop017",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-mixtur-4-fach",
+   "name": "Mixtur 4 Fach",
+   "odfName": "I  Mixtur 4 Fach",
+   "section": "stop018",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-trompete-8",
+   "name": "Trompete 8'",
+   "odfName": "I  Trompete 8 Fuß",
+   "section": "stop019",
+   "manual": 1,
+   "division": "great",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-geigenprincipal-8",
+   "name": "Geigenprincipal 8'",
+   "odfName": "II  Geigen Principal 8 Fuß",
+   "section": "stop020",
+   "manual": 2,
+   "division": "positive",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-salicet-8",
+   "name": "Salicet 8'",
+   "odfName": "II  Salicet 8 Fuß",
+   "section": "stop021",
+   "manual": 2,
+   "division": "positive",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-flaut-major-8",
+   "name": "Flaut Major 8'",
+   "odfName": "II  Flaut Major 8 Fuß",
+   "section": "stop022",
+   "manual": 2,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-portunal-flaut-8",
+   "name": "Portunal Flaut 8'",
+   "odfName": "II  Portunal Flaut 8 Fuß",
+   "section": "stop023",
+   "manual": 2,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-viol-principal-4",
+   "name": "Viol-Principal 4'",
+   "odfName": "II  Viol-Principal 4 Fuß",
+   "section": "stop024",
+   "manual": 2,
+   "division": "positive",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-portunal-flaut-4",
+   "name": "Portunal Flaut 4'",
+   "odfName": "II  Portunal Flaut 4 Fuß",
+   "section": "stop025",
+   "manual": 2,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  }
+ ]
+}
