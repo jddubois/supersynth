@@ -370,3 +370,19 @@ for _rid, _parent, _glob, _lre in [
         **({'layer_regex': _lre} if _lre else {}),
         params=dict(releaseMode='ringout', spread=0.3, releaseOf=_parent, tuning='recorded'),
     )
+
+# ── Piotr Grabowski's free sample sets — every stop as the sample set plays it ─────
+# (piotr.py: stop catalogues in piotr_organs/<organ>.json, recordings rendered per key)
+def _piotr_organs():
+    import glob
+    import json
+    import os
+    from piotr import model_id, spec_for
+    for path in sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'piotr_organs', '*.json'))):
+        with open(path) as f:
+            cat = json.load(f)
+        for st in cat['stops']:
+            INSTRUMENTS[model_id(cat['id'], st['id'])] = spec_for(cat, st)
+
+
+_piotr_organs()
