@@ -1,10 +1,10 @@
 import { CHURCH_DIVISIONS, SWELL_TREMULANT } from './defaults.js';
-import type { OrganDef, Registration, StopDef } from './types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from './types.js';
 
 // Every pipe of every stop analysed from Lars Palo's GrandOrgue sample set (CC BY-SA 2.5 SE);
 // models/organ/<id>.ssm. The Bureå organ has 33 stops; the 7 "extra" stops come from the
 // sample set's extended version and are placed where they fit.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0 },
   { id: 'great-gedackt-8', name: "Gedackt 8'", division: 'great', family: 'flute', transpose: 0 },
   { id: 'extra-hohlflute-8', name: "Hohlflöte 8'", division: 'great', family: 'flute', transpose: 0 },
@@ -50,7 +50,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-trumpet-4', name: "Trumpet 4'", division: 'pedal', family: 'reed', transpose: 12 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   principal: {
     description: "Principal 8' alone — the foundation tone of the organ",
     great: ["Principal 8'"],
@@ -60,14 +60,14 @@ const REGISTRATIONS: Record<string, Registration> = {
     description: "Principal chorus 8' 4' 2' (Baroque plenum without mixture)",
     great: ["Principal 8'", "Octave 4'", "Octave 2'"],
     pedal: ["Subbass 16'", "Principal 8'", "Octave 4'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   plenum: {
     description: 'Organo pleno for Bach preludes and fugues: principals and mixtures',
     great: ["Principal 8'", "Octave 4'", "Octave 2'", 'Mixture V'],
     positive: ["Gedackt 8'", "Koppelflöte 4'", "Principal 2'", 'Cymbel II'],
     pedal: ["Subbass 16'", "Principal 8'", "Octave 4'", 'Rauschpfeife IV', "Fagott 16'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   full: {
     description: 'Full organ with reeds and all manuals coupled',
@@ -75,7 +75,7 @@ const REGISTRATIONS: Record<string, Registration> = {
     swell: ["Rohrflöte 8'", "Principal 4'", "Waldflöte 2'", 'Scharf III', "Schalmei 8'"],
     positive: ["Gedackt 8'", "Koppelflöte 4'", "Principal 2'", 'Cymbel II', "Krummhorn 8'"],
     pedal: ["Subbass 16'", "Violon 16'", "Principal 8'", "Octave 4'", 'Rauschpfeife IV', "Fagott 16'", "Trumpet 4'"],
-    couplers: ['swell>great', 'positive>great', 'great>pedal'],
+    couple: { great: ['swell', 'positive'], pedal: ['great'] },
   },
   flutes: {
     description: "Flutes 8' + 4' — gentle, for chorale preludes",
@@ -122,13 +122,13 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** The Bureå Church organ (Nils Hammarberg, 1967, Sweden): 40 stops on great, swell, positive
  *  and pedal, every pipe analysed from Lars Palo's recordings (CC BY-SA 2.5 SE). */
-export const BUREA_ORGAN: OrganDef = {
+export const BUREA_ORGAN: OrganDefinition = {
   id: 'burea',
   name: 'Bureå Church organ',
   description: 'Nils Hammarberg 1967, Bureå Church (Sweden): 40 stops on three manuals and pedal, every pipe recorded in the church.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'principal-chorus',
+  presets: PRESETS,
+  defaultPreset: 'principal-chorus',
   divisions: CHURCH_DIVISIONS,
   tremulant: SWELL_TREMULANT,
 };

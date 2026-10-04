@@ -1,10 +1,10 @@
 import { CHURCH_DIVISIONS } from '../defaults.js';
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/strassburg/<id>.ssm.
 // Hauptwerk (manual I) is the great, Positiv (manual II) the positive. The organ stands about a
 // quarter-tone above A440.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-prinzipal-8', model: 'organ/strassburg/great-prinzipal-8', name: "Prinzipal 8'", division: 'great', family: 'principal', transpose: 0 },
   { id: 'great-gedeckt-8', model: 'organ/strassburg/great-gedeckt-8', name: "Gedeckt 8'", division: 'great', family: 'flute', transpose: 0 },
   { id: 'great-gemshorn-8', model: 'organ/strassburg/great-gemshorn-8', name: "Gemshorn 8'", division: 'great', family: 'principal', transpose: 0 },
@@ -29,7 +29,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-posaun-16', model: 'organ/strassburg/pedal-posaun-16', name: "Posaun 16'", division: 'pedal', family: 'reed', transpose: -12 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   principal: {
     description: "Prinzipal 8' alone",
     great: ["Prinzipal 8'"],
@@ -45,14 +45,14 @@ const REGISTRATIONS: Record<string, Registration> = {
     great: ["Prinzipal 8'", "Gedeckt 8'", "Oktav 4'", "Quint 2 2/3'", "Oktav 2'", "Oktav 1'", "Mixtur 1 1/3'"],
     positive: ["Gedackt 8'", "Prinzipal 4'", "Oktav 2'", "Mixtur 1'"],
     pedal: ["Kontrabaß 16'", "Subbaß 16'", "Oktavbaß 8'", "Oktave 4'", "Posaun 16'"],
-    couplers: ['positive>great'],
+    couple: { great: ['positive'] },
   },
   full: {
     description: 'Every stop, the Positiv coupled',
     great: ["Prinzipal 8'", "Gedeckt 8'", "Gemshorn 8'", "Oktav 4'", "Flöte 4'", "Quint 2 2/3'", "Oktav 2'", "Oktav 1'", "Mixtur 1 1/3'"],
     positive: ["Gedackt 8'", "Prinzipal 4'", "Flöte 4'", "Oktav 2'", "Mixtur 1'"],
     pedal: ["Kontrabaß 16'", "Subbaß 16'", "Oktavbaß 8'", "Gedacktbaß 8'", "Oktave 4'", "Posaun 16'"],
-    couplers: ['positive>great', 'great>pedal'],
+    couple: { great: ['positive'], pedal: ['great'] },
   },
   flutes: {
     description: "Gedeckt 8' + Flöte 4' on the Hauptwerk",
@@ -84,12 +84,12 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** Strassburg (Cyriach Werner, 1743, Carinthia, Austria): a Baroque organ, 20 stops on Hauptwerk,
  *  Positiv and pedal, from Piotr Grabowski's free sample set. */
-export const STRASSBURG_ORGAN: OrganDef = {
+export const STRASSBURG_ORGAN: OrganDefinition = {
   id: 'strassburg',
   name: 'Strassburg',
   description: 'Cyriach Werner 1743, Strassburg (Carinthia, Austria): a Baroque organ, 20 stops on Hauptwerk, Positiv and pedal.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'principal-chorus',
+  presets: PRESETS,
+  defaultPreset: 'principal-chorus',
   divisions: CHURCH_DIVISIONS,
 };

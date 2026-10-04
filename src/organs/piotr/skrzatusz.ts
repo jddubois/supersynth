@@ -1,9 +1,9 @@
 import { CHURCH_DIVISIONS } from '../defaults.js';
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/skrzatusz/<id>.ssm.
 // Manual I is the great, manual II (not enclosed) the positive. The Cornett sounds from c' up.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-bordun-16', model: 'organ/skrzatusz/great-bordun-16', name: "Bordun 16'", division: 'great', family: 'flute', transpose: -12 },
   { id: 'great-principal-8', model: 'organ/skrzatusz/great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0 },
   { id: 'great-fugara-8', model: 'organ/skrzatusz/great-fugara-8', name: "Fugara 8'", division: 'great', family: 'string', transpose: 0 },
@@ -27,7 +27,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-posaune-16', model: 'organ/skrzatusz/pedal-posaune-16', name: "Posaune 16'", division: 'pedal', family: 'reed', transpose: -12 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   principal: {
     description: "Principal 8' alone",
     great: ["Principal 8'"],
@@ -37,20 +37,20 @@ const REGISTRATIONS: Record<string, Registration> = {
     description: "Principal chorus 8' 4' 2'",
     great: ["Principal 8'", "Octave 4'", "Octave 2'"],
     pedal: ["Subbass 16'", "Octavbass 8'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   plenum: {
     description: 'Plenum: principals, Quinte and Mixtur on Bordun 16\'',
     great: ["Bordun 16'", "Principal 8'", "Octave 4'", "Quinte 2 2/3'", "Octave 2'", 'Mixtur 3f'],
     pedal: ["Violon 16'", "Subbass 16'", "Octavbass 8'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   full: {
     description: 'Full organ with Cornett and Posaune',
     great: ["Bordun 16'", "Principal 8'", "Fugara 8'", "Flûte harmonique 8'", "Octave 4'", "Quinte 2 2/3'", "Octave 2'", 'Cornett 4f', 'Mixtur 3f'],
     positive: ["Geigenprincipal 8'", "Gedact 8'", "Viola di Gamba 8'", "Praestant 4'", "Flauto dolce 4'"],
     pedal: ["Violon 16'", "Subbass 16'", "Octavbass 8'", "Bassflöte 8'", "Posaune 16'"],
-    couplers: ['great>pedal', 'positive>pedal'],
+    couple: { pedal: ['great', 'positive'] },
   },
   foundations: {
     description: "The 8' stops of the great — Sauer's Romantic fonds",
@@ -88,13 +88,13 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** Skrzatusz sanctuary (Wilhelm Sauer, 1876, Poland): two manuals and pedal, 19 stops, from
  *  Piotr Grabowski's free sample set. */
-export const SKRZATUSZ_ORGAN: OrganDef = {
+export const SKRZATUSZ_ORGAN: OrganDefinition = {
   id: 'skrzatusz',
   name: 'Skrzatusz sanctuary',
   description: 'Wilhelm Sauer 1876, sanctuary of Skrzatusz (Poland): 19 stops on two manuals and pedal.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'principal-chorus',
+  presets: PRESETS,
+  defaultPreset: 'principal-chorus',
   divisions: CHURCH_DIVISIONS,
   tremulant: { division: 'positive', depth: 0.98, pitch: 7.2, rate: 5.18 },
 };

@@ -1,15 +1,15 @@
 # Instruments
 
 Every instrument is a spectral model analysed from real recordings (see NOTICE.md).
-Add one with `synth.add(id, { preset })`. Aliases are accepted wherever an id is.
+Add one with `synth.add(id, { preset })`; `INSTRUMENTS` holds them all, by id.
 
-Every instrument is also a plain configuration object (`InstrumentDef`) exported under the name
-shown with it, from `supersynth` and from `supersynth/instruments`. Pass it to `synth.add` or
-`new Instrument`, or copy and change it:
+Every instrument is also a plain configuration object (`InstrumentDefinition`) exported under the name
+shown with it, from `supersynth` and from `supersynth/instruments`. Pass it to `synth.add`, or
+copy and change it:
 
 ```ts
 import { GRAND_PIANO } from 'supersynth/instruments';
-synth.add({ ...GRAND_PIANO, id: 'dark-piano', params: { brightness: -1.5 } });
+synth.add({ ...GRAND_PIANO, id: 'dark-piano', parameters: { brightness: -1.5 } });
 ```
 
 ## Keyboards
@@ -18,7 +18,7 @@ synth.add({ ...GRAND_PIANO, id: 'dark-piano', params: { brightness: -1.5 } });
 
 Steinway model B, three dynamic layers, with real hammer attacks, string stiffness, damper and sympathetic resonances.
 
-Config: `GRAND_PIANO`. Aliases: `piano`, `grand`, `steinway`. Suggested room: `hall`.
+Config: `GRAND_PIANO`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -35,7 +35,7 @@ Config: `GRAND_PIANO`. Aliases: `piano`, `grand`, `steinway`. Suggested room: `h
 
 Yamaha upright: intimate, a little brighter and boxier than the grand.
 
-Config: `UPRIGHT_PIANO`. Aliases: `upright`. Suggested room: `room`.
+Config: `UPRIGHT_PIANO`. Suggested room: `room`.
 
 | Preset | Description |
 |---|---|
@@ -64,7 +64,7 @@ Config: `HARPSICHORD`. Suggested room: `chamber`.
 
 A church organ with a full registration, recorded in its building.
 
-Config: `PIPE_ORGAN`. Aliases: `church-organ`. Suggested room: `church`.
+Config: `PIPE_ORGAN`. Suggested room: `church`.
 
 | Preset | Description |
 |---|---|
@@ -77,7 +77,7 @@ Config: `PIPE_ORGAN`. Aliases: `church-organ`. Suggested room: `church`.
 
 A small Renaissance-style positive organ: sweet wooden flutes.
 
-Config: `CHAMBER_ORGAN`. Aliases: `positive-organ`. Suggested room: `chamber`.
+Config: `CHAMBER_ORGAN`. Suggested room: `chamber`.
 
 | Preset | Description |
 |---|---|
@@ -127,7 +127,7 @@ Config: `CELLO_PIZZICATO`. Suggested room: `hall`.
 
 Plucked double bass — also a lovely jazz walking bass.
 
-Config: `CONTRABASS_PIZZICATO`. Aliases: `upright-bass`, `jazz-bass`. Suggested room: `hall`.
+Config: `CONTRABASS_PIZZICATO`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -177,7 +177,7 @@ Config: `VIOLAS`. Suggested room: `hall`.
 
 Orchestral cellos with vibrato.
 
-Config: `CELLOS`. Aliases: `cello`. Suggested room: `hall`.
+Config: `CELLOS`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -189,7 +189,7 @@ Config: `CELLOS`. Aliases: `cello`. Suggested room: `hall`.
 
 Double bass, bowed.
 
-Config: `CONTRABASS`. Aliases: `double-bass`. Suggested room: `hall`.
+Config: `CONTRABASS`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -200,7 +200,7 @@ Config: `CONTRABASS`. Aliases: `double-bass`. Suggested room: `hall`.
 
 Full string section split across the keyboard: basses, cellos, violas and violins.
 
-Config: `STRINGS`. Aliases: `string-ensemble`, `orchestra-strings`. Suggested room: `hall`.
+Config: `STRINGS`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -263,7 +263,7 @@ Config: `BASSOON`. Suggested room: `hall`.
 
 Tenor saxophone, straight tone.
 
-Config: `TENOR_SAX`. Aliases: `sax`, `saxophone`. Suggested room: `room`.
+Config: `TENOR_SAX`. Suggested room: `room`.
 
 | Preset | Description |
 |---|---|
@@ -291,7 +291,7 @@ Config: `TRUMPET`. Suggested room: `hall`.
 
 Horn in F.
 
-Config: `FRENCH_HORN`. Aliases: `horn`. Suggested room: `hall`.
+Config: `FRENCH_HORN`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -325,7 +325,7 @@ Config: `TUBA`. Suggested room: `hall`.
 
 Tuba, trombone, horn and trumpet split across the keyboard.
 
-Config: `BRASS`. Aliases: `brass-section`. Suggested room: `hall`.
+Config: `BRASS`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -348,7 +348,7 @@ Config: `MARIMBA`. Suggested room: `hall`.
 
 Vibraphone with hard mallets; note-off engages the damper pedal behaviour.
 
-Config: `VIBRAPHONE`. Aliases: `vibes`. Suggested room: `hall`.
+Config: `VIBRAPHONE`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
@@ -380,10 +380,10 @@ Config: `GLOCKENSPIEL`. Suggested room: `hall`.
 
 Orchestral chimes.
 
-Config: `TUBULAR_BELLS`. Aliases: `chimes`. Suggested room: `church`.
+Config: `TUBULAR_BELLS`. Suggested room: `church`.
 
 | Preset | Description |
 |---|---|
 | `default` | As recorded |
 
-The full church organ is not a single instrument but an `Organ` with four divisions — see [organ.md](organ.md).
+The church organs (`synth.add('burea')`, …) have four divisions with drawable stops — see [organ.md](organ.md).

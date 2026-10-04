@@ -1,9 +1,9 @@
 import { CHURCH_DIVISIONS } from '../defaults.js';
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/dluga-koscielna/<id>.ssm.
 // Manual I is the great, manual II (unenclosed) the positive.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-pryncypal-8', model: 'organ/dluga-koscielna/great-pryncypal-8', name: "Pryncypał 8'", division: 'great', family: 'principal', transpose: 0 },
   { id: 'great-flet-kryty-8', model: 'organ/dluga-koscielna/great-flet-kryty-8', name: "Flet kryty 8'", division: 'great', family: 'flute', transpose: 0 },
   { id: 'great-viola-di-gamba-8', model: 'organ/dluga-koscielna/great-viola-di-gamba-8', name: "Viola di Gamba 8'", division: 'great', family: 'string', transpose: 0 },
@@ -30,7 +30,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-fagot-16', model: 'organ/dluga-koscielna/pedal-fagot-16', name: "Fagot 16'", division: 'pedal', family: 'reed', transpose: -12 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   principal: {
     description: "Pryncypał 8' alone",
     great: ["Pryncypał 8'"],
@@ -40,14 +40,14 @@ const REGISTRATIONS: Record<string, Registration> = {
     description: "Principal chorus 8' 4' 2' on manual I",
     great: ["Pryncypał 8'", "Oktawa 4'", "Oktawa 2'"],
     pedal: ["Subbass 16'", "Oktawbas 8'", "Chorałbas 4'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   plenum: {
     description: 'Plenum: principals and Mixtura with manual II coupled',
     great: ["Pryncypał 8'", "Flet kryty 8'", "Oktawa 4'", "Oktawa 2'", "Mixtura 1 1/3'"],
     positive: ["Gemshorn 8'", "Pryncypał 4'", "Szpicflet 2'", "Kwinta 1 1/3'"],
     pedal: ["Subbass 16'", "Oktawbas 8'", "Chorałbas 4'", "Fagot 16'"],
-    couplers: ['positive>great', 'great>pedal'],
+    couple: { great: ['positive'], pedal: ['great'] },
   },
   full: {
     description: 'Full organ with Krumhorn and Fagot',
@@ -55,14 +55,14 @@ const REGISTRATIONS: Record<string, Registration> = {
     positive: ["Gemshorn 8'", "Flet otwarty 8'", "Pryncypał 4'", "Flet kryty 4'", "Nasard 2 2/3'", "Szpicflet 2'", "Tercja 1 3/5'",
       "Kwinta 1 1/3'", "Krumhorn 8'"],
     pedal: ["Subbass 16'", "Oktawbas 8'", "Flet kryty 8'", "Chorałbas 4'", "Fagot 16'"],
-    couplers: ['positive>great', 'great>pedal', 'positive>pedal'],
+    couple: { great: ['positive'], pedal: ['great', 'positive'] },
   },
   foundations: {
     description: "The 8' stops of both manuals coupled",
     great: ["Pryncypał 8'", "Flet kryty 8'", "Viola di Gamba 8'"],
     positive: ["Gemshorn 8'", "Flet otwarty 8'", "Flauto amabile 8'"],
     pedal: ["Subbass 16'", "Oktawbas 8'", "Flet kryty 8'"],
-    couplers: ['positive>great'],
+    couple: { great: ['positive'] },
   },
   flutes: {
     description: "Flet kryty 8' + Flet rurkowy 4' on manual I",
@@ -101,13 +101,13 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** Długa Kościelna (Kamiński, 2012, Poland): 22 stops on two manuals and pedal, from Piotr
  *  Grabowski's free sample set. */
-export const DLUGA_KOSCIELNA_ORGAN: OrganDef = {
+export const DLUGA_KOSCIELNA_ORGAN: OrganDefinition = {
   id: 'dluga-koscielna',
   name: 'Długa Kościelna',
   description: 'Kamiński 2012, Długa Kościelna (Poland): 22 stops on two manuals and pedal, a principal chorus with Mixtura on the great and a flute-and-mutation positive with Krumhorn.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'principal-chorus',
+  presets: PRESETS,
+  defaultPreset: 'principal-chorus',
   divisions: CHURCH_DIVISIONS,
   tremulant: { division: 'positive', depth: 0.98, pitch: 7.2, rate: 4.74 },
 };

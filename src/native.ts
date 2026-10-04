@@ -2,6 +2,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { SupersynthError } from './errors.js';
+
 /** @internal The native engine surface (napi-rs). */
 export interface NativeLayer {
   model: number;
@@ -37,6 +39,8 @@ export interface NativeEngine {
   setReverbPreset(name: string, time?: number | null): void;
   setLayerEnabled(part: number, layer: number, enabled: boolean, time?: number | null): void;
   setLayerGain(part: number, layer: number, gainDb: number, time?: number | null): void;
+  setCouplers(part: number, targets: number[], time?: number | null): void;
+  setMidiRoute(channel: number, part: number): void;
   allNotesOff(part?: number | null, time?: number | null): void;
   allSoundOff(): void;
   start(): void;
@@ -83,7 +87,7 @@ export function loadNative(): NativeModule {
       errors.push(`${name}: ${(e as Error).message.split('\n')[0]}`);
     }
   }
-  throw new Error(
+  throw new SupersynthError(
     `No supersynth native binary for ${process.platform}-${process.arch}. ` +
       `Build it with \`npm run build:native\` (requires Rust).\n  ${errors.join('\n  ')}`,
   );

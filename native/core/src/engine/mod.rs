@@ -96,6 +96,9 @@ pub enum Command {
     AddLayer { part: u16, layer: Box<InstLayer> },
     SetLayerEnabled { part: u16, layer: u16, enabled: bool },
     SetLayerGain { part: u16, layer: u16, gain_db: f32 },
+    /// Organ couplers: keys pressed on `part` also play every part in the bit mask
+    /// `targets` (bit n = part n). Not transitive; a pipe reached from two keyboards sounds once.
+    SetCouplers { part: u16, targets: u32 },
     AllNotesOff { part: Option<u16> },
     AllSoundOff,
 }
@@ -198,6 +201,10 @@ struct Part {
     swell_shelf_db: f32,
     sustain: bool,
     held: [bool; 128],
+    /// Organ couplers: parts this part's keys also play (bit mask), and the keys held down on
+    /// this part as a keyboard (velocity, 0 = up).
+    couple: u32,
+    keys: [u8; 128],
     pedal_hold: [bool; 128],
     last_velocity: [u8; 128],
     eq: Equalizer,
@@ -249,6 +256,8 @@ impl Part {
             swell_shelf_db: 0.0,
             sustain: false,
             held: [false; 128],
+            couple: 0,
+            keys: [0; 128],
             pedal_hold: [false; 128],
             last_velocity: [0; 128],
             eq: Equalizer::new(sr),
@@ -480,12 +489,13 @@ impl Engine {
         match cmd {
             Command::NoteOn { part, note, velocity } => {
                 if velocity == 0 {
-                    self.note_off(part as usize, note);
+                    self.key_off(part as usize, note);
                 } else {
-                    self.note_on(part as usize, note, velocity);
+                    self.key_on(part as usize, note, velocity);
                 }
             }
-            Command::NoteOff { part, note } => self.note_off(part as usize, note),
+            Command::NoteOff { part, note } => self.key_off(part as usize, note),
+            Command::SetCouplers { part, targets } => self.set_couplers(part as usize, targets),
             Command::ControlChange { part, controller, value } => self.cc(part as usize, controller, value),
             Command::PitchBend { part, value } => {
                 if let Some(p) = self.parts.get_mut(part as usize) {
@@ -554,6 +564,7 @@ impl Engine {
                 for (pi, p) in self.parts.iter_mut().enumerate() {
                     if part.map(|x| x as usize == pi).unwrap_or(true) {
                         p.held = [false; 128];
+                        p.keys = [0; 128];
                         p.pedal_hold = [false; 128];
                         p.sustain = false;
                     }
@@ -570,7 +581,79 @@ impl Engine {
                 }
                 for p in self.parts.iter_mut() {
                     p.held = [false; 128];
+                    p.keys = [0; 128];
                     p.pedal_hold = [false; 128];
+                }
+            }
+        }
+    }
+
+    // ── keyboards and couplers ──────────────────────────────────────────────
+    //
+    // A note event names the keyboard (part) whose key moved. The key plays that part and the
+    // parts it is coupled to. A part's pipe sounds while any keyboard reaching it holds the key:
+    // it starts with the first and stops with the last. Without couplers this is exactly a
+    // note event on the part.
+
+    /// Parts a key on part `src` plays: `src` first, then its couplers.
+    fn key_order(&self, src: usize) -> impl Iterator<Item = usize> {
+        let couple = self.parts[src].couple;
+        std::iter::once(src).chain((0..MAX_PARTS).filter(move |&t| couple & (1u32 << t) != 0))
+    }
+
+    /// Whether a keyboard other than `src` holds `note` down on part `t`.
+    fn held_elsewhere(&self, t: usize, note: u8, src: usize) -> bool {
+        self.parts.iter().enumerate().any(|(u, p)| u != src && p.keys[note as usize] > 0 && (u == t || p.couple & (1u32 << t) != 0))
+    }
+
+    fn key_on(&mut self, src: usize, note: u8, velocity: u8) {
+        if src >= self.parts.len() || note > 127 {
+            return;
+        }
+        for t in self.key_order(src) {
+            if !self.held_elsewhere(t, note, src) {
+                self.note_on(t, note, velocity);
+            }
+        }
+        self.parts[src].keys[note as usize] = velocity;
+    }
+
+    fn key_off(&mut self, src: usize, note: u8) {
+        if src >= self.parts.len() || note > 127 {
+            return;
+        }
+        self.parts[src].keys[note as usize] = 0;
+        for t in self.key_order(src) {
+            if !self.held_elsewhere(t, note, src) {
+                self.note_off(t, note);
+            }
+        }
+    }
+
+    /// Change a part's couplers. Keys held on it start or stop the newly (un)coupled parts,
+    /// as on a real organ.
+    fn set_couplers(&mut self, src: usize, targets: u32) {
+        if src >= self.parts.len() {
+            return;
+        }
+        let mask = if self.parts.len() >= 32 { u32::MAX } else { (1u32 << self.parts.len()) - 1 };
+        let new = targets & mask & !(1u32 << src);
+        let old = self.parts[src].couple;
+        self.parts[src].couple = new;
+        for note in 0..128u8 {
+            let vel = self.parts[src].keys[note as usize];
+            if vel == 0 {
+                continue;
+            }
+            for t in 0..self.parts.len() {
+                let bit = 1u32 << t;
+                if (old ^ new) & bit == 0 || self.held_elsewhere(t, note, src) {
+                    continue;
+                }
+                if new & bit != 0 {
+                    self.note_on(t, note, vel);
+                } else {
+                    self.note_off(t, note);
                 }
             }
         }
@@ -1196,5 +1279,64 @@ mod tests {
         let db = 20.0 * (after / sustain).log10();
         assert!(db < -6.0, "50–70 ms after note-off: {db:.1} dB re sustain");
         assert!(l.iter().chain(r.iter()).all(|v| v.is_finite()));
+    }
+
+    /// Voices of a part still held (not released).
+    fn speaking(eng: &Engine, part: usize) -> usize {
+        eng.voices.iter().filter(|v| v.is_active() && v.part == part && !v.is_released()).count()
+    }
+
+    fn two_divisions() -> Option<(Engine, Controller)> {
+        let (a, b) = (model("organ/great-principal-8")?, model("organ/swell-rohrflute-8")?);
+        let (eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::SetInstrument { part: 0, instrument: Box::new(Instrument::single(a)) }).unwrap();
+        ctl.send(0, Command::SetInstrument { part: 1, instrument: Box::new(Instrument::single(b)) }).unwrap();
+        Some((eng, ctl))
+    }
+
+    #[test]
+    fn coupled_division_sounds_from_any_note_source() {
+        let Some((mut eng, mut ctl)) = two_divisions() else { return };
+        ctl.send(0, Command::SetCouplers { part: 0, targets: 1 << 1 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((speaking(&eng, 0), speaking(&eng, 1)), (1, 1), "the great key plays the swell too");
+        ctl.send(0, Command::NoteOff { part: 0, note: 60 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((speaking(&eng, 0), speaking(&eng, 1)), (0, 0));
+        // not the other way round
+        ctl.send(0, Command::NoteOn { part: 1, note: 62, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((speaking(&eng, 0), speaking(&eng, 1)), (0, 1));
+    }
+
+    #[test]
+    fn a_pipe_reached_from_two_keyboards_sounds_until_both_keys_are_up() {
+        let Some((mut eng, mut ctl)) = two_divisions() else { return };
+        ctl.send(0, Command::SetCouplers { part: 0, targets: 1 << 1 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 1, note: 60, velocity: 100 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!(speaking(&eng, 1), 1, "one swell pipe, not restruck");
+        ctl.send(0, Command::NoteOff { part: 1, note: 60 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!(speaking(&eng, 1), 1, "still held through the coupler");
+        ctl.send(0, Command::NoteOff { part: 0, note: 60 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((speaking(&eng, 0), speaking(&eng, 1)), (0, 0));
+    }
+
+    #[test]
+    fn couplers_change_held_notes() {
+        let Some((mut eng, mut ctl)) = two_divisions() else { return };
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 64, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        ctl.send(0, Command::SetCouplers { part: 0, targets: 1 << 1 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!(speaking(&eng, 1), 2, "coupling in starts the held keys on the swell");
+        ctl.send(0, Command::SetCouplers { part: 0, targets: 0 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((speaking(&eng, 0), speaking(&eng, 1)), (2, 0));
     }
 }

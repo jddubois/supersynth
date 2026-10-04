@@ -18,12 +18,12 @@ the balance between stops, and the room the pipes were recorded in. Keys where a
 the tremulant on.
 
 \`\`\`ts
-const organ = synth.organ({ instrument: 'szczecinek', registration: 'celeste' });
+const organ = synth.add('szczecinek', { preset: 'celeste' });
 organ.swell.play(['C4', 'E4', 'G4'], { duration: 4 });
-organ.useRegistration('full');
+organ.preset('full');
 \`\`\`
 
-Every organ is an \`OrganDef\` exported from \`supersynth\` and \`supersynth/organs\` (all of them also as
+Every organ is an \`OrganDefinition\` exported from \`supersynth\` and \`supersynth/organs\` (all of them also as
 \`PIOTR_ORGANS\`). Sample sets © Piotr Grabowski; the models are not covered by the MIT license
 and may not be sold or built into products for sale — see NOTICE.md.
 
@@ -32,7 +32,7 @@ and may not be sold or built into products for sale — see NOTICE.md.
 `;
 for (const o of Object.values(PIOTR_ORGANS)) md += `| \`${o.id}\` | ${o.name} | ${o.stops.length} |\n`;
 for (const o of Object.values(PIOTR_ORGANS)) {
-  md += `\n## \`${o.id}\` — ${o.name}\n\n${o.description}\n\nConfig: \`${constName(o.id)}\`. Default registration: \`${o.defaultRegistration}\`.`;
+  md += `\n## \`${o.id}\` — ${o.name}\n\n${o.description}\n\nConfig: \`${constName(o.id)}\`. Default preset: \`${o.defaultPreset}\`.`;
   if (o.tremulant) md += ` Tremulant on the ${o.tremulant.division}.`;
   const boxed = Object.entries(o.divisions ?? {}).filter(([k, d]) => d?.swellBox && o.stops.some((s) => s.division === k)).map(([k]) => k);
   if (boxed.length) md += ` In a swell box: ${boxed.join(', ')}.`;
@@ -41,8 +41,8 @@ for (const o of Object.values(PIOTR_ORGANS)) {
     const stops = o.stops.filter((s) => s.division === div);
     if (stops.length) md += `**${DIV[div]}:** ${stops.map((s) => s.name).join(', ')}\n\n`;
   }
-  md += '| Registration | Description |\n|---|---|\n';
-  for (const [k, r] of Object.entries(o.registrations)) md += `| \`${k}\` | ${r.description} |\n`;
+  md += '| Preset | Description |\n|---|---|\n';
+  for (const [k, r] of Object.entries(o.presets)) md += `| \`${k}\` | ${r.description} |\n`;
 }
 writeFileSync('docs/piotr-organs.md', md);
 console.log('docs/piotr-organs.md');

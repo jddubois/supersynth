@@ -11,9 +11,3 @@ export interface MidiEvent {
   /** Raw MIDI bytes. */
   raw: Buffer;
 }
-
-/** Anything that can receive note events (Synth parts, instruments, organ manuals). */
-export interface NotePlayer {
-  noteOn(note: number | string, velocity?: number): unknown;
-  noteOff(note: number | string): unknown;
-}

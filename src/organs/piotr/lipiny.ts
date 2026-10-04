@@ -1,9 +1,9 @@
 import { CHURCH_DIVISIONS } from '../defaults.js';
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/lipiny/<id>.ssm.
 // Manual I is the great, manual II (not enclosed) the positive.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-bordun-16', model: 'organ/lipiny/great-bordun-16', name: "Bordun 16'", division: 'great', family: 'flute', transpose: -12 },
   { id: 'great-principal-8', model: 'organ/lipiny/great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0 },
   { id: 'great-viola-di-gamba-8', model: 'organ/lipiny/great-viola-di-gamba-8', name: "Viola di Gamba 8'", division: 'great', family: 'string', transpose: 0 },
@@ -33,7 +33,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-posaune-16', model: 'organ/lipiny/pedal-posaune-16', name: "Posaune 16'", division: 'pedal', family: 'reed', transpose: -12 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   principal: {
     description: "Principal 8' alone",
     great: ["Principal 8'"],
@@ -44,20 +44,20 @@ const REGISTRATIONS: Record<string, Registration> = {
     great: ["Principal 8'", "Viola di Gamba 8'", "Gemshorn 8'", "Doppelröhrflöte 8'"],
     positive: ["Geigenprincipal 8'", "Salicet 8'", "Flaut Major 8'"],
     pedal: ["Subbaß 16'", "Violonbaß 16'", "Octavbaß 8'", "Flautbaß 8'"],
-    couplers: ['positive>great'],
+    couple: { great: ['positive'] },
   },
   'principal-chorus': {
     description: "Principal chorus 8' 4' 2'",
     great: ["Principal 8'", "Octave 4'", "Octave 2'"],
     pedal: ["Principalbaß 16'", "Subbaß 16'", "Octavbaß 8'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   plenum: {
     description: 'Plenum: principals, Quinte and Mixtur on Bordun 16\'',
     great: ["Bordun 16'", "Principal 8'", "Doppelröhrflöte 8'", "Octave 4'", "Quinte 2 2/3'", "Octave 2'", 'Mixtur 4 Fach'],
     positive: ["Geigenprincipal 8'", "Viol-Principal 4'"],
     pedal: ["Principalbaß 16'", "Subbaß 16'", "Octavbaß 8'", "Octave 4'"],
-    couplers: ['positive>great', 'great>pedal'],
+    couple: { great: ['positive'], pedal: ['great'] },
   },
   full: {
     description: 'Full organ with Cornett, Trompete and Posaune',
@@ -65,7 +65,7 @@ const REGISTRATIONS: Record<string, Registration> = {
       "Quinte 2 2/3'", "Octave 2'", 'Cornett 3 Fach', 'Mixtur 4 Fach', "Trompete 8'"],
     positive: ["Geigenprincipal 8'", "Salicet 8'", "Flaut Major 8'", "Portunal Flaut 8'", "Viol-Principal 4'", "Portunal Flaut 4'"],
     pedal: ["Principalbaß 16'", "Violonbaß 16'", "Subbaß 16'", "Octavbaß 8'", "Flautbaß 8'", "Octave 4'", "Posaune 16'"],
-    couplers: ['positive>great', 'great>pedal', 'positive>pedal'],
+    couple: { great: ['positive'], pedal: ['great', 'positive'] },
   },
   flutes: {
     description: "Doppelröhrflöte 8' + 4' on the great",
@@ -103,12 +103,12 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** Lipiny (Adolf Volkmann, 1898, Świętochłowice, Poland): a Romantic organ, 25 stops on two
  *  manuals and pedal, from Piotr Grabowski's free sample set. */
-export const LIPINY_ORGAN: OrganDef = {
+export const LIPINY_ORGAN: OrganDefinition = {
   id: 'lipiny',
   name: 'Lipiny',
   description: 'Adolf Volkmann 1898, Lipiny, Świętochłowice (Poland): a Romantic organ, 25 stops on two manuals and pedal.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'foundations',
+  presets: PRESETS,
+  defaultPreset: 'foundations',
   divisions: CHURCH_DIVISIONS,
 };

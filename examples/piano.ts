@@ -16,7 +16,7 @@ for (let bar = 0; bar < 4; bar++) {
   piano.sustain(true, { at: t + bar * 2.4 + 0.02 });
   piano.sustain(false, { at: t + (bar + 1) * 2.4 - 0.05 });
 }
-t += playSteps(piano, BWV846, { at: t, bpm: 100, velocity: 72 }) + 1;
+t += playSteps(piano, BWV846, { at: t, tempo: 100, velocity: 72 }) + 1;
 
 // 2. The same chord at four dynamics: velocity changes tone, not just volume
 for (const v of [30, 60, 90, 120]) {
@@ -25,7 +25,7 @@ for (const v of [30, 60, 90, 120]) {
 }
 
 // 3. Presets: mellow and bright
-piano.usePreset('mellow', {});
+piano.preset('mellow');
 piano.play(chord('F3', 'add9'), { at: t, velocity: 85, duration: 2 });
 t += 2.5;
 piano.set({ brightness: 1.5 }, { at: t });

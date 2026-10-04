@@ -6,7 +6,7 @@ mod audio;
 mod midi;
 
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use napi::bindgen_prelude::*;
@@ -17,6 +17,9 @@ use audio::backend::{list_available_backends, BackendKind};
 use audio::output::{default_output_rate, AudioOutput};
 use midi::input::{connect_midi_device, list_midi_devices, MidiInputHandle};
 use midi::message::{MidiMessage, MidiMessageKind};
+
+/// A MIDI channel routed to no part: its messages only reach the JavaScript callback.
+const NO_ROUTE: u8 = 255;
 use supersynth_core::engine::params::{MasterParam, PartParam};
 use supersynth_core::engine::{Command, Controller, Engine, EngineConfig, InstLayer, Instrument, Status as EngineStatus};
 use supersynth_core::fx::reverb::ReverbParams;
@@ -57,6 +60,9 @@ struct Shared {
     ctl: Mutex<Controller>,
     status: Arc<EngineStatus>,
     sample_rate: f32,
+    /// Part each MIDI channel (1–16) plays when MIDI input is routed (`NO_ROUTE`: none)
+    /// until changed.
+    midi_routes: [AtomicU8; 16],
 }
 
 impl Shared {
@@ -110,7 +116,12 @@ impl SynthEngine {
         let status = Arc::clone(&ctl.status);
         Ok(Self {
             engine: Arc::new(Mutex::new(engine)),
-            shared: Arc::new(Shared { ctl: Mutex::new(ctl), status, sample_rate: sample_rate as f32 }),
+            shared: Arc::new(Shared {
+                ctl: Mutex::new(ctl),
+                status,
+                sample_rate: sample_rate as f32,
+                midi_routes: std::array::from_fn(|_| AtomicU8::new(NO_ROUTE)),
+            }),
             output: None,
             midi: None,
             models: HashMap::new(),
@@ -305,6 +316,24 @@ impl SynthEngine {
         self.shared.send(time, Command::SetLayerGain { part: part as u16, layer: layer as u16, gain_db: gain_db as f32 })
     }
 
+    /// Organ couplers: keys pressed on `part` (from any source: API, MIDI input, MIDI files)
+    /// also play the `targets` parts. An empty list releases all of its couplers.
+    #[napi]
+    pub fn set_couplers(&self, part: u32, targets: Vec<u32>, time: Option<f64>) -> Result<()> {
+        let mask = targets.iter().filter(|&&t| t < 32).fold(0u32, |m, &t| m | 1 << t);
+        self.shared.send(time, Command::SetCouplers { part: part as u16, targets: mask })
+    }
+
+    /// Part that MIDI input on `channel` (1–16) plays; 255 (or more) routes it to no part.
+    #[napi]
+    pub fn set_midi_route(&self, channel: u32, part: u32) -> Result<()> {
+        if !(1..=16).contains(&channel) {
+            return Err(err(format!("MIDI channel {channel} is not 1–16")));
+        }
+        self.shared.midi_routes[channel as usize - 1].store(part.min(NO_ROUTE as u32) as u8, Ordering::Relaxed);
+        Ok(())
+    }
+
     #[napi]
     pub fn all_notes_off(&self, part: Option<u32>, time: Option<f64>) -> Result<()> {
         self.shared.send(time, Command::AllNotesOff { part: part.map(|p| p as u16) })
@@ -366,8 +395,9 @@ impl SynthEngine {
         list_available_backends()
     }
 
-    /// Connect a MIDI input. Messages are applied to the engine immediately (channel N →
-    /// part N-1 when `route` is true) and forwarded to `callback` as raw bytes.
+    /// Connect a MIDI input. Messages are applied to the engine immediately (to the part each
+    /// channel is given with `set_midi_route`, when `route` is true) and forwarded to
+    /// `callback` as raw bytes.
     #[napi]
     pub fn enable_midi(&mut self, device_name: Option<String>, route: bool, callback: JsFunction) -> Result<()> {
         let tsfn: ThreadsafeFunction<Vec<u8>, ErrorStrategy::Fatal> =
@@ -378,7 +408,13 @@ impl SynthEngine {
             Box::new(move |bytes| {
                 if route {
                     if let Some(msg) = MidiMessage::parse(&bytes) {
-                        let part = (msg.channel.saturating_sub(1)) as u16;
+                        let ch = (msg.channel.clamp(1, 16) - 1) as usize;
+                        let part = shared.midi_routes[ch].load(Ordering::Relaxed);
+                        if part == NO_ROUTE {
+                            tsfn.call(bytes, ThreadsafeFunctionCallMode::NonBlocking);
+                            return;
+                        }
+                        let part = part as u16;
                         let cmd = match msg.kind {
                             MidiMessageKind::NoteOn => Some(Command::NoteOn { part, note: msg.data1, velocity: msg.data2 }),
                             MidiMessageKind::NoteOff => Some(Command::NoteOff { part, note: msg.data1 }),

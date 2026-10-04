@@ -1,8 +1,8 @@
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/melcer/<id>.ssm.
 // The Brustwerk (manual II) stands in a swell box: it is the swell here.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-nachthorn-8', model: 'organ/melcer/great-nachthorn-8', name: "Nachthorn 8'", division: 'great', family: 'flute', transpose: 0 },
   { id: 'great-prinzipal-4', model: 'organ/melcer/great-prinzipal-4', name: "Prinzipal 4'", division: 'great', family: 'principal', transpose: 12 },
   { id: 'great-nasard-2-2-3', model: 'organ/melcer/great-nasard-2-2-3', name: "Nasard 2 2/3'", division: 'great', family: 'mutation', transpose: 19 },
@@ -25,7 +25,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-trompete-8', model: 'organ/melcer/pedal-trompete-8', name: "Trompete 8'", division: 'pedal', family: 'reed', transpose: 0 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   'principal-chorus': {
     description: "Nachthorn 8' with the principals 4' + 2'",
     great: ["Nachthorn 8'", "Prinzipal 4'", "Oktave 2'"],
@@ -36,14 +36,14 @@ const REGISTRATIONS: Record<string, Registration> = {
     great: ["Nachthorn 8'", "Prinzipal 4'", "Oktave 2'", "Mixtur 1 1/3' 4f"],
     swell: ["Gedackt 8'", "Rohrflöte 4'", "Prinzipal 2'", "Quinte 1 1/3'"],
     pedal: ["Subbass 16'", "Gedacktbass 8'", "Choralbas 4'", "Oktave 2'"],
-    couplers: ['swell>great', 'great>pedal'],
+    couple: { great: ['swell'], pedal: ['great'] },
   },
   full: {
     description: 'Full organ with the Trompeten and Krumhorn',
     great: ["Nachthorn 8'", "Prinzipal 4'", "Nasard 2 2/3'", "Oktave 2'", "Mixtur 1 1/3' 4f", "Trompete 8'"],
     swell: ["Gedackt 8'", "Quintatön 8'", "Rohrflöte 4'", "Prinzipal 2'", "Quinte 1 1/3'", "Sifflöte 1'", "Krumhorn 8'"],
     pedal: ["Subbass 16'", "Gedacktbass 8'", "Choralbas 4'", "Oktave 2'", "Trompete 8'"],
-    couplers: ['swell>great', 'great>pedal', 'swell>pedal'],
+    couple: { great: ['swell'], pedal: ['great', 'swell'] },
   },
   flutes: {
     description: "Gedackt 8' + Rohrflöte 4' on the Brustwerk",
@@ -83,13 +83,13 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** Melcer Chamber Music Hall (Walcker, 1993, Warsaw): a neo-Baroque concert organ, Hauptwerk and
  *  enclosed Brustwerk with pedal, from Piotr Grabowski's free sample set. */
-export const MELCER_ORGAN: OrganDef = {
+export const MELCER_ORGAN: OrganDefinition = {
   id: 'melcer',
   name: 'Melcer Chamber Music Hall',
   description: 'Walcker 1993, Melcer Chamber Music Hall, Warsaw (Poland): 18 stops on two manuals (the Brustwerk enclosed) and pedal, in a concert hall.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'principal-chorus',
+  presets: PRESETS,
+  defaultPreset: 'principal-chorus',
   divisions: { great: { pan: 0 }, swell: { pan: 0, swellBox: true }, positive: { pan: 0 }, pedal: { pan: 0 } },
   tremulant: { division: 'swell', depth: 1.97, pitch: 8.2, rate: 3.75 },
   reverb: 'concert-hall',

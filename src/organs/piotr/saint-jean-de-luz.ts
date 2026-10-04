@@ -1,10 +1,10 @@
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set (the Hauptwerk package with his
 // GrandOrgue definition); models/organ/saint-jean-de-luz/<id>.ssm. Each stop sums the three
 // microphone perspectives of the set (front, rear, dry) as the definition mixes them. Both the
 // Grand Orgue and the Récit stand in swell boxes.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-bourdon-16', model: 'organ/saint-jean-de-luz/great-bourdon-16', name: "Bourdon 16'", division: 'great', family: 'flute', transpose: -12 },
   { id: 'great-flute-harmonique-8', model: 'organ/saint-jean-de-luz/great-flute-harmonique-8', name: "Flûte harmonique 8'", division: 'great', family: 'flute', transpose: 0 },
   { id: 'great-bourdon-8', model: 'organ/saint-jean-de-luz/great-bourdon-8', name: "Bourdon 8'", division: 'great', family: 'flute', transpose: 0 },
@@ -25,13 +25,13 @@ const STOPS: StopDef[] = [
   { id: 'pedal-flute-2', model: 'organ/saint-jean-de-luz/pedal-flute-2', name: "Flûte 2'", division: 'pedal', family: 'flute', transpose: 24 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   fonds: {
     description: "Fonds de 8': Flûte harmonique and Bourdon with the Récit Flûte coupled",
     great: ["Flûte harmonique 8'", "Bourdon 8'"],
     swell: ["Flûte 8'"],
     pedal: ["Soubasse 16'", "Bourdon 8'"],
-    couplers: ['swell>great'],
+    couple: { great: ['swell'] },
   },
   'jeux-doux': {
     description: "Bourdon 8' — the softest registration, for accompanying",
@@ -43,21 +43,21 @@ const REGISTRATIONS: Record<string, Registration> = {
     great: ["Flûte harmonique 8'", "Bourdon 8'", "Prestant 4'"],
     swell: ["Flûte 8'", "Flûte 4'"],
     pedal: ["Soubasse 16'", "Bourdon 8'", "Flûte 4'"],
-    couplers: ['swell>great', 'great>pedal'],
+    couple: { great: ['swell'], pedal: ['great'] },
   },
   'plein-jeu': {
     description: 'Plein jeu: the Grand Orgue chorus with the Récit Plein-jeu coupled',
     great: ["Bourdon 16'", "Flûte harmonique 8'", "Bourdon 8'", "Prestant 4'", "Doublette 2'"],
     swell: ["Flûte 8'", "Flûte 4'", 'Plein-jeu III'],
     pedal: ["Soubasse 16'", "Bourdon 8'", "Flûte 4'", "Flûte 2'"],
-    couplers: ['swell>great', 'great>pedal'],
+    couple: { great: ['swell'], pedal: ['great'] },
   },
   'grand-choeur': {
     description: 'Grand chœur: every stop, the Récit coupled',
     great: ["Bourdon 16'", "Flûte harmonique 8'", "Bourdon 8'", "Prestant 4'", "Quinte 2 2/3'", "Doublette 2'", "Tierce 1 3/5'"],
     swell: ["Flûte 8'", "Flûte 4'", 'Plein-jeu III', "Trompette 8'"],
     pedal: ["Soubasse 16'", "Bourdon 8'", "Flûte 8'", "Flûte 4'", "Flûte 2'"],
-    couplers: ['swell>great', 'great>pedal', 'swell>pedal'],
+    couple: { great: ['swell'], pedal: ['great', 'swell'] },
   },
   cornet: {
     description: "Cornet décomposé on the Grand Orgue (8' 4' 2 2/3' 2' 1 3/5') against the Récit flutes",
@@ -87,13 +87,13 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** Saint-Jean-de-Luz, choir organ (Victor Gonzalez, 1931, France): 16 stops on two enclosed
  *  manuals and pedal, from Piotr Grabowski's free sample set. */
-export const SAINT_JEAN_DE_LUZ_ORGAN: OrganDef = {
+export const SAINT_JEAN_DE_LUZ_ORGAN: OrganDefinition = {
   id: 'saint-jean-de-luz',
   name: 'Saint-Jean-de-Luz (chœur)',
   description: 'Victor Gonzalez 1931, choir organ of Saint-Jean-Baptiste, Saint-Jean-de-Luz (France): 16 stops on two manuals (both enclosed) and pedal.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'fonds',
+  presets: PRESETS,
+  defaultPreset: 'fonds',
   divisions: { great: { pan: -0.1, swellBox: true }, swell: { pan: 0.1, swellBox: true }, positive: { pan: 0 }, pedal: { pan: 0 } },
   tremulant: { division: 'great', depth: 1.55, pitch: 8.7, rate: 2.93 },
 };

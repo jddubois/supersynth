@@ -1,9 +1,9 @@
 import { CHURCH_DIVISIONS } from '../defaults.js';
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/giubiasco/<id>.ssm.
 // Grande organo (manual II) is the great, Positivo tergale (manual I) the positive.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-principale-8', model: 'organ/giubiasco/great-principale-8', name: "Principale 8'", division: 'great', family: 'principal', transpose: 0 },
   { id: 'great-viola-da-gamba-8', model: 'organ/giubiasco/great-viola-da-gamba-8', name: "Viola da Gamba 8'", division: 'great', family: 'string', transpose: 0 },
   { id: 'great-flauto-a-camino-8', model: 'organ/giubiasco/great-flauto-a-camino-8', name: "Flauto a camino 8'", division: 'great', family: 'flute', transpose: 0 },
@@ -30,7 +30,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-contro-fagotto-16', model: 'organ/giubiasco/pedal-contro-fagotto-16', name: "Contro Fagotto 16'", division: 'pedal', family: 'reed', transpose: -12 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   principale: {
     description: "Principale 8' alone",
     great: ["Principale 8'"],
@@ -40,21 +40,21 @@ const REGISTRATIONS: Record<string, Registration> = {
     description: "Ripieno: Principale 8', Ottava 4', Quintadecima 2' and the Ripieno",
     great: ["Principale 8'", "Ottava 4'", "Quintadecima 2'", 'Ripieno 4 file'],
     pedal: ["Subbasso 16'", "Flauto 8'", "Ottava 4'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   pleno: {
     description: 'Organo pleno: Ripieno on the great, Cimbalo on the positive, both coupled',
     great: ["Principale 8'", "Flauto a camino 8'", "Ottava 4'", "Quintadecima 2'", 'Ripieno 4 file'],
     positive: ["Bordone 8'", "Flauto 4'", "Principale 2'", "Larigot 1 1/3'", 'Cimbalo 2 file'],
     pedal: ["Subbasso 16'", "Flauto 8'", "Ottava 4'", "Contro Fagotto 16'"],
-    couplers: ['positive>great', 'great>pedal'],
+    couple: { great: ['positive'], pedal: ['great'] },
   },
   full: {
     description: 'Full organ with Cornetto, Regale and Contro Fagotto',
     great: ["Principale 8'", "Flauto a camino 8'", "Ottava 4'", "Flauto conico 4'", "Quintadecima 2'", "Cornetto 2 2/3'", 'Ripieno 4 file'],
     positive: ["Bordone 8'", "Flauto 4'", "Quinta 2 2/3'", "Principale 2'", "Terza 1 3/5'", "Larigot 1 1/3'", 'Cimbalo 2 file', "Regale 8'"],
     pedal: ["Subbasso 16'", "Flauto 8'", "Ottava 4'", "Contro Fagotto 16'"],
-    couplers: ['positive>great', 'great>pedal', 'positive>pedal'],
+    couple: { great: ['positive'], pedal: ['great', 'positive'] },
   },
   'voce-umana': {
     description: "Voce umana with the Principale 8' — the Italian beating principal",
@@ -98,13 +98,13 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** Giubiasco (Mascioni, 2008, Switzerland): an organ in the Italian style, 22 stops on Grande
  *  organo, Positivo tergale and pedal, from Piotr Grabowski's free sample set. */
-export const GIUBIASCO_ORGAN: OrganDef = {
+export const GIUBIASCO_ORGAN: OrganDefinition = {
   id: 'giubiasco',
   name: 'Giubiasco',
   description: 'Mascioni 2008, Giubiasco (Switzerland): 22 stops in the Italian style on Grande organo, Positivo tergale and pedal with Ripieno, Voce umana and Cornetto.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'ripieno',
+  presets: PRESETS,
+  defaultPreset: 'ripieno',
   divisions: CHURCH_DIVISIONS,
   tremulant: { division: 'positive', depth: 1.91, pitch: 3.5, rate: 5.07 },
 };

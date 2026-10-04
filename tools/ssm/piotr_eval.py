@@ -1,10 +1,10 @@
-"""Piotr Grabowski's organs: registrations through the public organ API against the sample set
+"""Piotr Grabowski's organs: presets through the public organ API against the sample set
 played as GrandOrgue plays it (the same pipes summed: attack, sustain, release at key-up).
 
-  python piotr_eval.py <organ> [registration ...]
+  python piotr_eval.py <organ> [preset ...]
 
-Per registration, a chord on every manual it draws stops on (C4 E4 G4) and C3 on the pedal;
-couplers as the registration sets them. Reports, per channel, the log-spectral distance, the
+Per preset, a chord on every manual it draws stops on (C4 E4 G4) and C3 on the pedal;
+couplers as the preset sets them. Reports, per channel, the log-spectral distance, the
 envelope error, the spectral centroid error and the level difference (engine − sample set).
 """
 import json
@@ -61,12 +61,13 @@ def main(organ, regs):
     od = organ_def(organ)
     odf = load_odf(organ)
     res = {}
-    for name in regs or list(od['registrations']):
-        r = od['registrations'][name]
+    for name in regs or list(od['presets']):
+        r = od['presets'][name]
         play = {d: CHORD[d] for d in ('great', 'swell', 'positive', 'pedal') if r.get(d)}
         seconds, hold = 3.0, 2.9
-        real, sr = real_sum(organ, odf, r, play, r.get('couplers', []), seconds)
-        spec = dict(organ=organ, registration=name, play=play, hold=hold, seconds=seconds, sampleRate=sr)
+        couplers = [f'{src}>{dst}' for dst, srcs in (r.get('couple') or {}).items() for src in srcs]
+        real, sr = real_sum(organ, odf, r, play, couplers, seconds)
+        spec = dict(organ=organ, preset=name, play=play, hold=hold, seconds=seconds, sampleRate=sr)
         sp = os.path.join(OUT, f'{organ}-{name}.json')
         json.dump(spec, open(sp, 'w'))
         out = os.path.join(OUT, f'{organ}-{name}__syn.wav')
@@ -97,7 +98,7 @@ def stops(organ):
         real, sr = real_sum(organ, odf, {d: [st['name']]}, play, [], 3.0)
         if real is None:
             continue
-        spec = dict(organ=organ, registration=od['defaultRegistration'], draw={d: [st['name']]}, play=play, hold=2.9,
+        spec = dict(organ=organ, draw={d: [st['name']]}, play=play, hold=2.9,
                     seconds=3.0, sampleRate=sr)
         sp = os.path.join(OUT, f"{organ}-stop-{st['id']}.json")
         json.dump(spec, open(sp, 'w'))

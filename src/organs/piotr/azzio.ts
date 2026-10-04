@@ -1,10 +1,10 @@
 import { CHURCH_DIVISIONS } from '../defaults.js';
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/azzio/<id>.ssm.
 // The organ stands about 80 cents below A440 (a ≈ 420 Hz): every key sounds its own pipe at
 // that pitch.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-principale-8', model: 'organ/azzio/great-principale-8', name: "Principale 8'", division: 'great', family: 'principal', transpose: -1 },
   { id: 'great-flauto-camino-8', model: 'organ/azzio/great-flauto-camino-8', name: "Flauto camino 8'", division: 'great', family: 'flute', transpose: -1 },
   { id: 'great-ottava-4', model: 'organ/azzio/great-ottava-4', name: "Ottava 4'", division: 'great', family: 'principal', transpose: 11 },
@@ -21,7 +21,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-trombone-16', model: 'organ/azzio/pedal-trombone-16', name: "Trombone 16'", division: 'pedal', family: 'reed', transpose: -13 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   principale: {
     description: "Principale 8' alone",
     great: ["Principale 8'"],
@@ -31,14 +31,14 @@ const REGISTRATIONS: Record<string, Registration> = {
     description: "Ripieno: Principale 8', Ottava 4' and the Ripieno",
     great: ["Principale 8'", "Ottava 4'", 'Ripieno 3-4 file'],
     pedal: ["Subbasso 16'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   full: {
     description: 'Full organ with both manuals coupled and the Trombone',
     great: ["Principale 8'", "Flauto camino 8'", "Ottava 4'", 'Sesquialtera II', 'Ripieno 3-4 file'],
     positive: ["Bordone 8'", "Flauto conico 4'", "Quintadecima 2'"],
     pedal: ["Subbasso 16'", "Trombone 16'"],
-    couplers: ['positive>great', 'great>pedal'],
+    couple: { great: ['positive'], pedal: ['great'] },
   },
   flutes: {
     description: "Flauto camino 8' on the great, Bordone 8' + Flauto conico 4' on the positive",
@@ -67,13 +67,13 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** Azzio (Mascioni, 2016, Italy): two manuals and pedal, 11 stops (the Sesquialtera with its
  *  first rank alone or both), from Piotr Grabowski's free sample set. */
-export const AZZIO_ORGAN: OrganDef = {
+export const AZZIO_ORGAN: OrganDefinition = {
   id: 'azzio',
   name: 'Azzio',
   description: 'Mascioni 2016, Azzio (Italy): 11 stops on two manuals and pedal in the Italian style, at a ≈ 420 Hz.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'ripieno',
+  presets: PRESETS,
+  defaultPreset: 'ripieno',
   divisions: CHURCH_DIVISIONS,
   tremulant: { division: 'great', depth: 0.77, pitch: 3.4, rate: 3.94 },
 };

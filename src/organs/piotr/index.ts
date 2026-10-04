@@ -3,7 +3,7 @@
  * from the sample set as it plays — its own pitch and temperament, its borrowed and extended
  * ranks, each pipe's level and release, the room it was recorded in.
  */
-import type { OrganDef } from '../types.js';
+import type { OrganDefinition } from '../types.js';
 import { AZZIO_ORGAN } from './azzio.js';
 import { DLUGA_KOSCIELNA_ORGAN } from './dluga-koscielna.js';
 import { FRIESACH_ORGAN } from './friesach.js';
@@ -37,4 +37,4 @@ export const PIOTR_ORGANS = {
   skrzatusz: SKRZATUSZ_ORGAN,
   strassburg: STRASSBURG_ORGAN,
   szczecinek: SZCZECINEK_ORGAN,
-} as const satisfies Record<string, OrganDef>;
+} as const satisfies Record<string, OrganDefinition>;

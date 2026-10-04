@@ -1,7 +1,7 @@
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/ledziny/<id>.ssm.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-principal-8', model: 'organ/ledziny/great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0 },
   { id: 'great-salicet-8', model: 'organ/ledziny/great-salicet-8', name: "Salicet 8'", division: 'great', family: 'string', transpose: 0 },
   { id: 'great-portunal-flote-8', model: 'organ/ledziny/great-portunal-flote-8', name: "Portunal-Flöte 8'", division: 'great', family: 'flute', transpose: 0 },
@@ -16,7 +16,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-violon-cello-8', model: 'organ/ledziny/pedal-violon-cello-8', name: "Violon Cello 8'", division: 'pedal', family: 'string', transpose: 0 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   principal: {
     description: "Principal 8' alone",
     great: ["Principal 8'"],
@@ -31,13 +31,13 @@ const REGISTRATIONS: Record<string, Registration> = {
     description: "Principals 8' 4' with Quinte and Octave",
     great: ["Principal 8'", "Principal 4'", "Quinte 2 2/3' Octave 2'"],
     pedal: ["Subbaß 16'", "Principal baß 8'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   full: {
     description: 'Full organ: principals, flutes, Quinte, Octave and Mixtur',
     great: ["Principal 8'", "Flaut major 8'", "Portunal-Flöte 8'", "Principal 4'", "Flauto traverse 4'", "Quinte 2 2/3' Octave 2'", 'Mixtur 2 fach'],
     pedal: ["Subbaß 16'", "Principal baß 8'", "Violon Cello 8'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   flutes: {
     description: "Flaut major 8' + Flauto traverse 4'",
@@ -58,12 +58,12 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** Lędziny, St. Clement (Carl Volkmann, 1888, Poland): a one-manual Romantic organ with pedal,
  *  from Piotr Grabowski's free sample set. */
-export const LEDZINY_ORGAN: OrganDef = {
+export const LEDZINY_ORGAN: OrganDefinition = {
   id: 'ledziny',
   name: 'Lędziny, St. Clement',
   description: 'Carl Volkmann 1888, St. Clement, Lędziny (Poland): a one-manual Romantic organ, 11 stops on manual and pedal.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'foundations',
+  presets: PRESETS,
+  defaultPreset: 'foundations',
   divisions: { great: { pan: 0 }, swell: { pan: 0 }, positive: { pan: 0 }, pedal: { pan: 0 } },
 };

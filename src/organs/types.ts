@@ -1,4 +1,4 @@
-import type { ReverbPreset } from '../params.js';
+import type { ReverbPreset } from '../parameters.js';
 
 /** The keyboards of a church organ: three manuals and the pedalboard. */
 export type DivisionName = 'great' | 'swell' | 'positive' | 'pedal';
@@ -7,7 +7,7 @@ export type DivisionName = 'great' | 'swell' | 'positive' | 'pedal';
 export type StopFamily = 'principal' | 'flute' | 'string' | 'reed' | 'mutation' | 'mixture';
 
 /** One stop (rank of pipes) of an organ. */
-export interface StopDef {
+export interface StopDefinition {
   /** Stop id, unique within the organ. The model is `organ/<id>` unless {@link model} is set. */
   id: string;
   /** Model id when it is not `organ/<id>` (file `models/<model>.ssm`). */
@@ -22,19 +22,34 @@ export interface StopDef {
   gain?: number;
 }
 
-/** A registration: stops per division plus couplers. */
-export interface Registration {
-  description: string;
+/**
+ * A preset (an organist's registration): the stops drawn on each division, by name
+ * (`"Principal 8'"`) or id, and the couplers. Divisions left out are silent.
+ *
+ * ```ts
+ * const solo: OrganPreset = {
+ *   description: 'Trumpet solo on the great, flutes on the swell to accompany',
+ *   great: ["Principal 8'", "Trumpet 8'"],
+ *   swell: ["Rohrflöte 8'", "Hohlflöte 4'"],
+ *   pedal: ["Subbass 16'"],
+ *   couple: { pedal: ['swell'] },
+ * };
+ * ```
+ */
+export interface OrganPreset {
+  description?: string;
   great?: string[];
   swell?: string[];
   positive?: string[];
   pedal?: string[];
-  /** Couplers as `'swell>great'`, `'great>pedal'` etc. */
-  couplers?: string[];
+  /** Couplers, by the keyboard that is played: `{ great: ['swell'] }` is the "Swell to Great"
+   *  coupler (playing the great also sounds the swell's stops), `{ pedal: ['great'] }` is
+   *  "Great to Pedal". */
+  couple?: Partial<Record<DivisionName, DivisionName[]>>;
 }
 
 /** Placement and mechanics of one division. */
-export interface DivisionDef {
+export interface DivisionDefinition {
   /** Position of the division's pipes in the stereo image, -1 (left) … 1 (right). @default 0 */
   pan?: number;
   /** The division stands in a swell box: its expression pedal moves shutters (treble damped
@@ -43,7 +58,7 @@ export interface DivisionDef {
 }
 
 /** The tremulant: a periodic wobble of one division's wind pressure. */
-export interface TremulantDef {
+export interface TremulantDefinition {
   /** Division whose wind the tremulant shakes. */
   division: DivisionName;
   /** Loudness swing (± dB). */
@@ -55,34 +70,40 @@ export interface TremulantDef {
 }
 
 /**
- * A complete organ as configuration: its stops, named registrations, the layout of its
- * divisions and its wind. Pass one to `synth.organ({ instrument })` to play it; the built-in
- * organs ({@link BUREA_ORGAN}, {@link VCSL_ORGAN}) are plain `OrganDef`s that can be copied and
+ * A complete organ as configuration: its stops, named presets, the layout of its
+ * divisions and its wind. Pass one to `synth.add()` to play it; the built-in
+ * organs ({@link BUREA_ORGAN}, {@link VCSL_ORGAN}) are plain `OrganDefinition`s that can be copied and
  * changed:
  *
  * ```ts
- * import { BUREA_ORGAN, type OrganDef } from 'supersynth/organs';
- * const mine: OrganDef = {
+ * import { BUREA_ORGAN, type OrganDefinition } from 'supersynth/organs';
+ * const mine: OrganDefinition = {
  *   ...BUREA_ORGAN,
- *   registrations: { ...BUREA_ORGAN.registrations, bright: { description: 'Flutes 8 + 2', great: ["Gedackt 8'", "Octave 2'"] } },
+ *   presets: { ...BUREA_ORGAN.presets, bright: { description: 'Flutes 8 + 2', great: ["Gedackt 8'", "Octave 2'"] } },
  * };
- * synth.organ({ instrument: mine, registration: 'bright' });
+ * synth.add(mine, { preset: 'bright' });
+ * ```
+ *
+ * To add presets without a new definition, pass them to the organ instead:
+ *
+ * ```ts
+ * synth.add('burea', { presets: { bright: { great: ["Gedackt 8'", "Octave 2'"] } }, preset: 'bright' });
  * ```
  */
-export interface OrganDef {
+export interface OrganDefinition {
   /** Short id, e.g. `'burea'`. */
   id: string;
   /** Display name. */
   name: string;
   description: string;
-  stops: StopDef[];
-  registrations: Record<string, Registration>;
-  /** Registration applied when the organ is created without one. */
-  defaultRegistration: string;
+  stops: StopDefinition[];
+  presets: Record<string, OrganPreset>;
+  /** Preset applied when the organ is created without one. */
+  defaultPreset: string;
   /** Per-division placement and mechanics. @default {@link CHURCH_DIVISIONS} */
-  divisions?: Partial<Record<DivisionName, DivisionDef>>;
+  divisions?: Partial<Record<DivisionName, DivisionDefinition>>;
   /** The tremulant, if the organ has one. @default {@link SWELL_TREMULANT} */
-  tremulant?: TremulantDef;
+  tremulant?: TremulantDefinition;
   /** Wind flexibility, 0 (steady) – 1 (flexible historic winding). @default 0.5 */
   wind?: number;
   /** Room the synth uses for the organ when its reverb is automatic. @default 'church' */

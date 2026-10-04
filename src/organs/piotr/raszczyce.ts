@@ -1,9 +1,9 @@
 import { CHURCH_DIVISIONS } from '../defaults.js';
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/raszczyce/<id>.ssm.
 // Hoofdwerk (manual II) is the great, Rugwerk (manual I) the positive.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-prestant-8', model: 'organ/raszczyce/great-prestant-8', name: "Prestant 8'", division: 'great', family: 'principal', transpose: 0 },
   { id: 'great-roerfluit-8', model: 'organ/raszczyce/great-roerfluit-8', name: "Roerfluit 8'", division: 'great', family: 'flute', transpose: 0 },
   { id: 'great-octaaf-4', model: 'organ/raszczyce/great-octaaf-4', name: "Octaaf 4'", division: 'great', family: 'principal', transpose: 12 },
@@ -29,7 +29,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-fagot-16', model: 'organ/raszczyce/pedal-fagot-16', name: "Fagot 16'", division: 'pedal', family: 'reed', transpose: -12 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   prestant: {
     description: "Prestant 8' alone",
     great: ["Prestant 8'"],
@@ -39,21 +39,21 @@ const REGISTRATIONS: Record<string, Registration> = {
     description: "Principal chorus 8' 4' on the Hoofdwerk, 4' 2' on the Rugwerk",
     great: ["Prestant 8'", "Octaaf 4'"],
     pedal: ["Subbas 16'", "Prestant 8'", "Octaaf 4'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   plenum: {
     description: 'Organo pleno: Hoofdwerk Mixtuur, Rugwerk Scherp, both coupled',
     great: ["Prestant 8'", "Roerfluit 8'", "Octaaf 4'", 'Mixtuur IV'],
     positive: ["Holpijp 8'", "Prestant 4'", "Octaaf 2'", 'Scherp IV'],
     pedal: ["Subbas 16'", "Prestant 8'", "Octaaf 4'", "Fagot 16'"],
-    couplers: ['positive>great', 'great>pedal'],
+    couple: { great: ['positive'], pedal: ['great'] },
   },
   full: {
     description: 'Full organ with Trompet, Kromhoorn, Cymbel and Fagot',
     great: ["Prestant 8'", "Roerfluit 8'", "Octaaf 4'", "Gedekt fluit 4'", "Nasard 2 2/3'", "Woudfluit 2'", 'Sesquialter II', 'Mixtuur IV', "Trompet 8'"],
     positive: ["Holpijp 8'", "Prestant 4'", "Roerfluit 4'", "Octaaf 2'", 'Scherp IV', 'Cymbel III', "Kromhoorn 8'"],
     pedal: ["Subbas 16'", "Prestant 8'", "Gedekt 8'", "Octaaf 4'", "Fagot 16'"],
-    couplers: ['positive>great', 'great>pedal'],
+    couple: { great: ['positive'], pedal: ['great'] },
   },
   flutes: {
     description: "Roerfluit 8' + Gedekt fluit 4' on the Hoofdwerk",
@@ -93,12 +93,12 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** Raszczyce (Vermeulen, Alkmaar, 1965, Poland): a Dutch neo-Baroque organ, Hoofdwerk, Rugwerk and
  *  pedal, 21 stops, from Piotr Grabowski's free sample set. */
-export const RASZCZYCE_ORGAN: OrganDef = {
+export const RASZCZYCE_ORGAN: OrganDefinition = {
   id: 'raszczyce',
   name: 'Raszczyce',
   description: 'Vermeulen (Alkmaar) 1965, Raszczyce (Poland): a Dutch neo-Baroque organ, 21 stops on Hoofdwerk, Rugwerk and pedal.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'principal-chorus',
+  presets: PRESETS,
+  defaultPreset: 'principal-chorus',
   divisions: CHURCH_DIVISIONS,
 };

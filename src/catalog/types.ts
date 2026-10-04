@@ -1,9 +1,9 @@
-import type { InstrumentParams, ReverbPreset } from '../params.js';
+import type { InstrumentParameters, ReverbPreset } from '../parameters.js';
 
 export type InstrumentFamily = 'keyboard' | 'organ' | 'strings' | 'woodwind' | 'brass' | 'percussion';
 
 /** One sound layer: a spectral model played at an offset, optionally over a key range. */
-export interface LayerDef {
+export interface LayerDefinition {
   /** Model id (file `models/<model>.ssm`). */
   model: string;
   /** Semitones. @default 0 */
@@ -22,35 +22,35 @@ export interface LayerDef {
   trigger?: 'release';
 }
 
-export interface PresetDef {
-  description: string;
-  params?: InstrumentParams;
+/** A preset: parameters (and optionally layers) applied together. */
+export interface InstrumentPreset {
+  description?: string;
+  parameters?: InstrumentParameters;
   /** Replace the instrument's layers. */
-  layers?: LayerDef[];
+  layers?: LayerDefinition[];
   /** Suggested room for this sound. */
   reverb?: ReverbPreset;
 }
 
-export interface InstrumentDef {
+export interface InstrumentDefinition {
   id: string;
   name: string;
   family: InstrumentFamily;
   description: string;
-  layers: LayerDef[];
+  layers: LayerDefinition[];
   /** Playable range (MIDI) the recordings cover. */
   range: [number, number];
   /** Suggested room. */
   reverb: ReverbPreset;
-  params?: InstrumentParams;
-  presets: Record<string, PresetDef>;
-  aliases?: string[];
+  parameters?: InstrumentParameters;
+  presets: Record<string, InstrumentPreset>;
 }
 
 /** A single layer playing one model. */
-export const one = (model: string): LayerDef[] => [{ model }];
+export const one = (model: string): LayerDefinition[] => [{ model }];
 
 /** Common, always-legit tweaks shared by many instruments. */
 export const ROOMS = {
-  dry: { description: 'Close-miked, almost no room', params: { reverbSend: 0.03 } },
-  hall: { description: 'In a concert hall', params: { reverbSend: 0.3 }, reverb: 'concert-hall' as const },
+  dry: { description: 'Close-miked, almost no room', parameters: { reverbSend: 0.03 } },
+  hall: { description: 'In a concert hall', parameters: { reverbSend: 0.3 }, reverb: 'concert-hall' as const },
 };

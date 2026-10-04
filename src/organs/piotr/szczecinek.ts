@@ -1,9 +1,9 @@
 import { CHURCH_DIVISIONS } from '../defaults.js';
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/szczecinek/<id>.ssm.
 // Manual II stands in a swell box.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-principal-16', model: 'organ/szczecinek/great-principal-16', name: "Principal 16'", division: 'great', family: 'principal', transpose: -12 },
   { id: 'great-bordun-16', model: 'organ/szczecinek/great-bordun-16', name: "Bordun 16'", division: 'great', family: 'flute', transpose: -12 },
   { id: 'great-principal-8', model: 'organ/szczecinek/great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0 },
@@ -43,7 +43,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-posaune-16', model: 'organ/szczecinek/pedal-posaune-16', name: "Posaune 16'", division: 'pedal', family: 'reed', transpose: -12 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   principal: {
     description: "Principal 8' alone",
     great: ["Principal 8'"],
@@ -54,20 +54,20 @@ const REGISTRATIONS: Record<string, Registration> = {
     great: ["Principal 8'", "Gambe 8'", "Röhrflöte 8'", "Flûte harmonique 8'"],
     swell: ["Geigenprincipal 8'", "Gedackt 8'", "Konzertfloete 8'"],
     pedal: ["Subbass 16'", "Violon 16'", "Octavbass 8'", "Violoncello 8'"],
-    couplers: ['swell>great'],
+    couple: { great: ['swell'] },
   },
   'principal-chorus': {
     description: "Principals 16' 8' 4' with the Rauschquinte",
     great: ["Principal 16'", "Principal 8'", "Octave 4'", "Rauschquinte 2 2/3' u. 2'"],
     pedal: ["Principalbass 16'", "Subbass 16'", "Octavbass 8'", "Octave 4'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   plenum: {
     description: 'Plenum: principals, Rauschquinte and Mixtur with the swell coupled',
     great: ["Principal 16'", "Bordun 16'", "Principal 8'", "Röhrflöte 8'", "Octave 4'", "Rauschquinte 2 2/3' u. 2'", 'Mixtur 5 fach'],
     swell: ["Geigenprincipal 8'", "Gedackt 8'", "Fugara 4'", 'Progressio 2-4 fach'],
     pedal: ["Principalbass 16'", "Subbass 16'", "Quintbass 10 2/3'", "Octavbass 8'", "Octave 4'"],
-    couplers: ['swell>great', 'great>pedal'],
+    couple: { great: ['swell'], pedal: ['great'] },
   },
   full: {
     description: 'Full organ with Cornett, Trompete, Schalmey and Posaune',
@@ -77,7 +77,7 @@ const REGISTRATIONS: Record<string, Registration> = {
       "Traversfloete 4'", 'Progressio 2-4 fach'],
     pedal: ["Principalbass 16'", "Violon 16'", "Subbass 16'", "Quintbass 10 2/3'", "Octavbass 8'", "Violoncello 8'", "Bassflöte 8'",
       "Octave 4'", "Posaune 16'"],
-    couplers: ['swell>great', 'great>pedal', 'swell>pedal'],
+    couple: { great: ['swell'], pedal: ['great', 'swell'] },
   },
   flutes: {
     description: "Konzertflöte 8' + Traversflöte 4' on the swell",
@@ -126,13 +126,13 @@ const REGISTRATIONS: Record<string, Registration> = {
 
 /** Szczecinek (P. B. Voelkner, 1908, Poland): a late-Romantic organ, 35 stops on two manuals
  *  (the second in a swell box) and pedal, from Piotr Grabowski's free sample set. */
-export const SZCZECINEK_ORGAN: OrganDef = {
+export const SZCZECINEK_ORGAN: OrganDefinition = {
   id: 'szczecinek',
   name: 'Szczecinek',
   description: 'P. B. Voelkner (Bromberg) 1908, Szczecinek (Poland): a late-Romantic organ, 35 stops on two manuals (the second enclosed) and pedal.',
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'foundations',
+  presets: PRESETS,
+  defaultPreset: 'foundations',
   divisions: CHURCH_DIVISIONS,
   tremulant: { division: 'swell', depth: 0.83, pitch: 6.0, rate: 5.0 },
 };

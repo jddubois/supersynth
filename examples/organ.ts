@@ -1,14 +1,15 @@
 /**
- * The Bureå church organ: a hymn in four parts with pedal, then several registrations.
+ * The Bureå church organ: a hymn in four parts with pedal, verse after verse on different
+ * presets, then a solo stop over flutes.
  *
  *   npm run example:organ [-- out.wav]
  */
-import { Synth, writeWav, type AudioBuffer } from '../src/index.ts';
+import { Synth } from '../src/index.ts';
 import { OLD_HUNDREDTH } from './util/music.ts';
 
 const out = process.argv[2];
 const synth = new Synth();            // reverb: the organ picks 'church'
-const organ = synth.organ({ registration: 'plenum' });
+const organ = synth.add('burea');
 
 function hymn(t0: number, bpm: number): number {
   const beat = 60 / bpm;
@@ -22,20 +23,16 @@ function hymn(t0: number, bpm: number): number {
   return t - t0;
 }
 
-// Registration changes take effect when they are made, so offline each verse is rendered
-// right after its change (in real time, the change waits until the previous verse is over).
-const parts: AudioBuffer[] = [];
+// every change is scheduled, so the whole piece is set up before it plays (or renders)
 let t = 0.3;
-for (const reg of ['plenum', 'flutes', 'principal-chorus', 'full']) {
-  if (!out) await new Promise((r) => setTimeout(r, Math.max(0, (t - synth.currentTime - 0.2) * 1000)));
-  organ.useRegistration(reg);
-  console.log(`${t.toFixed(1)}s  ${reg}: ${organ.great.drawn.join(', ') || '(great silent)'}`);
-  t += hymn(t, reg === 'full' ? 76 : 88) + 1.5;
-  if (out) parts.push(synth.render(t - synth.currentTime));
+for (const preset of ['plenum', 'flutes', 'principal-chorus', 'full']) {
+  organ.preset(preset, { at: t - 0.1 });
+  console.log(`${t.toFixed(1)}s  ${preset}: ${organ.great.drawn().join(', ') || '(great silent)'}`);
+  t += hymn(t, preset === 'full' ? 76 : 88) + 1.5;
 }
 
 // a solo stop over flutes, the classic chorale-prelude texture
-organ.useRegistration('cornet');
+organ.preset('cornet', { at: t - 0.1 });
 organ.great.play(['G4'], { at: t, duration: 1 });
 organ.great.play(['A4'], { at: t + 1, duration: 1 });
 organ.great.play(['B4'], { at: t + 2, duration: 2 });
@@ -44,17 +41,7 @@ organ.pedal.play('G2', { at: t, duration: 4 });
 t += 5;
 
 if (out) {
-  parts.push(synth.render(t + 3 - synth.currentTime));
-  const n = parts.reduce((a, p) => a + p.left.length, 0);
-  const left = new Float32Array(n);
-  const right = new Float32Array(n);
-  let o = 0;
-  for (const p of parts) {
-    left.set(p.left, o);
-    right.set(p.right, o);
-    o += p.left.length;
-  }
-  writeWav(out, { ...parts[0]!, left, right, duration: n / parts[0]!.sampleRate } as AudioBuffer);
+  synth.renderToFile(out, t + 3);
   console.log(`wrote ${out}`);
 } else {
   await synth.start();

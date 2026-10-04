@@ -1,11 +1,11 @@
 import { CHURCH_DIVISIONS } from '../defaults.js';
-import type { OrganDef, Registration, StopDef } from '../types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/friesach/<id>.ssm.
 // Hauptwerk (manual I) is the great, the Schwellwerk (manual II, enclosed) the swell, the
 // French-style Solowerk (manual III) the positive. The Posaune 32' is the sample set's own
 // extension; the Cornet à pavillon sounds from g.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-praestant-16', model: 'organ/friesach/great-praestant-16', name: "Praestant 16'", division: 'great', family: 'principal', transpose: -12 },
   { id: 'great-principal-8', model: 'organ/friesach/great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0 },
   { id: 'great-holzflote-8', model: 'organ/friesach/great-holzflote-8', name: "Holzflöte 8'", division: 'great', family: 'flute', transpose: 0 },
@@ -55,7 +55,7 @@ const STOPS: StopDef[] = [
   { id: 'pedal-trompete-8', model: 'organ/friesach/pedal-trompete-8', name: "Trompete 8'", division: 'pedal', family: 'reed', transpose: 0 },
 ];
 
-const REGISTRATIONS: Record<string, Registration> = {
+const PRESETS: Record<string, OrganPreset> = {
   principal: {
     description: "Principal 8' alone",
     great: ["Principal 8'"],
@@ -65,14 +65,14 @@ const REGISTRATIONS: Record<string, Registration> = {
     description: "Principal chorus 16' 8' 4' 2' on the Hauptwerk",
     great: ["Praestant 16'", "Principal 8'", "Octave 4'", "Octave 2'"],
     pedal: ["Contrabaß 16'", "Subbaß 16'", "Octavbaß 8'", "Choralbaß 4'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
   plenum: {
     description: 'Organo pleno for Bach: Hauptwerk with both Mixturen, the Schwellwerk plenum coupled',
     great: ["Praestant 16'", "Principal 8'", "Röhrflöte 8'", "Octave 4'", "Quinte 2 2/3'", "Octave 2'", "Mixtur major 4-5f. 2 2/3'", "Mixtur minor 4f. 1 1/3'"],
     swell: ["Principal 8'", "Nachthorn Gedackt 8'", "Geigenprincipal 4'", "Flageolett 2'", "Plein Jeu 4-5f. 2'", "Scharff 4f. 1'"],
     pedal: ["Contrabaß 16'", "Subbaß 16'", "Octavbaß 8'", "Choralbaß 4'", "Posaune 16'"],
-    couplers: ['swell>great', 'great>pedal'],
+    couple: { great: ['swell'], pedal: ['great'] },
   },
   'grand-choeur': {
     description: 'Grand chœur: reeds and mixtures of all manuals coupled (French Romantic tutti)',
@@ -80,14 +80,14 @@ const REGISTRATIONS: Record<string, Registration> = {
     swell: ["Bourdon 16'", "Principal 8'", "Nachthorn Gedackt 8'", "Geigenprincipal 4'", "Plein Jeu 4-5f. 2'", "Trompete harmonique 8'", "Hautbois 8'", "Clairon 4'"],
     positive: ["Jubalflöte 8'", "Trichterflöte 4'", "Trompete en chamade 8'"],
     pedal: ["Untersatz 32'", "Contrabaß 16'", "Subbaß 16'", "Octavbaß 8'", "Choralbaß 4'", "Posaune 32'", "Posaune 16'", "Trompete 8'"],
-    couplers: ['swell>great', 'positive>great', 'great>pedal', 'swell>pedal'],
+    couple: { great: ['swell', 'positive'], pedal: ['great', 'swell'] },
   },
   fonds: {
     description: "Fonds de 8': the 8' foundations of Hauptwerk and Schwellwerk coupled (Franck, Widor)",
     great: ["Principal 8'", "Holzflöte 8'", "Röhrflöte 8'", "Gambe 8'"],
     swell: ["Principal 8'", "Nachthorn Gedackt 8'", "Corno dolce 8'", "Viola 8'"],
     pedal: ["Subbaß 16'", "Octavbaß 8'", "Gedackt 8'"],
-    couplers: ['swell>great', 'great>pedal'],
+    couple: { great: ['swell'], pedal: ['great'] },
   },
   flutes: {
     description: "Nachthorn Gedackt 8' + Querflöte 4' on the Schwellwerk",
@@ -139,20 +139,20 @@ const REGISTRATIONS: Record<string, Registration> = {
     positive: ["Trompete en chamade 8'"],
     great: ["Principal 8'", "Octave 4'", "Octave 2'", "Mixtur major 4-5f. 2 2/3'"],
     pedal: ["Contrabaß 16'", "Subbaß 16'", "Octavbaß 8'", "Posaune 16'"],
-    couplers: ['great>pedal'],
+    couple: { pedal: ['great'] },
   },
 };
 
 /** Friesach, St. Bartholomäus (Eisenbarth, 2000, Carinthia, Austria): 44 stops on Hauptwerk,
  *  Schwellwerk, a French-style Solowerk and pedal (Untersatz 32'), from Piotr Grabowski's free
  *  sample set. */
-export const FRIESACH_ORGAN: OrganDef = {
+export const FRIESACH_ORGAN: OrganDefinition = {
   id: 'friesach',
   name: 'Friesach, St. Bartholomäus',
   description: "Eisenbarth 2000, St. Bartholomäus, Friesach (Austria): 44 stops on three manuals (Hauptwerk, Schwellwerk, a French Solowerk with Trompete en chamade) and pedal with Untersatz 32'.",
   stops: STOPS,
-  registrations: REGISTRATIONS,
-  defaultRegistration: 'principal-chorus',
+  presets: PRESETS,
+  defaultPreset: 'principal-chorus',
   divisions: CHURCH_DIVISIONS,
   tremulant: { division: 'swell', depth: 0.51, pitch: 3.6, rate: 4.0 },
   reverb: 'cathedral',

@@ -1,8 +1,8 @@
 // Brass
-import { type InstrumentDef, one } from './types.js';
+import { type InstrumentDefinition, one } from './types.js';
 
 /** Trumpet. */
-export const TRUMPET: InstrumentDef = {
+export const TRUMPET: InstrumentDefinition = {
   id: 'trumpet',
   name: 'Trumpet',
   family: 'brass',
@@ -11,15 +11,15 @@ export const TRUMPET: InstrumentDef = {
   range: [52, 84],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } },
     default: { description: 'Open' },
     muted: { description: 'Straight mute', layers: one('trumpet-muted') },
-    vibrato: { description: 'Lyrical vibrato', params: { vibrato: 10, vibratoRate: 5.5 } },
+    vibrato: { description: 'Lyrical vibrato', parameters: { vibrato: 10, vibratoRate: 5.5 } },
   },
 };
 
 /** French Horn. */
-export const FRENCH_HORN: InstrumentDef = {
+export const FRENCH_HORN: InstrumentDefinition = {
   id: 'french-horn',
   name: 'French Horn',
   family: 'brass',
@@ -27,13 +27,12 @@ export const FRENCH_HORN: InstrumentDef = {
   layers: one('french-horn'),
   range: [34, 77],
   reverb: 'hall',
-  aliases: ['horn'],
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, distant: { description: 'Distant, at the back of the hall', params: { reverbSend: 0.45, brightness: -1 } } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, distant: { description: 'Distant, at the back of the hall', parameters: { reverbSend: 0.45, brightness: -1 } } },
 };
 
 /** Trombone. */
-export const TROMBONE: InstrumentDef = {
+export const TROMBONE: InstrumentDefinition = {
   id: 'trombone',
   name: 'Trombone',
   family: 'brass',
@@ -42,11 +41,11 @@ export const TROMBONE: InstrumentDef = {
   range: [28, 72],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
 };
 
 /** Tuba. */
-export const TUBA: InstrumentDef = {
+export const TUBA: InstrumentDefinition = {
   id: 'tuba',
   name: 'Tuba',
   family: 'brass',
@@ -55,11 +54,11 @@ export const TUBA: InstrumentDef = {
   range: [22, 60],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
 };
 
 /** Brass Section. */
-export const BRASS: InstrumentDef = {
+export const BRASS: InstrumentDefinition = {
   id: 'brass',
   name: 'Brass Section',
   family: 'brass',
@@ -72,6 +71,5 @@ export const BRASS: InstrumentDef = {
   ],
   range: [22, 84],
   reverb: 'hall',
-  aliases: ['brass-section'],
   presets: { default: { description: 'As recorded' } },
 };

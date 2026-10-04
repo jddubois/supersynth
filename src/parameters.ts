@@ -5,9 +5,9 @@
  * All are relative to the instrument as recorded: the defaults reproduce the
  * real instrument.
  */
-export interface InstrumentParams {
+export interface InstrumentParameters {
   // ── level & placement ──────────────────────────────────────────────────
-  /** Part volume in dB. @default 0 */
+  /** Instrument volume in dB. @default 0 */
   volume?: number;
   /** Stereo position, -1 (left) … 1 (right). @default 0 */
   pan?: number;
@@ -27,7 +27,7 @@ export interface InstrumentParams {
   formant?: number;
   /** String stiffness (inharmonicity) scale; 0 = perfectly harmonic, 2 = twice as stretched. @default 1 */
   inharmonicity?: number;
-  /** Maximum number of partials per note (lower = cheaper, darker). @default 128 */
+  /** Maximum number of partials per note (lower = cheaper, darker; see also `SynthOptions.quality`). @default 512 */
   maxPartials?: number;
 
   // ── envelope ───────────────────────────────────────────────────────────
@@ -105,7 +105,7 @@ export interface InstrumentParams {
 }
 
 /** Native parameter value for a public parameter (booleans and enums mapped to numbers). */
-export function toNativeParam(name: keyof InstrumentParams, value: unknown): number {
+export function toNativeParameter(name: keyof InstrumentParameters, value: unknown): number {
   if (name === 'mono' || name === 'legato') return value ? 1 : 0;
   if (name === 'leslie') {
     const m: Record<string, number> = { off: 0, stop: 1, slow: 2, fast: 3 };
@@ -119,14 +119,29 @@ export function toNativeParam(name: keyof InstrumentParams, value: unknown): num
   return value;
 }
 
-export const PARAM_NAMES: ReadonlyArray<keyof InstrumentParams> = [
-  'volume', 'pan', 'reverbSend', 'spread', 'brightness', 'evenHarmonics', 'noise', 'formant',
-  'inharmonicity', 'maxPartials', 'attack', 'decay', 'release', 'vibrato', 'vibratoRate',
-  'vibratoDelay', 'naturalVibrato', 'humanize', 'transpose', 'tune', 'bendRange', 'modDepth',
-  'velocitySensitivity', 'mono', 'legato', 'glide', 'tremolo', 'tremoloPitch', 'tremoloRate', 'gain', 'jitter', 'shimmer', 'eqLowGain', 'eqLowFreq', 'eqMidGain', 'eqMidFreq',
-  'eqMidQ', 'eqHighGain', 'eqHighFreq', 'lowCut', 'highCut', 'chorus', 'chorusRate',
-  'chorusDepth', 'drive', 'driveTone', 'driveLevel', 'leslie',
-];
+/** Parameters whose default is the instrument's own value. */
+type PerInstrument = 'reverbSend' | 'spread' | 'formant';
+
+/** Default of every parameter: the instrument as recorded. (`reverbSend`, `spread` and `formant`
+ *  default to each instrument's own value, so they are not listed.) */
+export const PARAMETER_DEFAULTS: Readonly<Required<Omit<InstrumentParameters, PerInstrument>>> = {
+  volume: 0, pan: 0, brightness: 0, evenHarmonics: 0, noise: 0,
+  inharmonicity: 1, maxPartials: 512, attack: 1, decay: 1, release: 1, vibrato: 0, vibratoRate: 5.5,
+  vibratoDelay: 0.3, naturalVibrato: 1, humanize: 0, transpose: 0, tune: 0, bendRange: 2, modDepth: 25,
+  velocitySensitivity: 1, mono: false, legato: false, glide: 0.06, tremolo: 0, tremoloPitch: 0, tremoloRate: 6,
+  gain: 0, jitter: 1, shimmer: 1, eqLowGain: 0, eqLowFreq: 200, eqMidGain: 0, eqMidFreq: 1000, eqMidQ: 0.7,
+  eqHighGain: 0, eqHighFreq: 5000, lowCut: 0, highCut: 0, chorus: 0, chorusRate: 0.6, chorusDepth: 3,
+  drive: 1, driveTone: 6000, driveLevel: 0.8, leslie: 'off',
+};
+
+/** @internal Every parameter name. */
+export const PARAMETER_NAMES: ReadonlySet<string> = new Set([...Object.keys(PARAMETER_DEFAULTS), 'reverbSend', 'spread', 'formant']);
+
+/** @internal The value that restores a parameter's default (the engine reads -1 as "the
+ *  instrument's own value"). */
+export function defaultParameter(name: keyof InstrumentParameters): unknown {
+  return (PARAMETER_DEFAULTS as InstrumentParameters)[name] ?? -1;
+}
 
 /** Reverb presets (algorithmic FDN reverb). */
 export type ReverbPreset = 'room' | 'studio' | 'chamber' | 'hall' | 'concert-hall' | 'church' | 'cathedral' | 'plate';
