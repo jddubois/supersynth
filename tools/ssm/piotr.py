@@ -75,6 +75,7 @@ ORGANS: dict[str, dict] = {
                       divisions={1: 'pedal', 2: 'great', 3: 'swell'},
                       family='reed',             # free reeds, every one
                       names={'hwstop9': "Viola 4' Forte"}),
+    'cracow': dict(odf='Cracov st John Cantius.organ', divisions={0: 'pedal', 1: 'great', 2: 'positive', 3: 'swell'}),
 }
 
 NOISE_RE = re.compile(r'noise|action|blower|ambient|motor|traktur|szum|dmuchaw|tremul|cymbelstern|'
@@ -116,15 +117,15 @@ REED_RE = re.compile(r'tromp|trump|trąbk|trabk|posaun|puzon|fagot|basson|bassoo
                      r'cromorn|vox hum|voix hum|regal|dulcian|schalm|chalum|tuba|bombard|clarinet|klarinet|'
                      r'englisch|cor angl|corno ingl|zink|krumhorn|cornett?o\b|trombon|basun|skalmej|ranket|sordun|'
                      r'harmonium|physharm|anches?\b|kromhoorn|fagot', re.I)
-STRING_RE = re.compile(r'gamb|viol(?!-?princ)|fugara|salic|aeolin|eolin|celest|coelest|unda|dolce\b|cello|kontrab|contrab|'
+STRING_RE = re.compile(r'gamb|viol(?!-?princ)|fugara|salic|aeolin|eolin|c[eé]lest|coelest|unda|dolce\b|cello|kontrab|contrab|contreb|'
                        r'geigen(?!princ|prinz)|vox ang|voce angel|voce um|bifra|piffaro|keraulo|harfen', re.I)
-FLUTE_RE = re.compile(r'fl[oöôeû]t|floet|flut|flaut|flet|gedac|gedak|bourdon|bordun|burdon|subbas|subbaß|rohr|hohl|'
+FLUTE_RE = re.compile(r'fl[oöôûe]t|floet|flut|flaut|flet|gedac|gedak|bourdon|bordun|burdon|subbas|subbaß|rohr|hohl|'
                       r'nacht|koppel|spitz|wald|portun|jubal|trichter|quer|bassfl|untersatz|tibia|'
                       r'doppel|lieblich|still|zart|nasard|nazard|larigot|piccolo|pikolo|siffl|echobas|'
-                      r'flageol|cor de nuit|bordon|soubasse|clarabel|melodia|fernfl|harmonique|kryty|otwart|quintat|quintad(?!ecima)|pijp|fluit|gedekt|gedeck', re.I)
+                      r'flageol|octavin|cor de nuit|bordon|soubasse|clarabel|melodia|fernfl|harmonique|kryty|otwart|quintat|quintad(?!ecima)|pijp|fluit|gedekt|gedeck', re.I)
 
 
-FLUTE_FIRST_RE = re.compile(r'^(?:fl[oöôe]t|flaut|flet|gedac|gedak|bourdon|bordun)', re.I)
+FLUTE_FIRST_RE = re.compile(r'^(?:fl[oöôûe]t|flaut|flet|gedac|gedak|bourdon|bordun)', re.I)
 
 
 def family_of(name: str, harmonics: list[float]) -> str:
