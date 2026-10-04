@@ -1,0 +1,86 @@
+{
+ "id": "green-positiv",
+ "church": "GreenPositiv",
+ "address": "Katowice, Poland",
+ "builder": "Stanisław Pielczyk",
+ "year": "2008",
+ "pitch": -1.02,
+ "reference": "great-flet-kryty-8",
+ "stops": [
+  {
+   "id": "great-flet-kryty-8",
+   "name": "Flet kryty 8'",
+   "odfName": "Flet kryty 8'",
+   "section": "stop001",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-flet-kryty-4",
+   "name": "Flet kryty 4'",
+   "odfName": "Flet kryty 4'",
+   "section": "stop002",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-pryncypal-2",
+   "name": "Pryncypał 2'",
+   "odfName": "Pryncypał 2'",
+   "section": "stop003",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-kwinta-1-1-3",
+   "name": "Kwinta 1 1/3'",
+   "odfName": "Kwinta 1 1/3'",
+   "section": "stop004",
+   "manual": 1,
+   "division": "great",
+   "family": "mutation",
+   "transpose": 31,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-pryncypal-4",
+   "name": "Pryncypał 4'",
+   "odfName": "Pryncypał 4'",
+   "section": "stop005",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  }
+ ]
+}

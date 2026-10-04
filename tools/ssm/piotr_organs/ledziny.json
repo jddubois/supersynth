@@ -1,0 +1,176 @@
+{
+ "id": "ledziny",
+ "church": "Lędziny, St. Clement",
+ "address": "Lędziny, Poland",
+ "builder": "Carl Volkmann",
+ "year": "1988",
+ "pitch": 0.01,
+ "reference": "great-principal-8",
+ "stops": [
+  {
+   "id": "pedal-subbass-16",
+   "name": "Subbaß 16'",
+   "odfName": "P  Subbaß 16 Fuß",
+   "section": "stop001",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    62
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-principal-bass-8",
+   "name": "Principal baß 8'",
+   "odfName": "P  Principal baß 8 Fuß",
+   "section": "stop002",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    62
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-violon-cello-8",
+   "name": "Violon Cello 8'",
+   "odfName": "P  Violon Cello 8 Fuß",
+   "section": "stop003",
+   "manual": 0,
+   "division": "pedal",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    62
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-principal-8",
+   "name": "Principal 8'",
+   "odfName": "M  Principal 8 Fuß",
+   "section": "stop004",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-salicet-8",
+   "name": "Salicet 8'",
+   "odfName": "M  Salicet 8 Fuß",
+   "section": "stop005",
+   "manual": 1,
+   "division": "great",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-portunal-flote-8",
+   "name": "Portunal-Flöte 8'",
+   "odfName": "M  Portunal-Flöte 8 Fuß",
+   "section": "stop006",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-flaut-major-8",
+   "name": "Flaut major 8'",
+   "odfName": "M  Flaut major 8 Fuß",
+   "section": "stop007",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-principal-4",
+   "name": "Principal 4'",
+   "odfName": "M  Principal 4 Fuß",
+   "section": "stop008",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-flauto-traverse-4",
+   "name": "Flauto traverse 4'",
+   "odfName": "M  Flauto traverse 4 Fuß",
+   "section": "stop009",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-quinte-2-2-3-octave-2",
+   "name": "Quinte 2 2/3' Octave 2'",
+   "odfName": "M  Quinte 2 2/3 Fuß Octave 2 Fuß",
+   "section": "stop010",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-mixtur-2-fach",
+   "name": "Mixtur 2 fach",
+   "odfName": "M  Mixtur 2 fach",
+   "section": "stop011",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    89
+   ],
+   "missing": []
+  }
+ ]
+}
