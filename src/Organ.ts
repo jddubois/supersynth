@@ -2,25 +2,25 @@ import { SupersynthError } from './errors.js';
 import { noteNumber, type NoteLike } from './notes.js';
 import { CHURCH_DIVISIONS, ORGAN_DEFAULTS, SWELL_TREMULANT } from './organs/defaults.js';
 import { ORGANS, type OrganId } from './organs/index.js';
-import type { DivisionName, OrganDef, OrganPreset, StopDef } from './organs/types.js';
+import type { DivisionName, OrganDefinition, OrganPreset, StopDefinition } from './organs/types.js';
 import { playNotes, playSequence, resolveTime, type Playable, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
 import type { Synth } from './Synth.js';
 import type { MidiEvent } from './types.js';
 
-export type { DivisionName, OrganDef, OrganPreset, StopDef } from './organs/types.js';
+export type { DivisionName, OrganDefinition, OrganPreset, StopDefinition } from './organs/types.js';
 
 const DIVISIONS: DivisionName[] = ['great', 'swell', 'positive', 'pedal'];
 
 /** @internal The organ definition behind an id or a definition. */
-export function resolveOrgan(organ: OrganId | OrganDef): OrganDef {
+export function resolveOrgan(organ: OrganId | OrganDefinition): OrganDefinition {
   if (typeof organ !== 'string') return organ;
-  const def = (ORGANS as Record<string, OrganDef>)[organ];
+  const def = (ORGANS as Record<string, OrganDefinition>)[organ];
   if (!def) throw new SupersynthError(`Unknown organ '${organ}'. Organs: ${Object.keys(ORGANS).join(', ')}`);
   return def;
 }
 
 /** Model id of a stop. */
-export function stopModel(stop: StopDef): string {
+export function stopModel(stop: StopDefinition): string {
   return stop.model ?? `organ/${stop.id}`;
 }
 
@@ -141,7 +141,7 @@ export class Division implements Playable {
   }
 
   /** All stops of this division. */
-  stops(): StopDef[] {
+  stops(): StopDefinition[] {
     return this.organ.definition.stops.filter((s) => s.division === this.name);
   }
 
@@ -158,7 +158,7 @@ export class Division implements Playable {
   // ── internals ─────────────────────────────────────────────────────────────
 
   /** @internal The stop called `name` (name, case-insensitive, or id). */
-  _stop(name: string): StopDef {
+  _stop(name: string): StopDefinition {
     const def = this.stops().find((s) => s.name.toLowerCase() === name.toLowerCase() || s.id === name);
     if (!def) {
       throw new SupersynthError(`No stop '${name}' on the ${this.name}. Stops: ${this.stops().map((s) => s.name).join(', ')}`);
@@ -204,7 +204,7 @@ export class Division implements Playable {
 
 /** What {@link Organ.set} changes. */
 export interface OrganSettings {
-  /** The tremulant (see {@link OrganDef.tremulant}). */
+  /** The tremulant (see {@link OrganDefinition.tremulant}). */
   tremulant?: boolean;
   /** Wind supply: how much the pipes of a division sag together when many start at once
    *  (pressure dip and regulator recovery). 0 = perfectly steady, 1 = flexible historic
@@ -230,10 +230,10 @@ export interface OrganMidiOptions {
 
 /**
  * A real church organ: four divisions with drawable stops, couplers, swell pedal and
- * tremulant, played from an {@link OrganDef}. Created by {@link Synth.addOrgan}.
+ * tremulant, played from an {@link OrganDefinition}. Created by {@link Synth.add}.
  *
  * ```ts
- * const organ = synth.addOrgan('burea', { preset: 'plenum' });
+ * const organ = synth.add('burea', { preset: 'plenum' });
  * organ.great.play(['C4', 'E4', 'G4'], { duration: 3 });
  * organ.pedal.play('C2', { duration: 3 });
  * organ.great.pull("Trumpet 8'");
@@ -246,16 +246,16 @@ export class Organ {
   readonly positive: Division;
   readonly pedal: Division;
   /** The organ's definition: stops, presets, layout. */
-  readonly definition: OrganDef;
+  readonly definition: OrganDefinition;
   private saved: Record<string, OrganPreset>;
   private active: string | undefined;
   private midiListener: ((e: MidiEvent) => void) | undefined;
 
-  /** @internal Use {@link Synth.addOrgan}. */
+  /** @internal Use {@link Synth.add}. */
   constructor(
     /** The synth it plays in. */
     readonly synth: Synth,
-    organ: OrganId | OrganDef,
+    organ: OrganId | OrganDefinition,
     options: OrganOptions = {},
   ) {
     const def = resolveOrgan(organ);
@@ -294,7 +294,7 @@ export class Organ {
   }
 
   /** All stops of this organ. */
-  stops(): StopDef[] {
+  stops(): StopDefinition[] {
     return this.definition.stops;
   }
 

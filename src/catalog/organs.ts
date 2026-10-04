@@ -1,8 +1,8 @@
 // Organs (single-sound models; see `supersynth/organs` for the full church organs)
-import { type InstrumentDef, one } from './types.js';
+import { type InstrumentDefinition, one } from './types.js';
 
 /** Pipe Organ (full). */
-export const PIPE_ORGAN: InstrumentDef = {
+export const PIPE_ORGAN: InstrumentDefinition = {
   id: 'pipe-organ',
   name: 'Pipe Organ (full)',
   family: 'organ',
@@ -17,12 +17,12 @@ export const PIPE_ORGAN: InstrumentDef = {
       description: 'Manual plus 16\' pedal below C3',
       layers: [{ model: 'pipe-organ', keyLow: 48 }, { model: 'pipe-organ-pedal', keyHigh: 47 }],
     },
-    cathedral: { description: 'In a vast cathedral', params: { reverbSend: 0.3 }, reverb: 'cathedral' },
+    cathedral: { description: 'In a vast cathedral', parameters: { reverbSend: 0.3 }, reverb: 'cathedral' },
   },
 };
 
 /** Renaissance Chamber Organ. */
-export const CHAMBER_ORGAN: InstrumentDef = {
+export const CHAMBER_ORGAN: InstrumentDefinition = {
   id: 'chamber-organ',
   name: 'Renaissance Chamber Organ',
   family: 'organ',

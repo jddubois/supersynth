@@ -30,7 +30,7 @@ for (const [id, steps, bpm] of program) {
   const instrument = synth.add(id);
   const fitted = fitToRange(steps, instrument.definition.range);
   console.log(`${t.toFixed(1).padStart(5)}s  ${instrument.definition.name}`);
-  t += playSteps(instrument, fitted, { at: t, bpm, velocity: 90 }) + 1.5;
+  t += playSteps(instrument, fitted, { at: t, tempo: bpm, velocity: 90 }) + 1.5;
 }
 
 if (out) {

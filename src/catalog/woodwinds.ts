@@ -1,8 +1,8 @@
 // Woodwinds
-import { type InstrumentDef, one } from './types.js';
+import { type InstrumentDefinition, one } from './types.js';
 
 /** Flute. */
-export const FLUTE: InstrumentDef = {
+export const FLUTE: InstrumentDefinition = {
   id: 'flute',
   name: 'Flute',
   family: 'woodwind',
@@ -11,16 +11,16 @@ export const FLUTE: InstrumentDef = {
   range: [59, 98],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } },
     default: { description: 'Straight tone' },
     vibrato: { description: 'With natural flute vibrato', layers: one('flute-vibrato') },
-    breathy: { description: 'More air in the tone', params: { noise: 6, brightness: -0.5 } },
+    breathy: { description: 'More air in the tone', parameters: { noise: 6, brightness: -0.5 } },
     piccolo: { description: 'Piccolo', layers: one('piccolo') },
   },
 };
 
 /** Oboe. */
-export const OBOE: InstrumentDef = {
+export const OBOE: InstrumentDefinition = {
   id: 'oboe',
   name: 'Oboe',
   family: 'woodwind',
@@ -29,11 +29,11 @@ export const OBOE: InstrumentDef = {
   range: [58, 91],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, vibrato: { description: 'Light vibrato', params: { vibrato: 8, vibratoRate: 5.2 } } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, vibrato: { description: 'Light vibrato', parameters: { vibrato: 8, vibratoRate: 5.2 } } },
 };
 
 /** Clarinet. */
-export const CLARINET: InstrumentDef = {
+export const CLARINET: InstrumentDefinition = {
   id: 'clarinet',
   name: 'Clarinet',
   family: 'woodwind',
@@ -42,11 +42,11 @@ export const CLARINET: InstrumentDef = {
   range: [50, 91],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, dark: { description: 'Dark, covered tone', params: { brightness: -1.5, evenHarmonics: -3 } } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, dark: { description: 'Dark, covered tone', parameters: { brightness: -1.5, evenHarmonics: -3 } } },
 };
 
 /** Bassoon. */
-export const BASSOON: InstrumentDef = {
+export const BASSOON: InstrumentDefinition = {
   id: 'bassoon',
   name: 'Bassoon',
   family: 'woodwind',
@@ -55,11 +55,11 @@ export const BASSOON: InstrumentDef = {
   range: [34, 75],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
 };
 
 /** Tenor Saxophone. */
-export const TENOR_SAX: InstrumentDef = {
+export const TENOR_SAX: InstrumentDefinition = {
   id: 'tenor-sax',
   name: 'Tenor Saxophone',
   family: 'woodwind',
@@ -68,9 +68,9 @@ export const TENOR_SAX: InstrumentDef = {
   range: [44, 88],
   reverb: 'room',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } },
     default: { description: 'Straight tone' },
-    jazz: { description: 'Jazz ballad: breathy with vibrato', params: { noise: 4, vibrato: 14, vibratoRate: 5.0, vibratoDelay: 0.35 } },
-    bright: { description: 'Edgy rock tone', params: { brightness: 1.5, drive: 2 } },
+    jazz: { description: 'Jazz ballad: breathy with vibrato', parameters: { noise: 4, vibrato: 14, vibratoRate: 5.0, vibratoDelay: 0.35 } },
+    bright: { description: 'Edgy rock tone', parameters: { brightness: 1.5, drive: 2 } },
   },
 };

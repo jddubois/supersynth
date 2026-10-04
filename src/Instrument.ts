@@ -1,15 +1,15 @@
-import { INSTRUMENTS, type InstrumentDef, type InstrumentId, type LayerDef, type PresetDef } from './catalog/index.js';
+import { INSTRUMENTS, type InstrumentDefinition, type InstrumentId, type LayerDefinition, type InstrumentPreset } from './catalog/index.js';
 import { SupersynthError } from './errors.js';
 import { noteNumber, type NoteLike } from './notes.js';
-import { defaultParam, PARAM_DEFAULTS, PARAM_NAMES, toNativeParam, type InstrumentParams } from './params.js';
+import { defaultParameter, PARAMETER_DEFAULTS, PARAMETER_NAMES, toNativeParameter, type InstrumentParameters } from './parameters.js';
 import { playNotes, playSequence, resolveTime, type Playable, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
 import type { Synth } from './Synth.js';
 
 export interface InstrumentOptions {
   /** Preset to start with: a name from the instrument's presets, or a preset. @default 'default' */
-  preset?: string | PresetDef;
+  preset?: string | InstrumentPreset;
   /** Parameter tweaks on top of the preset. */
-  params?: InstrumentParams;
+  parameters?: InstrumentParameters;
 }
 
 /**
@@ -25,23 +25,23 @@ export interface InstrumentOptions {
  */
 export class Instrument implements Playable {
   /** The definition this instrument plays (`range`, `presets`, …). */
-  readonly definition: InstrumentDef;
+  readonly definition: InstrumentDefinition;
   /** @internal Engine channel (0–31). */
   readonly channel: number;
   /** Parameters currently applied on top of the defaults. */
-  private applied: InstrumentParams = {};
+  private applied: InstrumentParameters = {};
   private active: string | undefined;
-  private layers: LayerDef[] = [];
-  private saved: Record<string, PresetDef> = {};
+  private layers: LayerDefinition[] = [];
+  private saved: Record<string, InstrumentPreset> = {};
 
   /** @internal Use {@link Synth.add}. */
   constructor(
     /** The synth it plays in. */
     readonly synth: Synth,
-    instrument: InstrumentId | InstrumentDef,
+    instrument: InstrumentId | InstrumentDefinition,
     options: InstrumentOptions = {},
   ) {
-    const def = typeof instrument === 'string' ? (INSTRUMENTS as Record<string, InstrumentDef>)[instrument] : instrument;
+    const def = typeof instrument === 'string' ? (INSTRUMENTS as Record<string, InstrumentDefinition>)[instrument] : instrument;
     if (!def) {
       throw new SupersynthError(`Unknown instrument '${String(instrument)}'. Instruments: ${Object.keys(INSTRUMENTS).join(', ')}`);
     }
@@ -50,7 +50,7 @@ export class Instrument implements Playable {
     const p = this.lookup(preset); // fail before taking a channel
     this.channel = synth._attach(this);
     synth._suggestRoom(p.reverb ?? def.reverb);
-    this.apply(p, typeof preset === 'string' ? preset : undefined, options.params ?? {}, undefined);
+    this.apply(p, typeof preset === 'string' ? preset : undefined, options.parameters ?? {}, undefined);
   }
 
   // ── notes ─────────────────────────────────────────────────────────────────
@@ -82,7 +82,7 @@ export class Instrument implements Playable {
    * Each step is `[note(s), beats]` or `{ note, beats, velocity }`; `null` notes are rests.
    * Returns the sequence's length in seconds.
    *
-   * @example violin.sequence([['C4', 1], ['E4', 1], [['G4','C5'], 2]], { bpm: 96 })
+   * @example violin.sequence([['C4', 1], ['E4', 1], [['G4','C5'], 2]], { tempo: 96 })
    */
   sequence(steps: SequenceStep[], options: SequenceOptions = {}): number {
     return playSequence((n, o) => this.play(n, o), this.synth.currentTime, steps, options);
@@ -98,7 +98,7 @@ export class Instrument implements Playable {
 
   /** Sustain (damper) pedal. */
   sustain(down: boolean, options: TimeOptions = {}): this {
-    return this.cc(64, down ? 127 : 0, options);
+    return this.controlChange(64, down ? 127 : 0, options);
   }
 
   /** Pitch bend in -1 … 1 (scaled by `bendRange`). */
@@ -108,17 +108,17 @@ export class Instrument implements Playable {
   }
 
   /** Modulation wheel 0–1 (adds vibrato of `modDepth` cents). */
-  modWheel(value: number, options: TimeOptions = {}): this {
-    return this.cc(1, Math.round(Math.max(0, Math.min(1, value)) * 127), options);
+  modulation(value: number, options: TimeOptions = {}): this {
+    return this.controlChange(1, Math.round(Math.max(0, Math.min(1, value)) * 127), options);
   }
 
   /** Expression / swell 0–1 (CC 11): smooth crescendo and diminuendo for held notes. */
   expression(value: number, options: TimeOptions = {}): this {
-    return this.cc(11, Math.round(Math.max(0, Math.min(1, value)) * 127), options);
+    return this.controlChange(11, Math.round(Math.max(0, Math.min(1, value)) * 127), options);
   }
 
   /** Send a MIDI control change. */
-  cc(controller: number, value: number, options: TimeOptions = {}): this {
+  controlChange(controller: number, value: number, options: TimeOptions = {}): this {
     this.synth._native().controlChange(this.channel, controller, Math.max(0, Math.min(127, Math.round(value))), this.time(options));
     return this;
   }
@@ -140,23 +140,23 @@ export class Instrument implements Playable {
   // ── sound ─────────────────────────────────────────────────────────────────
 
   /**
-   * Change parameters (see {@link InstrumentParams}); the others stay as they are. Values are
+   * Change parameters (see {@link InstrumentParameters}); the others stay as they are. Values are
    * absolute, so `set({ brightness: 1 })` twice is the same as once.
    */
-  set(params: InstrumentParams, options: TimeOptions = {}): this {
-    this.setParams(params, this.time(options));
+  set(parameters: InstrumentParameters, options: TimeOptions = {}): this {
+    this.setParameters(parameters, this.time(options));
     this.active = undefined;
     return this;
   }
 
   /** A parameter's current value (`undefined` for `reverbSend`, `spread` and `formant` left at
    *  the instrument's own value). */
-  get<K extends keyof InstrumentParams>(name: K): InstrumentParams[K] {
-    return this.applied[name] ?? (PARAM_DEFAULTS as InstrumentParams)[name];
+  get<K extends keyof InstrumentParameters>(name: K): InstrumentParameters[K] {
+    return this.applied[name] ?? (PARAMETER_DEFAULTS as InstrumentParameters)[name];
   }
 
   /** The parameters that differ from the defaults. */
-  params(): InstrumentParams {
+  parameters(): InstrumentParameters {
     return { ...this.applied };
   }
 
@@ -169,28 +169,28 @@ export class Instrument implements Playable {
    *
    * ```ts
    * piano.preset('mellow');
-   * piano.preset({ params: { brightness: -2, release: 1.5 } }, { at: 8 });
+   * piano.preset({ parameters: { brightness: -2, release: 1.5 } }, { at: 8 });
    * ```
    */
-  preset(preset: string | PresetDef, options: TimeOptions = {}): this {
+  preset(preset: string | InstrumentPreset, options: TimeOptions = {}): this {
     this.apply(this.lookup(preset), typeof preset === 'string' ? preset : undefined, {}, this.time(options));
     return this;
   }
 
   /** The instrument's presets, and those added with {@link savePreset}, by name. */
-  presets(): Record<string, PresetDef> {
+  presets(): Record<string, InstrumentPreset> {
     return { ...this.definition.presets, ...this.saved };
   }
 
   /** Store a preset under a name: by default the sound as it is now. */
-  savePreset(name: string, preset: PresetDef = this.current()): this {
+  savePreset(name: string, preset: InstrumentPreset = this.current()): this {
     this.saved[name] = preset;
     return this;
   }
 
   /** The sound as it is now (layers and parameters), as a preset. */
-  current(): PresetDef {
-    return { layers: this.layers, params: this.params() };
+  current(): InstrumentPreset {
+    return { layers: this.layers, parameters: this.parameters() };
   }
 
   /** Name of the preset in use, or `undefined` once parameters were changed by hand. */
@@ -200,7 +200,7 @@ export class Instrument implements Playable {
 
   // ── internals ─────────────────────────────────────────────────────────────
 
-  private lookup(preset: string | PresetDef): PresetDef {
+  private lookup(preset: string | InstrumentPreset): InstrumentPreset {
     if (typeof preset !== 'string') return preset;
     const all = this.presets();
     const p = all[preset];
@@ -208,7 +208,7 @@ export class Instrument implements Playable {
     return p;
   }
 
-  private apply(p: PresetDef, name: string | undefined, extra: InstrumentParams, time: number | undefined): void {
+  private apply(p: InstrumentPreset, name: string | undefined, extra: InstrumentParameters, time: number | undefined): void {
     const layers = p.layers ?? this.definition.layers;
     if (JSON.stringify(layers) !== JSON.stringify(this.layers)) {
       this.synth._setLayers(this.channel, layers, time);
@@ -216,21 +216,21 @@ export class Instrument implements Playable {
     }
     // every parameter back to its default (and the synth's partial cap), then the preset's
     const reset: Record<string, unknown> = {};
-    for (const k of Object.keys(this.applied)) reset[k] = defaultParam(k as keyof InstrumentParams);
-    this.setParams(reset as InstrumentParams, time);
+    for (const k of Object.keys(this.applied)) reset[k] = defaultParameter(k as keyof InstrumentParameters);
+    this.setParameters(reset as InstrumentParameters, time);
     this.applied = {};
     if (this.synth._maxPartials < 512) this.synth._native().setParam(this.channel, 'maxPartials', this.synth._maxPartials, time);
-    this.setParams({ ...this.definition.params, ...p.params, ...extra }, time);
+    this.setParameters({ ...this.definition.parameters, ...p.parameters, ...extra }, time);
     this.active = name;
   }
 
-  private setParams(params: InstrumentParams, time: number | undefined): void {
+  private setParameters(parameters: InstrumentParameters, time: number | undefined): void {
     const n = this.synth._native();
-    for (const [k, v] of Object.entries(params)) {
+    for (const [k, v] of Object.entries(parameters)) {
       if (v === undefined) continue;
-      const key = k as keyof InstrumentParams;
-      if (!PARAM_NAMES.has(key)) throw new SupersynthError(`Unknown parameter '${k}'. Parameters: ${[...PARAM_NAMES].join(', ')}`);
-      n.setParam(this.channel, key, toNativeParam(key, v), time);
+      const key = k as keyof InstrumentParameters;
+      if (!PARAMETER_NAMES.has(key)) throw new SupersynthError(`Unknown parameter '${k}'. Parameters: ${[...PARAMETER_NAMES].join(', ')}`);
+      n.setParam(this.channel, key, toNativeParameter(key, v), time);
       (this.applied as Record<string, unknown>)[key] = v;
     }
   }

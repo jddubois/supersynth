@@ -43,7 +43,7 @@ blind listening tests (see `tools/ssm/blind.py`) are used to hunt down any remai
 | Family | Instruments (ids) |
 |---|---|
 | Keyboards | `grand-piano`, `upright-piano`, `harpsichord` |
-| Organs | `addOrgan('burea')` — the full Bureå church organ (40 stops, 4 divisions); `addOrgan('vcsl')` — the VCSL church organ with a Renaissance chamber organ; `pipe-organ`, `chamber-organ` (single sounds) |
+| Organs | `burea` — the full Bureå church organ (40 stops, 4 divisions); `vcsl` — the VCSL church organ with a Renaissance chamber organ; `pipe-organ`, `chamber-organ` (single sounds) |
 | Strings | `violin`, `violins`, `violas`, `cellos`, `contrabass`, `strings` (full section), `harp`, `violin-pizzicato`, `cello-pizzicato`, `contrabass-pizzicato` |
 | Woodwinds | `flute`, `oboe`, `clarinet`, `bassoon`, `tenor-sax` |
 | Brass | `trumpet`, `french-horn`, `trombone`, `tuba`, `brass` (section) |
@@ -54,8 +54,8 @@ Each comes with presets (`synth.add('grand-piano', { preset: 'felt' })`); `INSTR
 
 ## The API in one screen
 
-- **`Synth`** is the engine. `synth.add(id)` adds an **`Instrument`**; `synth.addOrgan(id)` an
-  **`Organ`** with four **`Division`s** (its keyboards).
+- **`Synth`** is the engine; `synth.add(id)` adds anything in the catalog. `add('violin')`
+  gives an **`Instrument`**, `add('burea')` an **`Organ`** with four **`Division`s** (its keyboards).
 - Instruments and divisions are **`Playable`**: `noteOn`, `noteOff`, `play`, `sequence`,
   `expression`, `allNotesOff`.
 - **Every change can be scheduled**: notes, controllers, parameters, presets, stops, couplers,
@@ -66,8 +66,8 @@ Each comes with presets (`synth.add('grand-piano', { preset: 'felt' })`); `INSTR
   `savePreset(name)`, `current()`, `activePreset()`.
 - **MIDI channels** are 1–16, and a MIDI keyboard plays only what you give a channel:
   `instrument.midi(1)`, `organ.midi({ great: 1, pedal: 2 })`.
-- Instruments and organs are **configuration** (`InstrumentDef`, `OrganDef`), with the
-  built-in ones in `INSTRUMENTS` and `ORGANS` by id: import, copy, change.
+- Instruments and organs are **configuration** (`InstrumentDefinition`, `OrganDefinition`), with
+  the built-in ones in `INSTRUMENTS` and `ORGANS` by id: import, copy, change, and pass to `add`.
 
 Reference: [docs/synth.md](docs/synth.md) (Synth, Instrument, the rules above),
 [docs/organ.md](docs/organ.md), [docs/parameters.md](docs/parameters.md) (parameters, reverb),
@@ -92,11 +92,11 @@ const cellos = synth.add('cellos');
 
 violin.play('A4', { velocity: 90, duration: 2 });          // names or MIDI numbers
 cellos.play(['C3', 'G3'], { delay: 0.5, duration: 3 });     // chords, relative timing
-violin.sequence([['E5', 1], ['D5', 0.5], ['C5', 0.5], ['B4', 2]], { bpm: 80 });
+violin.sequence([['E5', 1], ['D5', 0.5], ['C5', 0.5], ['B4', 2]], { tempo: 80 });
 
 piano.noteOn('C4', 100); /* … */ piano.noteOff('C4');      // manual control
 piano.sustain(true);                                        // pedal
-violin.pitchBend(0.5); violin.modWheel(0.3); violin.expression(0.6); // swells
+violin.pitchBend(0.5); violin.modulation(0.3); violin.expression(0.6); // swells
 ```
 
 All note methods accept `{ at }` (absolute seconds on `synth.currentTime`) or `{ delay }` for
@@ -107,7 +107,7 @@ sample-accurate scheduling.
 ```ts
 piano.set({ brightness: 1.5, release: 2, reverbSend: 0.3 });
 violin.set({ vibrato: 8, vibratoRate: 5.8, naturalVibrato: 0.5 });
-synth.add('grand-piano', { preset: 'honky-tonk', params: { volume: -3 } });
+synth.add('grand-piano', { preset: 'honky-tonk', parameters: { volume: -3 } });
 
 piano.preset('felt');                       // replaces every parameter
 piano.savePreset('mine');                   // the sound as it is now
@@ -130,7 +130,7 @@ piano.presets();                            // the instrument's presets and your
 ### The church organ
 
 ```ts
-const organ = synth.addOrgan('burea', { preset: 'plenum' });
+const organ = synth.add('burea', { preset: 'plenum' });
 organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
 organ.pedal.play('C2', { duration: 4 });
 
@@ -156,15 +156,15 @@ object you can import, copy and change, from `supersynth` or from `supersynth/in
 
 ```ts
 import { GRAND_PIANO } from 'supersynth/instruments';
-import { BUREA_ORGAN, type OrganDef } from 'supersynth/organs';
+import { BUREA_ORGAN, type OrganDefinition } from 'supersynth/organs';
 
-synth.add({ ...GRAND_PIANO, id: 'dark-piano', params: { brightness: -1.5 } });
+synth.add({ ...GRAND_PIANO, id: 'dark-piano', parameters: { brightness: -1.5 } });
 
-const organ: OrganDef = {
+const organ: OrganDefinition = {
   ...BUREA_ORGAN,
   presets: { ...BUREA_ORGAN.presets, solo: { description: 'Krummhorn solo', positive: ["Gedackt 8'", "Krummhorn 8'"] } },
 };
-synth.addOrgan(organ, { preset: 'solo' });
+synth.add(organ, { preset: 'solo' });
 ```
 
 See [docs/organ.md](docs/organ.md#organs-are-configuration) and [docs/instruments.md](docs/instruments.md).

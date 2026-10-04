@@ -2,9 +2,9 @@
 
 `instrument.set({...})` changes any of these at any time, also while notes sound (changes are
 smoothed; `{ at }` schedules them). All are relative to the instrument as recorded: the defaults
-reproduce the recording, and are exported as `PARAM_DEFAULTS` (`reverbSend`, `spread` and
+reproduce the recording, and are exported as `PARAMETER_DEFAULTS` (`reverbSend`, `spread` and
 `formant` default to each instrument's own value). `instrument.get(name)` reads one value,
-`instrument.params()` the ones that differ from the defaults, and `instrument.preset('default')`
+`instrument.parameters()` the ones that differ from the defaults, and `instrument.preset('default')`
 restores the instrument as recorded.
 
 | Parameter | Default | Range / unit | |

@@ -5,7 +5,7 @@
  * All are relative to the instrument as recorded: the defaults reproduce the
  * real instrument.
  */
-export interface InstrumentParams {
+export interface InstrumentParameters {
   // ── level & placement ──────────────────────────────────────────────────
   /** Instrument volume in dB. @default 0 */
   volume?: number;
@@ -105,7 +105,7 @@ export interface InstrumentParams {
 }
 
 /** Native parameter value for a public parameter (booleans and enums mapped to numbers). */
-export function toNativeParam(name: keyof InstrumentParams, value: unknown): number {
+export function toNativeParameter(name: keyof InstrumentParameters, value: unknown): number {
   if (name === 'mono' || name === 'legato') return value ? 1 : 0;
   if (name === 'leslie') {
     const m: Record<string, number> = { off: 0, stop: 1, slow: 2, fast: 3 };
@@ -124,7 +124,7 @@ type PerInstrument = 'reverbSend' | 'spread' | 'formant';
 
 /** Default of every parameter: the instrument as recorded. (`reverbSend`, `spread` and `formant`
  *  default to each instrument's own value, so they are not listed.) */
-export const PARAM_DEFAULTS: Readonly<Required<Omit<InstrumentParams, PerInstrument>>> = {
+export const PARAMETER_DEFAULTS: Readonly<Required<Omit<InstrumentParameters, PerInstrument>>> = {
   volume: 0, pan: 0, brightness: 0, evenHarmonics: 0, noise: 0,
   inharmonicity: 1, maxPartials: 512, attack: 1, decay: 1, release: 1, vibrato: 0, vibratoRate: 5.5,
   vibratoDelay: 0.3, naturalVibrato: 1, humanize: 0, transpose: 0, tune: 0, bendRange: 2, modDepth: 25,
@@ -135,12 +135,12 @@ export const PARAM_DEFAULTS: Readonly<Required<Omit<InstrumentParams, PerInstrum
 };
 
 /** @internal Every parameter name. */
-export const PARAM_NAMES: ReadonlySet<string> = new Set([...Object.keys(PARAM_DEFAULTS), 'reverbSend', 'spread', 'formant']);
+export const PARAMETER_NAMES: ReadonlySet<string> = new Set([...Object.keys(PARAMETER_DEFAULTS), 'reverbSend', 'spread', 'formant']);
 
 /** @internal The value that restores a parameter's default (the engine reads -1 as "the
  *  instrument's own value"). */
-export function defaultParam(name: keyof InstrumentParams): unknown {
-  return (PARAM_DEFAULTS as InstrumentParams)[name] ?? -1;
+export function defaultParameter(name: keyof InstrumentParameters): unknown {
+  return (PARAMETER_DEFAULTS as InstrumentParameters)[name] ?? -1;
 }
 
 /** Reverb presets (algorithmic FDN reverb). */

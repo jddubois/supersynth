@@ -1,10 +1,10 @@
 /**
- * Instrument configurations. Every instrument is a plain {@link InstrumentDef}: import one
+ * Instrument configurations. Every instrument is a plain {@link InstrumentDefinition}: import one
  * to play it, or copy and change it.
  *
  * ```ts
  * import { GRAND_PIANO } from 'supersynth/instruments';
- * synth.add({ ...GRAND_PIANO, id: 'my-piano', params: { brightness: -1 } });
+ * synth.add({ ...GRAND_PIANO, id: 'my-piano', parameters: { brightness: -1 } });
  * ```
  */
 import { GRAND_PIANO, UPRIGHT_PIANO, HARPSICHORD } from './keyboards.js';
@@ -13,7 +13,7 @@ import { HARP, VIOLIN_PIZZICATO, CELLO_PIZZICATO, CONTRABASS_PIZZICATO, VIOLIN, 
 import { FLUTE, OBOE, CLARINET, BASSOON, TENOR_SAX } from './woodwinds.js';
 import { TRUMPET, FRENCH_HORN, TROMBONE, TUBA, BRASS } from './brass.js';
 import { MARIMBA, VIBRAPHONE, XYLOPHONE, GLOCKENSPIEL, TUBULAR_BELLS } from './percussion.js';
-import type { InstrumentDef } from './types.js';
+import type { InstrumentDefinition } from './types.js';
 
 export * from './keyboards.js';
 export * from './organs.js';
@@ -21,7 +21,7 @@ export * from './strings.js';
 export * from './woodwinds.js';
 export * from './brass.js';
 export * from './percussion.js';
-export type { InstrumentDef, InstrumentFamily, LayerDef, PresetDef } from './types.js';
+export type { InstrumentDefinition, InstrumentFamily, LayerDefinition, InstrumentPreset } from './types.js';
 
 /** Every built-in instrument, by id (`synth.add('grand-piano')`). */
 export const INSTRUMENTS = {
@@ -55,7 +55,7 @@ export const INSTRUMENTS = {
   'xylophone': XYLOPHONE,
   'glockenspiel': GLOCKENSPIEL,
   'tubular-bells': TUBULAR_BELLS,
-} satisfies Record<string, InstrumentDef>;
+} satisfies Record<string, InstrumentDefinition>;
 
 /** Id of a built-in instrument. */
 export type InstrumentId = keyof typeof INSTRUMENTS;

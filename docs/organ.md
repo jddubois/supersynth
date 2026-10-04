@@ -1,12 +1,12 @@
 # The church organ
 
-`synth.addOrgan('burea')` adds a real church organ: the **Bureå Church organ** (Nils Hammarberg,
+`synth.add('burea')` adds a real church organ: the **Bureå Church organ** (Nils Hammarberg,
 1967, Sweden), every pipe of 40 stops analysed from Lars Palo's GrandOrgue sample set (CC BY-SA).
 Pipes keep their own tuning and voicing, stops keep their natural balance, and the pipes carry
 the church acoustic they were recorded in.
 
 ```ts
-const organ = synth.addOrgan('burea', { preset: 'plenum' });
+const organ = synth.add('burea', { preset: 'plenum' });
 
 organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
 organ.pedal.play('C2', { duration: 4 });
@@ -72,7 +72,7 @@ organ.presets();                    // all presets by name: the organ's own and 
 organ.activePreset();               // 'solo', or undefined once a stop was changed by hand
 
 // presets of your own from the start
-synth.addOrgan('burea', { presets: { solo: { great: ["Trumpet 8'"], pedal: ["Subbass 16'"] } }, preset: 'solo' });
+synth.add('burea', { presets: { solo: { great: ["Trumpet 8'"], pedal: ["Subbass 16'"] } }, preset: 'solo' });
 ```
 
 ## MIDI keyboards
@@ -93,7 +93,7 @@ organ's channels. MIDI files play an organ with
 ## A second organ: the VCSL church organ
 
 ```ts
-const organ = synth.addOrgan('vcsl', { preset: 'full' });
+const organ = synth.add('vcsl', { preset: 'full' });
 organ.great.play(['C4', 'E4', 'G4'], { duration: 3 });
 organ.preset('chamber');                         // the Renaissance chamber organ (8' + 4')
 organ.positive.play(['G4', 'B4', 'D5'], { duration: 3 });
@@ -115,18 +115,18 @@ flutes on the swell).
 
 ## Organs are configuration
 
-Each organ is a plain `OrganDef` object: its stops, named presets, the placement of its
+Each organ is a plain `OrganDefinition` object: its stops, named presets, the placement of its
 divisions (stereo position, which one stands in a swell box), its tremulant, wind and reverb.
 The built-in organs are `ORGANS.burea` (`BUREA_ORGAN`) and `ORGANS.vcsl` (`VCSL_ORGAN`), exported
-from `supersynth` and from `supersynth/organs`; `addOrgan` takes an id or any `OrganDef`:
+from `supersynth` and from `supersynth/organs`; `synth.add` takes an id or any `OrganDefinition`:
 
 ```ts
-import { BUREA_ORGAN, type OrganDef } from 'supersynth/organs';
+import { BUREA_ORGAN, type OrganDefinition } from 'supersynth/organs';
 
-synth.addOrgan(BUREA_ORGAN);                     // same as addOrgan('burea')
+synth.add(BUREA_ORGAN);                          // same as synth.add('burea')
 
 // your own presets, a tremulant on the positive, a steadier wind
-const mine: OrganDef = {
+const mine: OrganDefinition = {
   ...BUREA_ORGAN,
   id: 'burea-mine',
   presets: {
@@ -141,10 +141,10 @@ const mine: OrganDef = {
   tremulant: { division: 'positive', depth: 2, pitch: 6, rate: 5.5 },
   wind: 0.2,
 };
-const organ = synth.addOrgan(mine, { preset: 'flute-solo' });
+const organ = synth.add(mine, { preset: 'flute-solo' });
 
 // or a small organ from a few of the recorded stops
-const box: OrganDef = {
+const box: OrganDefinition = {
   id: 'box', name: 'Box organ', description: 'Two Bureå flutes',
   stops: BUREA_ORGAN.stops.filter((s) => ['great-gedackt-8', 'pedal-subbass-16'].includes(s.id)),
   presets: { soft: { description: 'Gedackt and Subbass', great: ["Gedackt 8'"], pedal: ["Subbass 16'"] } },

@@ -22,7 +22,7 @@ const synth = new Synth();
 
 let instrument: MidiTarget = (opt('instrument') ?? 'grand-piano') as InstrumentId;
 if (args.includes('--organ')) {
-  const organ = synth.addOrgan('burea', { preset: opt('preset') ?? 'plenum' });
+  const organ = synth.add('burea', { preset: opt('preset') ?? 'plenum' });
   instrument = organ.great;
 }
 

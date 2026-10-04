@@ -16,7 +16,7 @@ for (let bar = 0; bar < 4; bar++) {
   piano.sustain(true, { at: t + bar * 2.4 + 0.02 });
   piano.sustain(false, { at: t + (bar + 1) * 2.4 - 0.05 });
 }
-t += playSteps(piano, BWV846, { at: t, bpm: 100, velocity: 72 }) + 1;
+t += playSteps(piano, BWV846, { at: t, tempo: 100, velocity: 72 }) + 1;
 
 // 2. The same chord at four dynamics: velocity changes tone, not just volume
 for (const v of [30, 60, 90, 120]) {

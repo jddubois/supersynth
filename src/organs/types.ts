@@ -1,4 +1,4 @@
-import type { ReverbPreset } from '../params.js';
+import type { ReverbPreset } from '../parameters.js';
 
 /** The keyboards of a church organ: three manuals and the pedalboard. */
 export type DivisionName = 'great' | 'swell' | 'positive' | 'pedal';
@@ -7,7 +7,7 @@ export type DivisionName = 'great' | 'swell' | 'positive' | 'pedal';
 export type StopFamily = 'principal' | 'flute' | 'string' | 'reed' | 'mutation' | 'mixture';
 
 /** One stop (rank of pipes) of an organ. */
-export interface StopDef {
+export interface StopDefinition {
   /** Stop id, unique within the organ. The model is `organ/<id>` unless {@link model} is set. */
   id: string;
   /** Model id when it is not `organ/<id>` (file `models/<model>.ssm`). */
@@ -49,7 +49,7 @@ export interface OrganPreset {
 }
 
 /** Placement and mechanics of one division. */
-export interface DivisionDef {
+export interface DivisionDefinition {
   /** Position of the division's pipes in the stereo image, -1 (left) … 1 (right). @default 0 */
   pan?: number;
   /** The division stands in a swell box: its expression pedal moves shutters (treble damped
@@ -58,7 +58,7 @@ export interface DivisionDef {
 }
 
 /** The tremulant: a periodic wobble of one division's wind pressure. */
-export interface TremulantDef {
+export interface TremulantDefinition {
   /** Division whose wind the tremulant shakes. */
   division: DivisionName;
   /** Loudness swing (± dB). */
@@ -71,39 +71,39 @@ export interface TremulantDef {
 
 /**
  * A complete organ as configuration: its stops, named presets, the layout of its
- * divisions and its wind. Pass one to `synth.addOrgan()` to play it; the built-in
- * organs ({@link BUREA_ORGAN}, {@link VCSL_ORGAN}) are plain `OrganDef`s that can be copied and
+ * divisions and its wind. Pass one to `synth.add()` to play it; the built-in
+ * organs ({@link BUREA_ORGAN}, {@link VCSL_ORGAN}) are plain `OrganDefinition`s that can be copied and
  * changed:
  *
  * ```ts
- * import { BUREA_ORGAN, type OrganDef } from 'supersynth/organs';
- * const mine: OrganDef = {
+ * import { BUREA_ORGAN, type OrganDefinition } from 'supersynth/organs';
+ * const mine: OrganDefinition = {
  *   ...BUREA_ORGAN,
  *   presets: { ...BUREA_ORGAN.presets, bright: { description: 'Flutes 8 + 2', great: ["Gedackt 8'", "Octave 2'"] } },
  * };
- * synth.addOrgan(mine, { preset: 'bright' });
+ * synth.add(mine, { preset: 'bright' });
  * ```
  *
  * To add presets without a new definition, pass them to the organ instead:
  *
  * ```ts
- * synth.addOrgan('burea', { presets: { bright: { great: ["Gedackt 8'", "Octave 2'"] } }, preset: 'bright' });
+ * synth.add('burea', { presets: { bright: { great: ["Gedackt 8'", "Octave 2'"] } }, preset: 'bright' });
  * ```
  */
-export interface OrganDef {
+export interface OrganDefinition {
   /** Short id, e.g. `'burea'`. */
   id: string;
   /** Display name. */
   name: string;
   description: string;
-  stops: StopDef[];
+  stops: StopDefinition[];
   presets: Record<string, OrganPreset>;
   /** Preset applied when the organ is created without one. */
   defaultPreset: string;
   /** Per-division placement and mechanics. @default {@link CHURCH_DIVISIONS} */
-  divisions?: Partial<Record<DivisionName, DivisionDef>>;
+  divisions?: Partial<Record<DivisionName, DivisionDefinition>>;
   /** The tremulant, if the organ has one. @default {@link SWELL_TREMULANT} */
-  tremulant?: TremulantDef;
+  tremulant?: TremulantDefinition;
   /** Wind flexibility, 0 (steady) – 1 (flexible historic winding). @default 0.5 */
   wind?: number;
   /** Room the synth uses for the organ when its reverb is automatic. @default 'church' */

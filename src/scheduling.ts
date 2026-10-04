@@ -22,8 +22,8 @@ export type SequenceStep =
   | { note: NoteLike | NoteLike[] | null; beats: number; velocity?: number };
 
 export interface SequenceOptions extends TimeOptions {
-  /** @default 120 */
-  bpm?: number;
+  /** Beats per minute. @default 120 */
+  tempo?: number;
   /** Velocity of steps that do not set their own. @default 90 */
   velocity?: number;
   /** Fraction of each step the key is held. @default 0.95 */
@@ -75,7 +75,7 @@ export function playSequence(
   steps: SequenceStep[],
   options: SequenceOptions,
 ): number {
-  const beat = 60 / (options.bpm ?? 120);
+  const beat = 60 / (options.tempo ?? 120);
   const legato = options.legato ?? 0.95;
   let t = resolveTime(now, options) ?? now;
   const start = t;

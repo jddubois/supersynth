@@ -9,7 +9,7 @@ import { OLD_HUNDREDTH } from './util/music.ts';
 
 const out = process.argv[2];
 const synth = new Synth();            // reverb: the organ picks 'church'
-const organ = synth.addOrgan('burea');
+const organ = synth.add('burea');
 
 function hymn(t0: number, bpm: number): number {
   const beat = 60 / bpm;

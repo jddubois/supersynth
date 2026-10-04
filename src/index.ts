@@ -1,5 +1,5 @@
 export { Synth } from './Synth.js';
-export type { SynthOptions, SynthSettings, MidiPlayOptions, MidiTarget, BackendKind } from './Synth.js';
+export type { SynthOptions, SynthSettings, MidiFileOptions, MidiTarget, AudioBackend } from './Synth.js';
 export { Instrument } from './Instrument.js';
 export type { InstrumentOptions } from './Instrument.js';
 export { Organ, Division } from './Organ.js';
@@ -8,8 +8,8 @@ export type { Playable, PlayOptions, TimeOptions, SequenceStep, SequenceOptions 
 // configurations (also importable on their own from 'supersynth/instruments' and 'supersynth/organs')
 export * from './catalog/index.js';
 export * from './organs/index.js';
-export { PARAM_DEFAULTS } from './params.js';
-export type { InstrumentParams, ReverbPreset, ReverbOptions } from './params.js';
+export { PARAMETER_DEFAULTS } from './parameters.js';
+export type { InstrumentParameters, ReverbPreset, ReverbOptions } from './parameters.js';
 export { noteNumber, noteName, noteFrequency, chord } from './notes.js';
 export type { NoteLike } from './notes.js';
 export { parseMidiFile } from './midifile.js';

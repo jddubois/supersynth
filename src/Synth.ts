@@ -2,21 +2,21 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import type { InstrumentDef, InstrumentId, LayerDef } from './catalog/index.js';
+import { INSTRUMENTS, type InstrumentDefinition, type InstrumentId, type LayerDefinition } from './catalog/index.js';
 import { AudioBackendError, MidiError, SupersynthError } from './errors.js';
 import { Instrument, type InstrumentOptions } from './Instrument.js';
 import { parseMidiFile, type MidiFileData, type MidiFileEvent } from './midifile.js';
 import { loadNative, packageRoot, type NativeEngine, type NativeLayer } from './native.js';
-import type { ReverbOptions, ReverbPreset } from './params.js';
-import { REVERB_FIELDS } from './params.js';
-import { Organ, resolveOrgan, type Division, type OrganOptions } from './Organ.js';
+import type { ReverbOptions, ReverbPreset } from './parameters.js';
+import { REVERB_FIELDS } from './parameters.js';
+import { Organ, type Division, type OrganOptions } from './Organ.js';
 import { ORGAN_DEFAULTS } from './organs/defaults.js';
-import type { OrganDef, OrganId } from './organs/index.js';
+import { ORGANS, type OrganDefinition, type OrganId } from './organs/index.js';
 import { resolveTime, type TimeOptions } from './scheduling.js';
 import { deinterleave, makeAudioBuffer, writeWav, type AudioBuffer, type WavOptions } from './wav.js';
 import type { MidiEvent } from './types.js';
 
-export type BackendKind = 'auto' | 'coreaudio' | 'wasapi' | 'alsa' | 'jack' | 'pulseaudio' | 'pipewire';
+export type AudioBackend = 'auto' | 'coreaudio' | 'wasapi' | 'alsa' | 'jack' | 'pulseaudio' | 'pipewire';
 
 /** What {@link Synth.set} changes. */
 export interface SynthSettings {
@@ -30,7 +30,7 @@ export interface SynthOptions extends Omit<SynthSettings, 'reverb'> {
   /** Sample rate in Hz. Default: the audio device's rate (48000 if there is no device). */
   sampleRate?: number;
   /** Audio backend. @default 'auto' */
-  backend?: BackendKind;
+  backend?: AudioBackend;
   /** The room: a reverb preset, detailed options, `false` for none, or `'auto'` for the room
    *  suggested by the first instrument or organ added. @default 'auto' */
   reverb?: ReverbPreset | ReverbOptions | false | 'auto';
@@ -41,13 +41,13 @@ export interface SynthOptions extends Omit<SynthSettings, 'reverb'> {
   /** Audio buffer size in frames (smaller = lower latency, more CPU risk). Default: device default. */
   bufferSize?: number;
   /** Directory with `.ssm` models. Default: the package's `models/` folder. */
-  modelsDir?: string;
+  modelsDirectory?: string;
   /** CPU/quality trade-off: partials per note up to 512 (`'high'`), 128 (`'balanced'`) or 32 (`'eco'`,
    *  for small boards such as a Raspberry Pi). @default 'high' */
   quality?: 'high' | 'balanced' | 'eco';
 }
 
-export interface MidiPlayOptions {
+export interface MidiFileOptions {
   /** Where each MIDI channel (1–16) plays — or each track, with `byTrack` — e.g.
    *  `{ 1: 'violin', 2: organ.pedal }`. Default: every channel plays `instrument`. */
   channels?: Record<number, MidiTarget>;
@@ -92,7 +92,7 @@ export class Synth extends EventEmitter {
   /** Engine channel each MIDI channel (1–16, index 0–15) plays, if any. */
   private routes: (number | null)[] = new Array(16).fill(null);
   private models = new Map<string, number>();
-  private modelsDir: string;
+  private modelsDirectory: string;
   private reverbMode: 'auto' | 'set';
   private maxPartials: number;
   private closed = false;
@@ -112,7 +112,7 @@ export class Synth extends EventEmitter {
     } catch (e) {
       throw new SupersynthError((e as Error).message);
     }
-    this.modelsDir = options.modelsDir ?? path.join(packageRoot(), 'models');
+    this.modelsDirectory = options.modelsDirectory ?? path.join(packageRoot(), 'models');
     this.maxPartials = { high: 512, balanced: 128, eco: 32 }[options.quality ?? 'high'];
     this.reverbMode = options.reverb === undefined || options.reverb === 'auto' ? 'auto' : 'set';
     this.set({
@@ -149,34 +149,32 @@ export class Synth extends EventEmitter {
   // ── instruments ───────────────────────────────────────────────────────────
 
   /**
-   * Add an instrument, on its own channel.
+   * Add an instrument or an organ: a built-in one by id (see `INSTRUMENTS` and `ORGANS`) or
+   * any definition. An instrument plays on one channel; an organ has four divisions (great,
+   * swell, positive, pedal), each on its own channel.
    *
-   * @param instrument  A built-in instrument's id (`'grand-piano'`, `'violin'`, `'strings'`, …;
-   *                    see `INSTRUMENTS`) or any {@link InstrumentDef}.
    * @example
-   * const piano = synth.add('grand-piano', { preset: 'mellow', params: { volume: -3 } });
-   */
-  add(instrument: InstrumentId | InstrumentDef, options: InstrumentOptions = {}): Instrument {
-    return new Instrument(this, instrument, options);
-  }
-
-  /**
-   * Add a church organ: four divisions (great, swell, positive, pedal) with drawable stops, on
-   * four channels.
-   *
-   * @param organ  A built-in organ's id (`'burea'`, `'vcsl'`; see `ORGANS`) or any {@link OrganDef}.
-   * @example
-   * const organ = synth.addOrgan('burea', { preset: 'plenum' });
+   * const piano = synth.add('grand-piano', { preset: 'mellow', parameters: { volume: -3 } });
+   * const organ = synth.add('burea', { preset: 'plenum' });
    * organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
    */
-  addOrgan(organ: OrganId | OrganDef, options: OrganOptions = {}): Organ {
-    this._suggestRoom(resolveOrgan(organ).reverb ?? ORGAN_DEFAULTS.reverb);
-    return new Organ(this, organ, options);
+  add(instrument: InstrumentId | InstrumentDefinition, options?: InstrumentOptions): Instrument;
+  add(organ: OrganId | OrganDefinition, options?: OrganOptions): Organ;
+  add(what: InstrumentId | OrganId | InstrumentDefinition | OrganDefinition, options: InstrumentOptions | OrganOptions = {}): Instrument | Organ {
+    const organ = typeof what === 'string' ? (ORGANS as Record<string, OrganDefinition>)[what] : 'stops' in what ? what : undefined;
+    if (organ) {
+      this._suggestRoom(organ.reverb ?? ORGAN_DEFAULTS.reverb);
+      return new Organ(this, organ, options as OrganOptions);
+    }
+    if (typeof what === 'string' && !(what in INSTRUMENTS)) {
+      throw new SupersynthError(`Unknown instrument '${what}'. Instruments: ${Object.keys(INSTRUMENTS).join(', ')}; organs: ${Object.keys(ORGANS).join(', ')}`);
+    }
+    return new Instrument(this, what as InstrumentId | InstrumentDefinition, options as InstrumentOptions);
   }
 
-  /** The instruments added with {@link add}, in channel order. */
-  instruments(): Instrument[] {
-    return this.slots.filter((x): x is Instrument => x instanceof Instrument);
+  /** The instruments and organs added, in the order of their first channel. */
+  instruments(): (Instrument | Organ)[] {
+    return [...new Set(this.slots.filter((x): x is Instrument | Organ => x !== null))];
   }
 
   /** Remove an instrument or an organ: its notes stop at once, and its channels and MIDI
@@ -304,7 +302,7 @@ export class Synth extends EventEmitter {
    * @example
    * const audio = synth.renderMidi('bach.mid', { instrument: 'harpsichord' });
    */
-  renderMidi(file: string | Uint8Array, options: MidiPlayOptions = {}): AudioBuffer {
+  renderMidi(file: string | Uint8Array, options: MidiFileOptions = {}): AudioBuffer {
     const { midi, route } = this.prepareMidi(file, options);
     const tail = options.tail ?? 3;
     const t0 = this.currentTime;
@@ -326,7 +324,7 @@ export class Synth extends EventEmitter {
   /**
    * Play a Standard MIDI File in real time (call `start()` first). Resolves when finished.
    */
-  async playMidi(file: string | Uint8Array, options: MidiPlayOptions = {}): Promise<void> {
+  async playMidi(file: string | Uint8Array, options: MidiFileOptions = {}): Promise<void> {
     if (!this.isRunning) await this.start();
     const { midi, route } = this.prepareMidi(file, options);
     const t0 = this.currentTime + 0.2;
@@ -348,7 +346,7 @@ export class Synth extends EventEmitter {
     });
   }
 
-  private prepareMidi(file: string | Uint8Array, options: MidiPlayOptions) {
+  private prepareMidi(file: string | Uint8Array, options: MidiFileOptions) {
     const bytes = typeof file === 'string' ? readFileSync(file) : file;
     const raw = parseMidiFile(bytes);
     const speed = options.speed ?? 1;
@@ -478,7 +476,7 @@ export class Synth extends EventEmitter {
   _model(name: string): number {
     const cached = this.models.get(name);
     if (cached !== undefined) return cached;
-    const file = path.join(this.modelsDir, `${name}.ssm`);
+    const file = path.join(this.modelsDirectory, `${name}.ssm`);
     let bytes = MODEL_BYTES.get(file);
     if (!bytes) {
       if (!existsSync(file)) throw new SupersynthError(`Instrument model '${name}' not found at ${file}`);
@@ -496,7 +494,7 @@ export class Synth extends EventEmitter {
   }
 
   /** @internal */
-  _layer(l: LayerDef): NativeLayer {
+  _layer(l: LayerDefinition): NativeLayer {
     return {
       model: this._model(l.model),
       transpose: l.transpose ?? 0,
@@ -511,7 +509,7 @@ export class Synth extends EventEmitter {
   }
 
   /** @internal */
-  _setLayers(channel: number, layers: LayerDef[], time?: number): void {
+  _setLayers(channel: number, layers: LayerDefinition[], time?: number): void {
     this.engine.setInstrument(channel, layers.map((l) => this._layer(l)), time);
   }
 }

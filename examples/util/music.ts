@@ -80,10 +80,10 @@ export function fitToRange(steps: Step[], range: [number, number]): Step[] {
 }
 
 /** Play steps on an instrument or organ division; returns the duration in seconds. */
-export function playSteps(playable: Playable, steps: Step[], opts: { at?: number; bpm?: number; velocity?: number; legato?: number } = {}): number {
+export function playSteps(playable: Playable, steps: Step[], opts: { at?: number; tempo?: number; velocity?: number; legato?: number } = {}): number {
   return playable.sequence(
     steps.map(([note, beats, vel]) => ({ note, beats, velocity: vel ?? opts.velocity ?? 90 })),
-    { ...(opts.at !== undefined ? { at: opts.at } : {}), bpm: opts.bpm ?? 90, legato: opts.legato ?? 0.97 },
+    { ...(opts.at !== undefined ? { at: opts.at } : {}), tempo: opts.tempo ?? 90, legato: opts.legato ?? 0.97 },
   );
 }
 

@@ -45,7 +45,7 @@ for (const def of Object.values(INSTRUMENTS)) {
       }
       dur = t;
     } else {
-      dur = 0.2 + playSteps(instrument, fitToRange(m.steps, def.range), { at: 0.2, bpm: m.bpm, velocity: 88 });
+      dur = 0.2 + playSteps(instrument, fitToRange(m.steps, def.range), { at: 0.2, tempo: m.bpm, velocity: 88 });
     }
     const file = path.join(outDir, def.id, `${preset}.wav`);
     mkdirSync(path.dirname(file), { recursive: true });
@@ -59,7 +59,7 @@ for (const def of Object.values(INSTRUMENTS)) {
 if (!only || only === 'organ') {
   for (const reg of Object.keys(BUREA_ORGAN.presets)) {
     const synth = new Synth({ sampleRate: 48000 });
-    const organ = synth.addOrgan(BUREA_ORGAN, { preset: reg });
+    const organ = synth.add(BUREA_ORGAN, { preset: reg });
     const beat = 60 / 84;
     let t = 0.3;
     for (const [s, a, tn, b, beats] of OLD_HUNDREDTH.slice(0, 8)) {

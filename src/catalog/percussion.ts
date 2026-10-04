@@ -1,8 +1,8 @@
 // Mallets and bells
-import { type InstrumentDef, one } from './types.js';
+import { type InstrumentDefinition, one } from './types.js';
 
 /** Marimba. */
-export const MARIMBA: InstrumentDef = {
+export const MARIMBA: InstrumentDefinition = {
   id: 'marimba',
   name: 'Marimba',
   family: 'percussion',
@@ -10,11 +10,11 @@ export const MARIMBA: InstrumentDef = {
   layers: one('marimba'),
   range: [45, 96],
   reverb: 'hall',
-  presets: { default: { description: 'As recorded' }, soft: { description: 'Yarn mallets', params: { brightness: -2, noise: -6 } } },
+  presets: { default: { description: 'As recorded' }, soft: { description: 'Yarn mallets', parameters: { brightness: -2, noise: -6 } } },
 };
 
 /** Vibraphone. */
-export const VIBRAPHONE: InstrumentDef = {
+export const VIBRAPHONE: InstrumentDefinition = {
   id: 'vibraphone',
   name: 'Vibraphone',
   family: 'percussion',
@@ -24,13 +24,13 @@ export const VIBRAPHONE: InstrumentDef = {
   reverb: 'hall',
   presets: {
     default: { description: 'As recorded' },
-    'let-ring': { description: 'Pedal down: notes ring', params: { release: 8 } },
-    motor: { description: 'Motor on: the classic vibraphone pulse', params: { tremolo: 4, tremoloRate: 5.5, release: 4 } },
+    'let-ring': { description: 'Pedal down: notes ring', parameters: { release: 8 } },
+    motor: { description: 'Motor on: the classic vibraphone pulse', parameters: { tremolo: 4, tremoloRate: 5.5, release: 4 } },
   },
 };
 
 /** Xylophone. */
-export const XYLOPHONE: InstrumentDef = {
+export const XYLOPHONE: InstrumentDefinition = {
   id: 'xylophone',
   name: 'Xylophone',
   family: 'percussion',
@@ -42,7 +42,7 @@ export const XYLOPHONE: InstrumentDef = {
 };
 
 /** Glockenspiel. */
-export const GLOCKENSPIEL: InstrumentDef = {
+export const GLOCKENSPIEL: InstrumentDefinition = {
   id: 'glockenspiel',
   name: 'Glockenspiel',
   family: 'percussion',
@@ -54,7 +54,7 @@ export const GLOCKENSPIEL: InstrumentDef = {
 };
 
 /** Tubular Bells. */
-export const TUBULAR_BELLS: InstrumentDef = {
+export const TUBULAR_BELLS: InstrumentDefinition = {
   id: 'tubular-bells',
   name: 'Tubular Bells',
   family: 'percussion',

@@ -3,13 +3,13 @@
 Every instrument is a spectral model analysed from real recordings (see NOTICE.md).
 Add one with `synth.add(id, { preset })`; `INSTRUMENTS` holds them all, by id.
 
-Every instrument is also a plain configuration object (`InstrumentDef`) exported under the name
+Every instrument is also a plain configuration object (`InstrumentDefinition`) exported under the name
 shown with it, from `supersynth` and from `supersynth/instruments`. Pass it to `synth.add`, or
 copy and change it:
 
 ```ts
 import { GRAND_PIANO } from 'supersynth/instruments';
-synth.add({ ...GRAND_PIANO, id: 'dark-piano', params: { brightness: -1.5 } });
+synth.add({ ...GRAND_PIANO, id: 'dark-piano', parameters: { brightness: -1.5 } });
 ```
 
 ## Keyboards
@@ -386,4 +386,4 @@ Config: `TUBULAR_BELLS`. Suggested room: `church`.
 |---|---|
 | `default` | As recorded |
 
-The full church organ is not a single instrument but an `Organ` with four divisions (`synth.addOrgan`) — see [organ.md](organ.md).
+The church organs (`synth.add('burea')`, …) have four divisions with drawable stops — see [organ.md](organ.md).
