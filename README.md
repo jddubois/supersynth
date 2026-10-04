@@ -1,6 +1,6 @@
 # supersynth
 
-Real instrument sounds for Node.js — a concert grand, a complete Swedish church organ, an orchestra
+Real instrument sounds for Node.js — a concert grand, seventeen real pipe organs (and a harmonium), an orchestra
 of strings, winds, brass and mallets — synthesised in real time by a native Rust engine.
 
 ```ts
@@ -43,7 +43,7 @@ blind listening tests (see `tools/ssm/blind.py`) are used to hunt down any remai
 | Family | Instruments (ids) |
 |---|---|
 | Keyboards | `grand-piano`, `upright-piano`, `harpsichord` |
-| Organs | `burea` — the full Bureå church organ (40 stops, 4 divisions); `vcsl` — the VCSL church organ with a Renaissance chamber organ; `pipe-organ`, `chamber-organ` (single sounds) |
+| Organs | `burea` — the full Bureå church organ (40 stops, 4 divisions); `vcsl` — the VCSL church organ with a Renaissance chamber organ; 15 organs from Piotr Grabowski's free sample sets (`friesach`, `cracow`, `szczecinek`, … — [docs/piotr-organs.md](docs/piotr-organs.md)); `pipe-organ`, `chamber-organ` (single sounds) |
 | Strings | `violin`, `violins`, `violas`, `cellos`, `contrabass`, `strings` (full section), `harp`, `violin-pizzicato`, `cello-pizzicato`, `contrabass-pizzicato` |
 | Woodwinds | `flute`, `oboe`, `clarinet`, `bassoon`, `tenor-sax` |
 | Brass | `trumpet`, `french-horn`, `trombone`, `tuba`, `brass` (section) |

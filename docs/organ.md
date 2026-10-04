@@ -113,6 +113,26 @@ stops are recorded registrations rather than single ranks, and every third semit
 Presets: `full`, `flutes`, `chamber`, `chamber-8`, `dialogue` (full great against
 flutes on the swell).
 
+## Piotr Grabowski's organs
+
+```ts
+const organ = synth.add('friesach', { preset: 'grand-choeur' });
+organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
+organ.preset('cornet');
+```
+
+Fifteen more organs, every one Piotr Grabowski gives away free at
+[piotrgrabowski.pl](https://piotrgrabowski.pl/instruments/), each stop analysed from his sample
+set as his organ definition plays it: Friesach (Eisenbarth 2000, 44 stops), Cracow St. John
+Cantius (Siedlar 2004), Szczecinek (Voelkner 1908), Lipiny, Skrzatusz (Sauer 1876), Raszczyce
+(Vermeulen 1965), Długa Kościelna, Giubiasco and Azzio (Mascioni), Strassburg (Werner 1743),
+Melcer Chamber Music Hall (Walcker 1993), Saint-Jean-de-Luz (Gonzalez 1931), Lędziny, the Green
+Positiv and a two-manual Harmonium (Emil Müller). They keep their own pitch (Azzio sounds at
+a ≈ 420 Hz, the Green Positiv a semitone low), their borrowed and extended ranks, and the
+balance between their stops. Stops, presets and ids of every organ:
+[piotr-organs.md](piotr-organs.md). These models are not covered by the MIT license — see
+NOTICE.md.
+
 ## Organs are configuration
 
 Each organ is a plain `OrganDefinition` object: its stops, named presets, the placement of its
