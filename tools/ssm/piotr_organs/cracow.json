@@ -1,0 +1,674 @@
+{
+ "id": "cracow",
+ "church": "Cracow, st. John Cantius",
+ "address": "Cracov, Poland",
+ "builder": "Jacek Siedlar",
+ "year": "2004",
+ "pitch": 0.0,
+ "reference": "great-montre-8",
+ "swellBoxes": [
+  "swell"
+ ],
+ "tremulants": [
+  {
+   "division": "positive",
+   "depth": 0.98,
+   "pitch": 7.2,
+   "rate": 6.41,
+   "sampled": false
+  },
+  {
+   "division": "swell",
+   "depth": 0.83,
+   "pitch": 6.0,
+   "rate": 5.0,
+   "sampled": false
+  }
+ ],
+ "stops": [
+  {
+   "id": "pedal-contrebasse-16",
+   "name": "Contrebasse 16'",
+   "odfName": "P  Contrebasse 16'",
+   "section": "stop001",
+   "manual": 0,
+   "division": "pedal",
+   "family": "string",
+   "transpose": -12,
+   "keys": [
+    36,
+    67
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-soubasse-16",
+   "name": "Soubasse 16'",
+   "odfName": "P  Soubasse 16'",
+   "section": "stop002",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    67
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-octave-8",
+   "name": "Octave 8'",
+   "odfName": "P  Octave 8'",
+   "section": "stop003",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    67
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-violoncelle-8",
+   "name": "Violoncelle 8'",
+   "odfName": "P  Violoncelle 8'",
+   "section": "stop004",
+   "manual": 0,
+   "division": "pedal",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    67
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-flute-4",
+   "name": "Flûte 4'",
+   "odfName": "P  Flûte 4'",
+   "section": "stop005",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    67
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-bombarde-16",
+   "name": "Bombarde 16'",
+   "odfName": "P  Bombarde 16'",
+   "section": "stop006",
+   "manual": 0,
+   "division": "pedal",
+   "family": "reed",
+   "transpose": -12,
+   "keys": [
+    36,
+    67
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-bourdon-16",
+   "name": "Bourdon 16'",
+   "odfName": "I  Bourdon 16'",
+   "section": "stop007",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-montre-8",
+   "name": "Montre 8'",
+   "odfName": "I  Montre 8'",
+   "section": "stop008",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-flute-harmonique-8",
+   "name": "Flûte Harmonique 8'",
+   "odfName": "I  Flûte Harmonique 8'",
+   "section": "stop009",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-bourdon-8",
+   "name": "Bourdon 8'",
+   "odfName": "I  Bourdon 8'",
+   "section": "stop010",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-viole-de-gambe-8",
+   "name": "Viole de Gambe 8'",
+   "odfName": "I  Viole de Gambe 8'",
+   "section": "stop011",
+   "manual": 1,
+   "division": "great",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-prestant-4",
+   "name": "Prestant 4'",
+   "odfName": "I  Prestant 4'",
+   "section": "stop012",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-flute-douce-4",
+   "name": "Flûte douce 4'",
+   "odfName": "I  Flûte douce 4'",
+   "section": "stop013",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-doublette-2",
+   "name": "Doublette 2'",
+   "odfName": "I  Doublette 2'",
+   "section": "stop014",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-cornet-5x",
+   "name": "Cornet 5x",
+   "odfName": "I  Cornet 5x",
+   "section": "stop015",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    53,
+    96
+   ],
+   "missing": [
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52
+   ]
+  },
+  {
+   "id": "great-plein-jeu-5x",
+   "name": "Plein Jeu 5x",
+   "odfName": "I  Plein Jeu 5x",
+   "section": "stop016",
+   "manual": 1,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-trompette-8",
+   "name": "Trompette 8'",
+   "odfName": "I  Trompette 8'",
+   "section": "stop017",
+   "manual": 1,
+   "division": "great",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-clairon-4",
+   "name": "Clairon 4'",
+   "odfName": "I  Clairon 4'",
+   "section": "stop018",
+   "manual": 1,
+   "division": "great",
+   "family": "reed",
+   "transpose": 12,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-cor-de-nuit-8",
+   "name": "Cor de Nuit 8'",
+   "odfName": "II  Cor de Nuit 8'",
+   "section": "stop019",
+   "manual": 2,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-salicional-8",
+   "name": "Salicional 8'",
+   "odfName": "II  Salicional 8'",
+   "section": "stop020",
+   "manual": 2,
+   "division": "positive",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-unda-maris-8",
+   "name": "Unda Maris 8'",
+   "odfName": "II  Unda Maris 8'",
+   "section": "stop021",
+   "manual": 2,
+   "division": "positive",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    48,
+    96
+   ],
+   "missing": [
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47
+   ]
+  },
+  {
+   "id": "positive-clarinette-8",
+   "name": "Clarinette 8'",
+   "odfName": "II  Clarinette 8'",
+   "section": "stop022",
+   "manual": 2,
+   "division": "positive",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-prestant-4",
+   "name": "Prestant 4'",
+   "odfName": "II  Prestant 4'",
+   "section": "stop023",
+   "manual": 2,
+   "division": "positive",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-dolce-4",
+   "name": "Dolce 4'",
+   "odfName": "II  Dolce 4'",
+   "section": "stop024",
+   "manual": 2,
+   "division": "positive",
+   "family": "string",
+   "transpose": 12,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-nazard-2-2-3",
+   "name": "Nazard 2 2/3'",
+   "odfName": "II  Nazard 2 2/3'",
+   "section": "stop025",
+   "manual": 2,
+   "division": "positive",
+   "family": "mutation",
+   "transpose": 19,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-octavin-2",
+   "name": "Octavin 2'",
+   "odfName": "II  Octavin 2'",
+   "section": "stop026",
+   "manual": 2,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 24,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-tierce-1-3-5",
+   "name": "Tierce 1 3/5'",
+   "odfName": "II  Tierce 1 3/5'",
+   "section": "stop027",
+   "manual": 2,
+   "division": "positive",
+   "family": "mutation",
+   "transpose": 28,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-cromorne-8",
+   "name": "Cromorne 8'",
+   "odfName": "II  Cromorne 8'",
+   "section": "stop028",
+   "manual": 2,
+   "division": "positive",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-flute-traversiere-8",
+   "name": "Flûte Traversière 8'",
+   "odfName": "III  Flûte Traversière 8'",
+   "section": "stop029",
+   "manual": 3,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-bourdon-8",
+   "name": "Bourdon 8'",
+   "odfName": "III  Bourdon 8'",
+   "section": "stop030",
+   "manual": 3,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-aeoline-8",
+   "name": "Aeoline 8'",
+   "odfName": "III  Aeoline 8'",
+   "section": "stop031",
+   "manual": 3,
+   "division": "swell",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-voix-celeste-8",
+   "name": "Voix Céleste 8'",
+   "odfName": "III  Voix Céleste 8'",
+   "section": "stop032",
+   "manual": 3,
+   "division": "swell",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    48,
+    96
+   ],
+   "missing": [
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47
+   ]
+  },
+  {
+   "id": "swell-flute-octaviante-4",
+   "name": "Flûte Octaviante 4'",
+   "odfName": "III  Flûte Octaviante 4'",
+   "section": "stop033",
+   "manual": 3,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-fugara-4",
+   "name": "Fugara 4'",
+   "odfName": "III  Fugara 4'",
+   "section": "stop034",
+   "manual": 3,
+   "division": "swell",
+   "family": "string",
+   "transpose": 12,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-doublette-2",
+   "name": "Doublette 2'",
+   "odfName": "III  Doublette 2'",
+   "section": "stop035",
+   "manual": 3,
+   "division": "swell",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-harmonia-aethera-4x",
+   "name": "Harmonia Aethera 4x",
+   "odfName": "III  Harmonia Aethera 4x",
+   "section": "stop036",
+   "manual": 3,
+   "division": "swell",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-basson-16",
+   "name": "Basson 16'",
+   "odfName": "III  Basson 16'",
+   "section": "stop037",
+   "manual": 3,
+   "division": "swell",
+   "family": "reed",
+   "transpose": -12,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-trompette-harmonique-8",
+   "name": "Trompette Harmonique 8'",
+   "odfName": "III  Trompette Harmonique 8'",
+   "section": "stop038",
+   "manual": 3,
+   "division": "swell",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-hautbois-8",
+   "name": "Hautbois 8'",
+   "odfName": "III  Hautbois 8'",
+   "section": "stop039",
+   "manual": 3,
+   "division": "swell",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-clairon-4",
+   "name": "Clairon 4'",
+   "odfName": "III  Clairon 4'",
+   "section": "stop040",
+   "manual": 3,
+   "division": "swell",
+   "family": "reed",
+   "transpose": 12,
+   "keys": [
+    36,
+    96
+   ],
+   "missing": []
+  }
+ ]
+}
