@@ -12,11 +12,12 @@ import { LEDZINY_ORGAN } from './ledziny.js';
 import { LIPINY_ORGAN } from './lipiny.js';
 import { MELCER_ORGAN } from './melcer.js';
 import { RASZCZYCE_ORGAN } from './raszczyce.js';
+import { SAINT_JEAN_DE_LUZ_ORGAN } from './saint-jean-de-luz.js';
 import { SKRZATUSZ_ORGAN } from './skrzatusz.js';
 import { STRASSBURG_ORGAN } from './strassburg.js';
 import { SZCZECINEK_ORGAN } from './szczecinek.js';
 
-export { AZZIO_ORGAN, FRIESACH_ORGAN, GREEN_POSITIV_ORGAN, HARMONIUM_ORGAN, LEDZINY_ORGAN, LIPINY_ORGAN, MELCER_ORGAN, RASZCZYCE_ORGAN, SKRZATUSZ_ORGAN, STRASSBURG_ORGAN, SZCZECINEK_ORGAN };
+export { AZZIO_ORGAN, FRIESACH_ORGAN, GREEN_POSITIV_ORGAN, HARMONIUM_ORGAN, LEDZINY_ORGAN, LIPINY_ORGAN, MELCER_ORGAN, RASZCZYCE_ORGAN, SAINT_JEAN_DE_LUZ_ORGAN, SKRZATUSZ_ORGAN, STRASSBURG_ORGAN, SZCZECINEK_ORGAN };
 
 /** Piotr Grabowski's organs by id. */
 export const PIOTR_ORGANS = {
@@ -28,6 +29,7 @@ export const PIOTR_ORGANS = {
   lipiny: LIPINY_ORGAN,
   melcer: MELCER_ORGAN,
   raszczyce: RASZCZYCE_ORGAN,
+  'saint-jean-de-luz': SAINT_JEAN_DE_LUZ_ORGAN,
   skrzatusz: SKRZATUSZ_ORGAN,
   strassburg: STRASSBURG_ORGAN,
   szczecinek: SZCZECINEK_ORGAN,

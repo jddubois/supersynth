@@ -1,0 +1,265 @@
+{
+ "id": "saint-jean-de-luz",
+ "church": "Saint-Jean-de-Luz (choeur)",
+ "address": "Saint-Jean-de-Luz, France",
+ "builder": "Victor Gonzalez",
+ "year": "1931",
+ "pitch": 0.15,
+ "reference": "pedal-bourdon-8",
+ "swellBoxes": [
+  "great",
+  "swell"
+ ],
+ "tremulants": [
+  {
+   "division": "great",
+   "depth": 1.55,
+   "pitch": 8.7,
+   "rate": 2.93,
+   "sampled": true,
+   "pipes": 16
+  }
+ ],
+ "stops": [
+  {
+   "id": "pedal-soubasse-16",
+   "name": "Soubasse 16'",
+   "odfName": "PED  Soubasse 16",
+   "section": "stop001",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-bourdon-8",
+   "name": "Bourdon 8'",
+   "odfName": "PED  Bourdon 8",
+   "section": "stop002",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-flute-8",
+   "name": "Flûte 8'",
+   "odfName": "PED  Flûte 8",
+   "section": "stop003",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-flute-4",
+   "name": "Flûte 4'",
+   "odfName": "PED  Flûte 4",
+   "section": "stop004",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-flute-2",
+   "name": "Flûte 2'",
+   "odfName": "PED  Flûte 2",
+   "section": "stop005",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": 24,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-bourdon-16",
+   "name": "Bourdon 16'",
+   "odfName": "GO  Bourdon 16",
+   "section": "stop006",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-flute-harmonique-8",
+   "name": "Flûte harmonique 8'",
+   "odfName": "GO  Flûte harmonique 8",
+   "section": "stop007",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-bourdon-8",
+   "name": "Bourdon 8'",
+   "odfName": "GO  Bourdon 8",
+   "section": "stop008",
+   "manual": 1,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-prestant-4",
+   "name": "Prestant 4'",
+   "odfName": "GO  Prestant 4",
+   "section": "stop009",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-quinte-2-2-3",
+   "name": "Quinte 2 2/3'",
+   "odfName": "GO  Quinte 2 2/3",
+   "section": "stop010",
+   "manual": 1,
+   "division": "great",
+   "family": "mutation",
+   "transpose": 19,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-doublette-2",
+   "name": "Doublette 2'",
+   "odfName": "GO  Doublette 2",
+   "section": "stop011",
+   "manual": 1,
+   "division": "great",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-tierce-1-3-5",
+   "name": "Tierce 1 3/5'",
+   "odfName": "GO  Tierce 1 3/5",
+   "section": "stop012",
+   "manual": 1,
+   "division": "great",
+   "family": "mutation",
+   "transpose": 28,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-flute-8",
+   "name": "Flûte 8'",
+   "odfName": "REC  Flûte 8",
+   "section": "stop013",
+   "manual": 2,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    103
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-flute-4",
+   "name": "Flûte 4'",
+   "odfName": "REC  Flûte 4",
+   "section": "stop014",
+   "manual": 2,
+   "division": "swell",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    103
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-plein-jeu-iii",
+   "name": "Plein-jeu III",
+   "odfName": "REC  Plein-jeu III",
+   "section": "stop015",
+   "manual": 2,
+   "division": "swell",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    91
+   ],
+   "missing": []
+  },
+  {
+   "id": "swell-trompette-8",
+   "name": "Trompette 8'",
+   "odfName": "REC  Trompette 8",
+   "section": "stop016",
+   "manual": 2,
+   "division": "swell",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    103
+   ],
+   "missing": []
+  }
+ ]
+}

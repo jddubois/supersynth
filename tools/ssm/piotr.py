@@ -60,6 +60,9 @@ ORGANS: dict[str, dict] = {
     'friesach': dict(odf='Friesach.organ', divisions={0: 'pedal', 1: 'great', 2: 'swell', 3: 'positive'},
                      names={"SL  Cornet a pavilon 1-8f. 8'": "Cornet à pavillon 8'"},
                      families={"Corno dolce 8'": 'flute', "Contrabaß 16'": 'principal'}),
+    # Hauptwerk package with Piotr's GrandOrgue definition (GO_3_14_ODFs.zip); three microphone
+    # perspectives (front, rear, dry) per stop, mixed as GrandOrgue mixes them
+    'saint-jean-de-luz': dict(odf='Saint-Jean-de-Luz (choeur).organ', divisions={0: 'pedal', 1: 'great', 2: 'swell'}),
     # Hauptwerk only: divisions are Hauptwerk division ids
     'harmonium': dict(hauptwerk='OrganDefinitions/Harmonium Emil Muller.Organ_Hauptwerk_xml',
                       divisions={1: 'pedal', 2: 'great', 3: 'swell'},
@@ -108,7 +111,7 @@ REED_RE = re.compile(r'tromp|trump|trąbk|trabk|posaun|puzon|fagot|basson|bassoo
                      r'harmonium|physharm|anches?\b|kromhoorn|fagot', re.I)
 STRING_RE = re.compile(r'gamb|viol(?!-?princ)|fugara|salic|aeolin|eolin|celest|coelest|unda|dolce\b|cello|kontrab|contrab|'
                        r'geigen(?!princ|prinz)|vox ang|voce angel|bifra|piffaro|keraulo|harfen', re.I)
-FLUTE_RE = re.compile(r'fl[oöôe]t|floet|flut|flaut|flet|gedac|gedak|bourdon|bordun|burdon|subbas|subbaß|rohr|hohl|'
+FLUTE_RE = re.compile(r'fl[oöôeû]t|floet|flut|flaut|flet|gedac|gedak|bourdon|bordun|burdon|subbas|subbaß|rohr|hohl|'
                       r'nacht|koppel|spitz|wald|portun|jubal|trichter|quer|bassfl|untersatz|tibia|'
                       r'doppel|lieblich|still|zart|nasard|nazard|larigot|piccolo|pikolo|siffl|echobas|'
                       r'flageol|cor de nuit|bordon|soubasse|clarabel|melodia|fernfl|harmonique|kryty|otwart|quintat|quintad(?!ecima)|pijp|fluit|gedekt|gedeck', re.I)
@@ -262,7 +265,7 @@ def tremulants(odf: ODF, stops: list[tuple[Stop, dict]]) -> list[dict]:
             meas = []
             for s, st in stops:
                 if st['division'] == division and st['family'] in ('flute', 'principal', 'string') and st['transpose'] in (0, 12):
-                    meas += [measure_tremulant(f, f0) for f, f0 in tremulant_pipes(odf, s)]
+                    meas += [measure_tremulant(f, f0) for f, f0 in tremulant_pipes(odf, s) if os.path.exists(f)]
                 if len(meas) >= 24:
                     break
             if meas:
@@ -327,6 +330,10 @@ def catalog(organ: str) -> dict:
     pairs = [(byid[(st['section'], st['manual'])], st) for st in stops]
     boxes = sorted({st['division'] for s, st in pairs if enclosed(odf, s)})
     trems = tremulants(odf, pairs)
+    if os.path.exists(catalog_path(organ)):
+        # tremulant recordings are pruned after the first catalogue: keep what was measured
+        old = load_catalog(organ).get('tremulants', [])
+        trems += [t for t in old if t.get('sampled') and not any(n['division'] == t['division'] for n in trems)]
     # pipe-less keys inside each manual's compass
     for st in stops:
         s = next(x for x in pipe_stops(odf) if x.section == st['section'] and x.manual == st['manual'])
