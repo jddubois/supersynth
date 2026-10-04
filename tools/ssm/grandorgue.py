@@ -298,6 +298,11 @@ def render_pipe(p: Pipe, hold_s: float = 3.4) -> tuple[np.ndarray, int, int]:
     f0 = 440.0 * 2 ** ((p.midi - 69) / 12)
     if p.release is not None:
         rel, sr2 = _read(p.release)
+        rcue = wav_cue(p.release)
+        if rcue is not None and 0 < rcue < len(rel) // 2:
+            # a release recording with a cue point starts sounding there (the samples before it
+            # are silence or pre-roll that the sampler skips)
+            rel = rel[rcue:]
         if sr2 != sr:
             rel = signal.resample_poly(rel, sr, sr2, axis=0)
         loops = wav_loops(p.attack)

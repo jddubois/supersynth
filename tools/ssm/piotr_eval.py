@@ -83,5 +83,39 @@ def main(organ, regs):
     return res
 
 
+def stops(organ):
+    """Every stop alone (a chord, C3 for the pedal): level and spectrum against the sample set."""
+    os.makedirs(OUT, exist_ok=True)
+    od = organ_def(organ)
+    odf = load_odf(organ)
+    res = {}
+    for st in od['stops']:
+        if not os.path.exists(os.path.join(REPO, 'models', st['model'] + '.ssm')):
+            continue
+        d = st['division']
+        play = {d: CHORD[d]}
+        real, sr = real_sum(organ, odf, {d: [st['name']]}, play, [], 3.0)
+        if real is None:
+            continue
+        spec = dict(organ=organ, registration=od['defaultRegistration'], draw={d: [st['name']]}, play=play, hold=2.9,
+                    seconds=3.0, sampleRate=sr)
+        sp = os.path.join(OUT, f"{organ}-stop-{st['id']}.json")
+        json.dump(spec, open(sp, 'w'))
+        out = os.path.join(OUT, f"{organ}-stop-{st['id']}__syn.wav")
+        subprocess.run(['node', '--import', 'tsx', 'tools/ssm/piotr_render.ts', sp, out], cwd=REPO, check=True)
+        syn, _ = sf.read(out, always_2d=True)
+        n = min(len(real), len(syn))
+        ms = [metrics(real[:n, c], syn[:n, c], sr, seconds=2.8) for c in (0, 1)]
+        m = {k: float(np.mean([mm[k] for mm in ms])) for k in ms[0]}
+        res[st['id']] = m
+        print(f"{organ:14s} {st['id']:34s} lsd={m['lsd_db']:5.2f} attack={m['lsd_attack_db']:5.2f} env={m['env_err_db']:5.2f} "
+              f"centroid={m['centroid_err_cents']:6.1f}c gain={m['gain_db']:+.1f}", flush=True)
+    json.dump(res, open(os.path.join(OUT, f'{organ}-stops.json'), 'w'), indent=1)
+    return res
+
+
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2:])
+    if sys.argv[2:3] == ['--stops']:
+        stops(sys.argv[1])
+    else:
+        main(sys.argv[1], sys.argv[2:])
