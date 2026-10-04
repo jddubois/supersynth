@@ -57,6 +57,13 @@ ORGANS: dict[str, dict] = {
                    names={'II  Geigen Principal 8 Fuß': "Geigenprincipal 8'"}),
     'raszczyce': dict(odf='Raszczyce.organ', divisions={0: 'pedal', 1: 'positive', 2: 'great'}),
     'strassburg': dict(odf='Strassburg.organ', divisions={0: 'pedal', 1: 'great', 2: 'positive'}),
+    'dluga-koscielna': dict(odf='Dluga Koscielna.organ', divisions={0: 'pedal', 1: 'great', 2: 'positive'},
+                            church='Długa Kościelna'),
+    'giubiasco': dict(odf='Giubiasco.organ', divisions={0: 'pedal', 1: 'positive', 2: 'great'},
+                      names={"PT  Bordone 8'": "Bordone 8'", "PT  Flauto 4'": "Flauto 4'", "PT  Quinta 2 2/3'": "Quinta 2 2/3'",
+                             "PT  Principale 2'": "Principale 2'", "PT  Terza 1 3/5'": "Terza 1 3/5'",
+                             "PT  Larigot 1 1/3'": "Larigot 1 1/3'", "PT  Cimbalo 2 file 1'": 'Cimbalo 2 file',
+                             "PT  Regale 8'": "Regale 8'", "GO  Ripieno 4 file 1 1/3'": 'Ripieno 4 file'}),
 }
 
 NOISE_RE = re.compile(r'noise|action|blower|ambient|motor|traktur|szum|dmuchaw|tremul|cymbelstern|'
@@ -93,13 +100,13 @@ def slug(s: str) -> str:
 
 
 MIXTURE_RE = re.compile(r'mixt|mikst|cymb|zimbel|scharf|sesquialt|cornet|kornet|plein|fournit|rausch|ripieno|'
-                        r'progress|terzian|harmonia aeth|\b\d+\s*(?:fach|f|rg|rangs|x|chör|ch)\b|\b[IV]{2,}\b', re.I)
+                        r'progress|terzian|harmonia aeth|\b\d+\s*(?:fach|f|file|rg|rangs|x|chör|ch)\b|\b[IV]{2,}\b', re.I)
 REED_RE = re.compile(r'tromp|trump|trąbk|trabk|posaun|puzon|fagot|basson|bassoon|oboe|hautbois|clairon|krumm|'
                      r'cromorn|vox hum|voix hum|regal|dulcian|schalm|chalum|tuba|bombard|clarinet|klarinet|'
                      r'englisch|cor angl|corno ingl|zink|krumhorn|cornett?o\b|trombon|basun|skalmej|ranket|sordun|'
                      r'harmonium|physharm|anches?\b|kromhoorn|fagot', re.I)
 STRING_RE = re.compile(r'gamb|viol(?!-?princ)|fugara|salic|aeolin|eolin|celest|coelest|unda|dolce\b|cello|kontrab|contrab|'
-                       r'geigen(?!princ|prinz)|vox ang|voce angel|bifra|piffaro|keraulo|harfen', re.I)
+                       r'geigen(?!princ|prinz)|vox ang|voce angel|voce um|bifra|piffaro|keraulo|harfen', re.I)
 FLUTE_RE = re.compile(r'fl[oöôe]t|floet|flut|flaut|flet|gedac|gedak|bourdon|bordun|burdon|subbas|subbaß|rohr|hohl|'
                       r'nacht|koppel|spitz|wald|portun|jubal|trichter|quer|bassfl|untersatz|tibia|'
                       r'doppel|lieblich|still|zart|nasard|nazard|larigot|piccolo|pikolo|siffl|echobas|'
@@ -313,7 +320,7 @@ def catalog(organ: str) -> dict:
                next((x for x in stops if x['transpose'] == 0 and x['family'] != 'mixture'), stops[0]))
     pitch = measure_pitch(allst[ref['section']], ref['transpose'])
     o = odf.sections['organ']
-    return dict(id=organ, church=o.get('churchname', organ), address=o.get('churchaddress', ''),
+    return dict(id=organ, church=ORGANS[organ].get('church') or o.get('churchname', organ), address=o.get('churchaddress', ''),
                 builder=o.get('organbuilder', ''), year=o.get('organbuilddate', ''),
                 pitch=round(pitch, 3), reference=ref['id'], swellBoxes=boxes, tremulants=trems, stops=stops)
 
