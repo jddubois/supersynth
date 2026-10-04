@@ -397,8 +397,11 @@ def spec_for(cat: dict, st: dict) -> dict:
         max_partials=512, locked=not mixture, free_partials=12 if mixture else 0,
         stop=dict(name=st['name'], footage_offset=st['transpose'] + shift, family=st['family'], organ=cat['id']),
         fixed_gain_from=model_id(cat['id'], cat['reference']),
+        # pitchMorph off: a key plays its own pipe. Organs off A440 by a fraction of a semitone
+        # (Azzio -0.82, Strassburg +0.27) put every zone between two keys; morphing would blend
+        # each pipe with its neighbour (a stopped bass's 3rd harmonic changes 20 dB pipe to pipe)
         params=dict(releaseMode='natural', spread=0.35, reverb='church', reverbSend=0.06,
-                    formant=0.0, minReleaseDbS=20.0, tuning='recorded'),
+                    formant=0.0, minReleaseDbS=20.0, tuning='recorded', pitchMorph=False),
     )
 
 
@@ -506,6 +509,16 @@ def main():
     elif cmd == 'ts':
         print(ts_stops(organ))
 
+
+
+def patch_pitch_morph(organ: str) -> int:
+    """Set pitchMorph off in the models of an organ built before it was part of spec_for."""
+    import glob
+    from patch_header import patch
+    files = glob.glob(os.path.join(HERE, '..', '..', 'models', 'organ', organ, '*.ssm'))
+    for f in files:
+        patch(f, {'pitchMorph': False})
+    return len(files)
 
 
 def prune(organ: str) -> int:
