@@ -5,6 +5,7 @@
  */
 import type { OrganDef } from '../types.js';
 import { AZZIO_ORGAN } from './azzio.js';
+import { CRACOW_ORGAN } from './cracow.js';
 import { GREEN_POSITIV_ORGAN } from './green-positiv.js';
 import { LEDZINY_ORGAN } from './ledziny.js';
 import { LIPINY_ORGAN } from './lipiny.js';
@@ -14,11 +15,12 @@ import { SKRZATUSZ_ORGAN } from './skrzatusz.js';
 import { STRASSBURG_ORGAN } from './strassburg.js';
 import { SZCZECINEK_ORGAN } from './szczecinek.js';
 
-export { AZZIO_ORGAN, GREEN_POSITIV_ORGAN, LEDZINY_ORGAN, LIPINY_ORGAN, MELCER_ORGAN, RASZCZYCE_ORGAN, SKRZATUSZ_ORGAN, STRASSBURG_ORGAN, SZCZECINEK_ORGAN };
+export { AZZIO_ORGAN, CRACOW_ORGAN, GREEN_POSITIV_ORGAN, LEDZINY_ORGAN, LIPINY_ORGAN, MELCER_ORGAN, RASZCZYCE_ORGAN, SKRZATUSZ_ORGAN, STRASSBURG_ORGAN, SZCZECINEK_ORGAN };
 
 /** Piotr Grabowski's organs by id. */
 export const PIOTR_ORGANS = {
   azzio: AZZIO_ORGAN,
+  cracow: CRACOW_ORGAN,
   'green-positiv': GREEN_POSITIV_ORGAN,
   ledziny: LEDZINY_ORGAN,
   lipiny: LIPINY_ORGAN,
