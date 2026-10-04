@@ -29,7 +29,7 @@ import unicodedata
 import numpy as np
 
 from analysis import midi_to_hz
-from grandorgue import ODF, Stop, read_stops, render_key, write_wav_cue
+from grandorgue import ODF, HauptwerkODF, Stop, read_hauptwerk_stops, read_stops, render_key, write_wav_cue
 from paths import DATA_ROOT
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -57,6 +57,11 @@ ORGANS: dict[str, dict] = {
                    names={'II  Geigen Principal 8 Fuß': "Geigenprincipal 8'"}),
     'raszczyce': dict(odf='Raszczyce.organ', divisions={0: 'pedal', 1: 'positive', 2: 'great'}),
     'strassburg': dict(odf='Strassburg.organ', divisions={0: 'pedal', 1: 'great', 2: 'positive'}),
+    # Hauptwerk only: divisions are Hauptwerk division ids
+    'harmonium': dict(hauptwerk='OrganDefinitions/Harmonium Emil Muller.Organ_Hauptwerk_xml',
+                      divisions={1: 'pedal', 2: 'great', 3: 'swell'},
+                      family='reed',             # free reeds, every one
+                      names={'hwstop9': "Viola 4' Forte"}),
 }
 
 NOISE_RE = re.compile(r'noise|action|blower|ambient|motor|traktur|szum|dmuchaw|tremul|cymbelstern|'
@@ -162,6 +167,9 @@ def _windchests(odf: ODF, s: Stop) -> set[int]:
 
 
 def enclosed(odf: ODF, s: Stop) -> bool:
+    if isinstance(odf, HauptwerkODF):
+        boxed = {e['PipeID'] for e in odf.all('EnclosurePipe')}
+        return any(p['PipeID'] in boxed for p in odf.all('Pipe_SoundEngine01') if p['RankID'] in s.ranks)
     for wc in _windchests(odf, s):
         ws = f'windchestgroup{wc:03d}'
         for e in range(1, odf.int(ws, 'NumberOfEnclosures') + 1):
@@ -226,6 +234,18 @@ def tremulants(odf: ODF, stops: list[tuple[Stop, dict]]) -> list[dict]:
     """Each tremulant with the division it shakes: synthetic ones from their settings, sampled
     ones (pipes recorded with the tremulant on) measured on the division's 8' and 4' flue pipes
     (median over the pipes)."""
+    if isinstance(odf, HauptwerkODF):
+        # Hauptwerk's modelled tremulants: the rate is given; the depth comes from its wind model
+        # (not reproduced): a moderate default
+        out = []
+        for t in odf.all('Tremulant'):
+            m = re.search(r'\b(I{1,3}|P)\b', t.get('Name', ''))
+            num = {'P': 1, 'I': 2, 'II': 3, 'III': 4}.get(m.group(1)) if m else None
+            div = next((st['division'] for s, st in stops if s.manual == num), None)
+            if div and not any(o['division'] == div for o in out):
+                out.append(dict(division=div, depth=1.5, pitch=5.0, rate=float(t.get('FrequencyWhenEngagedHz') or 5),
+                                sampled=False))
+        return out
     out = []
     for t in range(1, odf.int('organ', 'NumberOfTremulants') + 1):
         ts = f'tremulant{t:03d}'
@@ -255,13 +275,15 @@ def tremulants(odf: ODF, stops: list[tuple[Stop, dict]]) -> list[dict]:
 
 
 # ── catalogue ───────────────────────────────────────────────────────────────────────────────
-def load_odf(organ: str) -> ODF:
+def load_odf(organ: str) -> ODF | HauptwerkODF:
+    if ORGANS[organ].get('hauptwerk'):
+        return HauptwerkODF(os.path.join(SAMPLES, organ, ORGANS[organ]['hauptwerk']))
     return ODF(os.path.join(SAMPLES, organ, ORGANS[organ]['odf']))
 
 
-def pipe_stops(odf: ODF) -> list[Stop]:
+def pipe_stops(odf: ODF | HauptwerkODF) -> list[Stop]:
     out = []
-    for s in read_stops(odf):
+    for s in (read_hauptwerk_stops(odf) if isinstance(odf, HauptwerkODF) else read_stops(odf)):
         files = {p.attack for ps in s.keys.values() for p in ps}
         if s.percussive or len(files) < 6 or NOISE_RE.search(s.name):
             continue
@@ -283,10 +305,11 @@ def catalog(organ: str) -> dict:
     for s in pipe_stops(odf):
         if s.manual not in divs:
             continue
-        name = ORGANS[organ].get('names', {}).get(s.name) or clean_name(s.name, s.manual_name)
+        names = ORGANS[organ].get('names', {})
+        name = names.get(s.section) or names.get(s.name) or clean_name(s.name, s.manual_name)
         hns = sorted({p.harmonic for ps in s.keys.values() for p in ps})
         per_key = max(len(ps) for ps in s.keys.values())
-        fam = family_of(name, hns if per_key > 1 else hns[:1])
+        fam = ORGANS[organ].get('family') or family_of(name, hns if per_key > 1 else hns[:1])
         division = divs[s.manual]
         base = f'{division}-{slug(name)}'
         sid, n = base, 2
@@ -303,16 +326,25 @@ def catalog(organ: str) -> dict:
     # pipe-less keys inside each manual's compass
     for st in stops:
         s = next(x for x in pipe_stops(odf) if x.section == st['section'] and x.manual == st['manual'])
-        ms = f"manual{st['manual']:03d}"
-        k0 = odf.int(ms, 'FirstAccessibleKeyMIDINoteNumber', 36)
-        compass = range(k0, k0 + odf.int(ms, 'NumberOfAccessibleKeys', odf.int(ms, 'NumberOfLogicalKeys', 56)))
+        if isinstance(odf, HauptwerkODF):
+            keys = [int(d['NormalMIDINoteNumber']) for d in odf.all('DivisionInput') if int(d['DivisionID']) == st['manual']]
+            compass = range(min(keys), max(keys) + 1)
+        else:
+            ms = f"manual{st['manual']:03d}"
+            k0 = odf.int(ms, 'FirstAccessibleKeyMIDINoteNumber', 36)
+            compass = range(k0, k0 + odf.int(ms, 'NumberOfAccessibleKeys', odf.int(ms, 'NumberOfLogicalKeys', 56)))
         st['missing'] = [k for k in compass if k not in s.keys]
     # pitch of the organ (an 8' principal of the main manual, else any 8')
     allst = {x.section: x for x in pipe_stops(odf)}
     ref = next((x for x in stops if x['family'] == 'principal' and x['transpose'] == 0 and x['division'] == 'great'),
                next((x for x in stops if x['transpose'] == 0 and x['family'] != 'mixture'), stops[0]))
     pitch = measure_pitch(allst[ref['section']], ref['transpose'])
-    o = odf.sections['organ']
+    if isinstance(odf, HauptwerkODF):
+        g = odf.general
+        o = {'churchname': g.get('Identification_Name', organ), 'churchaddress': g.get('OrganInfo_Location', ''),
+             'organbuilder': g.get('OrganInfo_Builder', ''), 'organbuilddate': g.get('OrganInfo_BuildDate', '')}
+    else:
+        o = odf.sections['organ']
     return dict(id=organ, church=o.get('churchname', organ), address=o.get('churchaddress', ''),
                 builder=o.get('organbuilder', ''), year=o.get('organbuilddate', ''),
                 pitch=round(pitch, 3), reference=ref['id'], swellBoxes=boxes, tremulants=trems, stops=stops)

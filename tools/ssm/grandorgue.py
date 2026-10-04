@@ -307,6 +307,13 @@ def render_pipe(p: Pipe, hold_s: float = 3.4) -> tuple[np.ndarray, int, int]:
             rel = signal.resample_poly(rel, sr, sr2, axis=0)
         loops = wav_loops(p.attack)
         loop_a = loops[0][0] if loops else int(0.5 * len(att))
+        if loops and 0 < loops[0][0] < loops[0][1] < len(att):
+            # a short recording: play its loop, as the sampler does, until the key-up is reached
+            a, b = loops[0]
+            need = int(max(hold_s * sr, min(a, 2.5 * sr) + 1.8 * sr) + 0.1 * sr)
+            if len(att) < need:
+                reps = int(math.ceil((need - b) / (b - a))) + 1
+                att = np.concatenate([att[:b]] + [att[a:b]] * reps)
         # key-up well into the sustain: at least `hold_s`, 1.8 s past the loop start (a loop
         # starting later than 2.5 s counts as 2.5 s: the model loops within the first ~2 s of
         # steady sound and drops the rest of the sustain before the release)
@@ -350,3 +357,89 @@ def write_wav_cue(path: str, x: np.ndarray, sr: int, cue: int):
             + b'data' + struct.pack('<I', data.nbytes) + data.tobytes())
     with open(path, 'wb') as f:
         f.write(b'RIFF' + struct.pack('<I', len(body)) + body)
+
+
+# ── Hauptwerk organ definitions ─────────────────────────────────────────────────────────────
+class HauptwerkODF:
+    """A Hauptwerk organ definition (.Organ_Hauptwerk_xml): its objects by type, as dicts."""
+
+    def __init__(self, path: str):
+        import xml.etree.ElementTree as ET
+        self.path = path
+        # <root>/OrganDefinitions/<file> next to <root>/OrganInstallationPackages/<id>/...
+        self.root = os.path.dirname(os.path.dirname(os.path.abspath(path)))
+        tree = ET.parse(path).getroot()
+        self.objects: dict[str, list[dict]] = {
+            ol.get('ObjectType'): [{c.tag: (c.text or '') for c in k} for k in ol] for ol in tree.findall('ObjectList')}
+        self.general = self.objects.get('_General', [{}])[0]
+
+    def all(self, typ: str) -> list[dict]:
+        return self.objects.get(typ, [])
+
+    def sample_path(self, sample: dict) -> str:
+        return os.path.join(self.root, 'OrganInstallationPackages', f"{int(sample['InstallationPackageID']):06d}",
+                            *re.split(r'[\\/]+', sample['SampleFilename']))
+
+
+def _rank_family(name: str) -> str:
+    """A rank's name without its microphone perspective, e.g. "003. I  Diapason 8' (close)" → "I  Diapason 8'"."""
+    return re.sub(r'\s*\((?:close|front|rear|dry|direct|surround|diffuse)\)\s*$', '', re.sub(r'^\d+\.\s*', '', name), flags=re.I).strip()
+
+
+def read_hauptwerk_stops(hw: HauptwerkODF) -> list[Stop]:
+    """Every stop of a Hauptwerk organ with the pipes its keys sound: a pipe belongs to the stop
+    whose switch conditions the pipe's pallet, at the key whose switch drives it; all microphone
+    perspectives of the stop's rank sound together (Hauptwerk's default mix)."""
+    switch_name = {s['SwitchID']: s.get('Name', '') for s in hw.all('Switch')}
+    key_of = {d['SwitchID']: (int(d['DivisionID']), int(d['NormalMIDINoteNumber'])) for d in hw.all('DivisionInput')}
+    drives: dict[str, list[tuple[str, str]]] = {}
+    for link in hw.all('SwitchLinkage'):
+        drives.setdefault(link['DestSwitchID'], []).append((link['SourceSwitchID'], link.get('ConditionSwitchID', '')))
+    ranks = {r['RankID']: r.get('Name', '') for r in hw.all('Rank')}
+    samples = {s['SampleID']: s for s in hw.all('Sample')}
+    layers: dict[str, dict] = {}
+    for lay in hw.all('Pipe_SoundEngine01_Layer'):
+        if lay.get('PipeLayerNumber', '1') == '1':
+            layers[lay['PipeID']] = lay
+    attacks: dict[str, list[dict]] = {}
+    for a in hw.all('Pipe_SoundEngine01_AttackSample'):
+        attacks.setdefault(a['LayerID'], []).append(a)
+    releases: dict[str, list[dict]] = {}
+    for r in hw.all('Pipe_SoundEngine01_ReleaseSample'):
+        releases.setdefault(r['LayerID'], []).append(r)
+    divisions = {d['DivisionID']: d.get('Name', '') for d in hw.all('Division')}
+
+    out = []
+    for st in hw.all('Stop'):
+        primary = ranks.get(st.get('Hint_PrimaryAssociatedRankID', ''), '')
+        fam = _rank_family(primary)
+        my_ranks = {rid for rid, n in ranks.items() if _rank_family(n) == fam}
+        stop = Stop(section=f"hwstop{st['StopID']}", name=st.get('Name', ''), manual=int(st['DivisionID']),
+                    manual_name=divisions.get(st['DivisionID'], ''), ranks=sorted(my_ranks))
+        for p in hw.all('Pipe_SoundEngine01'):
+            if p['RankID'] not in my_ranks:
+                continue
+            keys = [key_of[src] for src, cond in drives.get(p.get('ControllingPalletSwitchID', ''), [])
+                    if cond == st['ControllingSwitchID'] and src in key_of]
+            lay = layers.get(p['PipeID'])
+            if not keys or lay is None or not attacks.get(lay['LayerID']):
+                continue
+            att = samples[attacks[lay['LayerID']][0]['SampleID']]
+            rels = sorted(releases.get(lay['LayerID'], []), key=lambda r: -float(r.get('ReleaseSelCriteria_LatestKeyReleaseTimeMs') or 99999))
+            rel = samples[rels[0]['SampleID']] if rels else None
+            hn = float(p.get('Pitch_Tempered_RankBasePitch64ftHarmonicNum') or 8)
+            # played at the pipe's original pitch: a sample borrowed for another pipe (an
+            # extended bass, a celeste from another rank) is retuned to it
+            tune = float(lay.get('PitchLvl_DetuningPercentSemitones') or 0)
+            if att.get('Pitch_SpecificationMethodCode') == '4' and float(p.get('Pitch_OriginalOrgan_PitchHz') or 0) > 0:
+                tune += 1200 * math.log2(float(p['Pitch_OriginalOrgan_PitchHz']) / float(att['Pitch_ExactSamplePitch']))
+            pipe = Pipe(attack=hw.sample_path(att), release=hw.sample_path(rel) if rel else None,
+                        gain_db=float(lay.get('AmpLvl_LevelAdjustDecibels') or 0), amplitude=1.0,
+                        tuning_cents=tune, harmonic=hn, midi=int(p['NormalMIDINoteNumber']) + 12 * math.log2(hn / 8.0),
+                        crossfade_ms=float(rels[0].get('ReleaseCrossfadeLengthMs') or 10) if rels else 10.0)
+            for div, key in keys:
+                if div == stop.manual:
+                    stop.keys.setdefault(key, []).append(pipe)
+        if stop.keys:
+            out.append(stop)
+    return out
