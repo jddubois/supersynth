@@ -1,6 +1,7 @@
 import type { NoteLike } from './notes.js';
 
-/** Timing options shared by note methods. Times are in seconds on the synth clock. */
+/** When a change happens: every method that makes or changes sound takes these as its last
+ *  argument. Without either, it happens now. */
 export interface TimeOptions {
   /** Absolute time (seconds, `synth.currentTime` clock). */
   at?: number;
@@ -21,18 +22,31 @@ export type SequenceStep =
   | { note: NoteLike | NoteLike[] | null; beats: number; velocity?: number };
 
 export interface SequenceOptions extends TimeOptions {
-  /** @default 120 */
-  bpm?: number;
+  /** Beats per minute. @default 120 */
+  tempo?: number;
   /** Velocity of steps that do not set their own. @default 90 */
   velocity?: number;
   /** Fraction of each step the key is held. @default 0.95 */
   legato?: number;
 }
 
-/** Something with keys: a {@link Part} or an organ {@link Division}. */
-export interface Keyboard {
-  noteOn(note: NoteLike, velocity?: number, options?: TimeOptions): unknown;
-  noteOff(note: NoteLike, options?: TimeOptions): unknown;
+/**
+ * Anything you can play notes on: an {@link Instrument} or one {@link Division} of an organ.
+ * Code written against `Playable` plays either.
+ */
+export interface Playable {
+  /** Press a key. */
+  noteOn(note: NoteLike, velocity?: number, options?: TimeOptions): this;
+  /** Release a key. */
+  noteOff(note: NoteLike, options?: TimeOptions): this;
+  /** Play notes together for a duration. */
+  play(notes: NoteLike | NoteLike[], options?: PlayOptions): this;
+  /** Play steps one after another; returns the length in seconds. */
+  sequence(steps: SequenceStep[], options?: SequenceOptions): number;
+  /** Expression (swell pedal) 0–1. */
+  expression(value: number, options?: TimeOptions): this;
+  /** Release every held key. */
+  allNotesOff(options?: TimeOptions): this;
 }
 
 /** Absolute engine time of a {@link TimeOptions}, or undefined for "now". */
@@ -43,7 +57,7 @@ export function resolveTime(now: number, o: TimeOptions): number | undefined {
 }
 
 /** Press notes together and release them after `options.duration`. */
-export function playNotes(kb: Keyboard, now: number, notes: NoteLike | NoteLike[], options: PlayOptions, velocity: number): void {
+export function playNotes(kb: Pick<Playable, 'noteOn' | 'noteOff'>, now: number, notes: NoteLike | NoteLike[], options: PlayOptions, velocity: number): void {
   const list = Array.isArray(notes) ? notes : [notes];
   const dur = Math.max(0, options.duration ?? 1);
   const t = resolveTime(now, options);
@@ -61,7 +75,7 @@ export function playSequence(
   steps: SequenceStep[],
   options: SequenceOptions,
 ): number {
-  const beat = 60 / (options.bpm ?? 120);
+  const beat = 60 / (options.tempo ?? 120);
   const legato = options.legato ?? 0.95;
   let t = resolveTime(now, options) ?? now;
   const start = t;

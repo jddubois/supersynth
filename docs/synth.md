@@ -1,4 +1,37 @@
-# Synth and Part
+# API
+
+## The model
+
+| | |
+|---|---|
+| `Synth` | the engine: clock, real-time output or offline rendering, master volume and room, MIDI |
+| `Instrument` | an instrument playing in the synth, on its own channel — `synth.add('violin', { preset, parameters })` |
+| `Organ`, `Division` | a church organ and its four keyboards (great, swell, positive, pedal) — `synth.add('burea', { preset })`; see [organ.md](organ.md) |
+| `InstrumentDefinition`, `OrganDefinition` | instruments and organs as plain configuration objects; `INSTRUMENTS` and `ORGANS` hold the built-in ones by id, and `synth.add` takes an id or a definition of either |
+| `Playable` | anything you play notes on: an `Instrument` or a `Division` |
+
+Six rules hold everywhere:
+
+1. **Playing.** Instruments and divisions are `Playable`: `noteOn`, `noteOff`, `play`,
+   `sequence`, `expression`, `allNotesOff`.
+2. **Time.** Every method that makes or changes sound takes `{ at }` (seconds on
+   `synth.currentTime`) or `{ delay }` (seconds from now) as its last argument; without either
+   it acts now (`panic()` and `remove()` always act at once). That includes presets, stops,
+   couplers, the tremulant, volume and room, so a whole piece — registration changes included —
+   can be scheduled and rendered in one go.
+   Schedule changes in time order: methods that report state (`drawn()`, `activePreset()`, …)
+   report what was last asked for, including changes scheduled for later.
+3. **`set(settings)`** changes some of an object's settings and leaves the rest:
+   `synth.set({ volume, reverb })`, `instrument.set({ brightness, … })`,
+   `organ.set({ tremulant, wind })`, `division.set({ stops, couple })`. The settings are those
+   the object can be created with.
+4. **Presets** work the same on instruments and organs: `preset(name | object)`, `presets()`,
+   `savePreset(name)`, `current()`, `activePreset()`.
+5. **MIDI channels** are 1–16, and nothing plays from a MIDI keyboard until it is given a
+   channel: `instrument.midi(1)`, `organ.midi({ great: 1, pedal: 2 })`.
+6. **Properties are read-only state** (`synth.currentTime`, `instrument.definition`);
+   everything you change, and every list, is a method. Methods that change something return
+   the object, so calls chain: `synth.add('grand-piano').preset('mellow').midi(1)`.
 
 ## `new Synth(options?)`
 
@@ -6,55 +39,67 @@
 |---|---|---|
 | `sampleRate` | device rate (48000 without a device) | Hz |
 | `backend` | `'auto'` | `'coreaudio' \| 'wasapi' \| 'alsa' \| 'jack' \| 'pulseaudio' \| 'pipewire'` |
-| `reverb` | `'auto'` | preset name, `ReverbOptions`, `false`, or `'auto'` (room of the first instrument) |
+| `reverb` | `'auto'` | preset name, `ReverbOptions`, `false`, or `'auto'` (the room suggested by the first instrument or organ added) |
 | `volume` | `0.5` | master volume 0–1 |
+| `quality` | `'high'` | partials per note: `'high'` 512, `'balanced'` 128, `'eco'` 32 (small boards such as a Raspberry Pi) |
 | `maxVoices` | `192` | quietest/oldest voices are stolen beyond this |
 | `bufferSize` | device default | frames per audio callback |
-| `modelsDir` | package `models/` | where `.ssm` models are loaded from |
+| `modelsDirectory` | package `models/` | where `.ssm` models are loaded from |
 
-### Members
-
-| | |
+| Method | |
 |---|---|
-| `add(id \| def, { preset, params, channel })` | add an instrument → `Part` |
-| `organ(id \| { instrument, preset, presets, tremulant, wind })` | a church organ → `Organ` |
-| `part(channel)`, `remove(part)` | |
+| `add(id \| definition, options)` | add an instrument → `Instrument` (options `{ preset, parameters }`), or an organ → `Organ` (options `{ preset, presets, tremulant, wind }`) |
+| `instruments()`, `remove(instrument \| organ)` | the instruments and organs added; remove one |
+| `set({ volume, reverb }, { at })` | master volume and room, see [parameters.md](parameters.md#reverb) |
 | `start()` / `stop()` / `close()` | real-time output |
-| `render(seconds)` | offline → `{ sampleRate, left, right }` |
+| `render(seconds)` | offline → `{ sampleRate, left, right, duration }` |
 | `renderToFile(path, seconds, { bitDepth, mono })` | offline → WAV |
-| `renderMidi(file, options)` / `playMidi(file, options)` | Standard MIDI Files |
-| `setReverb(preset \| options \| false)`, `setVolume(v)` | |
-| `allNotesOff()`, `panic()` | |
-| `enableMidi(device?, { route })`, `listMidiDevices()`, `listAudioBackends()` | hardware MIDI |
+| `renderMidi(file, options)` / `playMidi(file, options)` | Standard MIDI Files, see [midi.md](midi.md) |
+| `allNotesOff({ at })`, `panic()` | release every note; silence everything at once |
+| `enableMidi(device?, { route })`, `disableMidi()` | hardware MIDI input, see [midi.md](midi.md) |
+| `listMidiDevices()`, `listAudioBackends()` | |
+
+| Property | |
+|---|---|
 | `currentTime` | engine clock, seconds — schedule with `{ at: synth.currentTime + x }` |
-| `activeVoices`, `cpuLoad`, `sampleRate`, `isRunning` | |
-| `Synth.instruments()` | catalog with presets |
+| `sampleRate`, `activeVoices`, `cpuLoad`, `isRunning` | |
 
-Events: `'midi'` (`MidiEvent`) when hardware MIDI is enabled.
+Events: `'midi'` (`MidiEvent`) for every message once hardware MIDI is enabled.
 
-## `Part`
+## `Instrument`
 
-Returned by `synth.add`. One instrument on one channel (MIDI channel = `index + 1`).
+Returned by `synth.add`: one instrument on one channel.
 
-| | |
+| Method | |
 |---|---|
 | `play(notes, { velocity, duration, at, delay })` | notes: `'C4'`, `60`, or arrays (chords) |
-| `sequence(steps, { bpm, at, velocity, legato })` | `[note, beats]` or `{ note, beats, velocity }`; returns seconds |
-| `noteOn(note, velocity?, { at })` / `noteOff(note, { at })` | |
-| `sustain(down)`, `pitchBend(-1…1)`, `modWheel(0…1)`, `expression(0…1)`, `cc(n, v)` | |
-| `set(params, { at })`, `get(name)`, `reset()` | see [parameters.md](parameters.md) |
-| `usePreset(name, extraParams?)`, `presets`, `preset` | |
-| `allNotesOff()` | |
+| `sequence(steps, { tempo, velocity, legato, at, delay })` | `[note, beats]` or `{ note, beats, velocity }`; `null` is a rest; returns seconds |
+| `noteOn(note, velocity?, { at })`, `noteOff(note, { at })`, `allNotesOff()` | |
+| `sustain(down)`, `pitchBend(-1…1)`, `modulation(0…1)`, `expression(0…1)`, `controlChange(n, v)` | controllers |
+| `set(parameters, { at })`, `get(name)`, `parameters()` | sound parameters, see [parameters.md](parameters.md) |
+| `preset(name \| preset, { at })`, `presets()`, `savePreset(name, preset?)`, `current()`, `activePreset()` | presets |
+| `midi(channel?)` | play it from a MIDI keyboard on channel 1–16 (every channel if left out) |
 
-## Standalone instruments
+| Property | |
+|---|---|
+| `definition` | the `InstrumentDefinition` it plays (`range`, `presets`, …) |
+| `synth` | the synth it plays in |
 
-`new Piano()`, `new Violin()`, `new Strings()`, `new Flute()`, `new Trumpet()`, `new ChurchOrgan()` …
-(or `new Instrument(id, options)`) create their own `Synth` with one part — the quickest way to play:
+### Presets
+
+A preset is a set of parameters, and optionally layers, applied together; each instrument's
+presets are listed in [instruments.md](instruments.md). Applying one replaces every parameter;
+`preset('default')` returns to the instrument as recorded. `activePreset()` names the preset in
+use until a parameter is changed by hand (parameters given with the preset to `synth.add` count
+as part of it):
 
 ```ts
-const piano = new Piano({ preset: 'mellow' });
-await piano.start();
-piano.play(['C4', 'E4', 'G4'], { duration: 2 });
+const piano = synth.add('grand-piano', { preset: 'mellow', parameters: { volume: -3 } });
+piano.activePreset();                     // 'mellow'
+piano.set({ release: 2 });                // now undefined
+piano.savePreset('mine');                 // the sound as it is now
+piano.preset('bright').preset('mine', { at: 10 });
+piano.preset({ parameters: { brightness: -2, decay: 1.5 } });   // a preset object
 ```
 
 ## Notes

@@ -2,6 +2,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { SupersynthError } from './errors.js';
+
 /** @internal The native engine surface (napi-rs). */
 export interface NativeLayer {
   model: number;
@@ -85,7 +87,7 @@ export function loadNative(): NativeModule {
       errors.push(`${name}: ${(e as Error).message.split('\n')[0]}`);
     }
   }
-  throw new Error(
+  throw new SupersynthError(
     `No supersynth native binary for ${process.platform}-${process.arch}. ` +
       `Build it with \`npm run build:native\` (requires Rust).\n  ${errors.join('\n  ')}`,
   );

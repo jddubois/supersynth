@@ -1,37 +1,50 @@
 # The church organ
 
-`synth.organ()` gives a real church organ: the **Bureå Church organ** (Nils Hammarberg, 1967,
-Sweden), every pipe of 40 stops analysed from Lars Palo's GrandOrgue sample set (CC BY-SA). Pipes
-keep their own tuning and voicing, stops keep their natural balance, and the pipes carry the
-church acoustic they were recorded in.
+`synth.add('burea')` adds a real church organ: the **Bureå Church organ** (Nils Hammarberg,
+1967, Sweden), every pipe of 40 stops analysed from Lars Palo's GrandOrgue sample set (CC BY-SA).
+Pipes keep their own tuning and voicing, stops keep their natural balance, and the pipes carry
+the church acoustic they were recorded in.
 
 ```ts
-const organ = synth.organ({ preset: 'plenum' });
+const organ = synth.add('burea', { preset: 'plenum' });
 
 organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
 organ.pedal.play('C2', { duration: 4 });
 organ.swell.noteOn('G4'); organ.swell.noteOff('G4', { delay: 1 });
 
-organ.great.pull("Trumpet 8'");     // works while notes are held
-organ.great.push('Mixture V');
-organ.great.set("Principal 8'", "Octave 4'");   // exactly these stops
-organ.great.drawn();                // stops currently drawn
-organ.great.couple('swell');        // Swell to Great: the great also plays the swell
+organ.great.pull("Trumpet 8'");                 // works while notes are held
+organ.great.push(['Mixture V', "Octave 2'"]);
+organ.great.set({ stops: ["Principal 8'", "Octave 4'"] });   // exactly these stops
+organ.great.drawn();                            // the stops drawn
+organ.great.couple('swell');                    // Swell to Great: the great also plays the swell
 organ.pedal.uncouple('great');
-organ.swell.expression(0.5);        // swell pedal
-organ.tremulant(true);
+organ.swell.expression(0.5);                    // swell pedal
+organ.set({ tremulant: true });
 ```
 
 Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
-(`'great-trumpet-8'`). Divisions: `great`, `swell`, `positive`, `pedal`, each a `Division`:
+(`'great-trumpet-8'`). The divisions `great`, `swell`, `positive` and `pedal` are each a
+`Division`, which is `Playable` like an instrument:
 
-| | |
+| Division | |
 |---|---|
-| `play`, `sequence`, `noteOn`, `noteOff` | playing (organs are not velocity sensitive) |
-| `pull(...stops)`, `push(...stops)`, `set(...stops)` | draw, retire, draw exactly these (`set()` silences) |
-| `couple(...divisions)`, `uncouple(...divisions)` | couplers to this keyboard (`uncouple()` releases all) |
-| `stops()`, `drawn()`, `coupled()` | the division's stops, those drawn, the divisions coupled to it |
+| `play`, `sequence`, `noteOn`, `noteOff`, `allNotesOff` | playing (organs are not velocity sensitive) |
 | `expression(0–1)` | swell pedal (shutters on the swell, volume elsewhere) |
+| `pull(stop \| stops)`, `push(stop \| stops)` | draw, retire |
+| `couple(division \| divisions)`, `uncouple(division \| divisions)` | couplers to this keyboard |
+| `set({ stops, couple })` | replace the stops drawn and/or the couplers as a whole (`[]` for none) |
+| `stops()`, `drawn()`, `coupled()` | the division's stops, those drawn, the divisions coupled to it |
+
+| Organ | |
+|---|---|
+| `great`, `swell`, `positive`, `pedal`, `divisions()`, `division(name)` | the keyboards |
+| `preset(name \| preset)`, `presets()`, `savePreset(name, preset?)`, `current()`, `activePreset()` | presets, as on an instrument |
+| `set({ tremulant, wind })` | the tremulant; how much the wind sags when many pipes start (0 steady – 1 flexible) |
+| `midi(channels, { presets })` | play it from MIDI keyboards |
+| `allNotesOff()`, `stops()`, `definition` | |
+
+Every change takes `{ at }` or `{ delay }` last, like a note, so registration changes can be
+scheduled with the music: `organ.preset('full', { at: 30 })`, `organ.swell.pull("Schalmei 8'", { at: 12.5 })`.
 
 Couplers live in the engine, so they act on every note: from the API, a MIDI keyboard or a MIDI
 file. A pipe reached from two keyboards at once sounds once, until both keys are up. As on a
@@ -53,13 +66,13 @@ organ.preset({
 });
 
 organ.savePreset('solo');           // remember what is drawn now (like a combination piston)
-organ.preset('plenum').preset('solo');
+organ.preset('plenum').preset('solo', { at: 20 });
 organ.current();                    // what is drawn now, as a preset object
 organ.presets();                    // all presets by name: the organ's own and yours
 organ.activePreset();               // 'solo', or undefined once a stop was changed by hand
 
 // presets of your own from the start
-synth.organ({ presets: { solo: { great: ["Trumpet 8'"], pedal: ["Subbass 16'"] } }, preset: 'solo' });
+synth.add('burea', { presets: { solo: { great: ["Trumpet 8'"], pedal: ["Subbass 16'"] } }, preset: 'solo' });
 ```
 
 ## MIDI keyboards
@@ -73,15 +86,14 @@ organ.midi({ great: 1, swell: 2, pedal: 3 }, { presets: ['flutes', 'principal-ch
 Each division plays its MIDI channel straight in the engine (no JavaScript in the note path),
 couplers included; CC 11 on a division's channel is its swell pedal. Program change *n* on any of
 the organ's channels selects the *n*-th preset of `presets` (default: all presets, in the order
-of `organ.presets()`; `false` ignores program changes). MIDI files play an organ with
+of `organ.presets()`; `false` ignores program changes). Calling `midi()` again replaces the
+organ's channels. MIDI files play an organ with
 `synth.renderMidi(file, { channels: { 1: organ.great, 2: organ.pedal } })`.
-
-`new ChurchOrgan({ preset })` creates an organ with its own engine.
 
 ## A second organ: the VCSL church organ
 
 ```ts
-const organ = synth.organ('vcsl');                  // or { instrument: 'vcsl', preset: 'full' }
+const organ = synth.add('vcsl', { preset: 'full' });
 organ.great.play(['C4', 'E4', 'G4'], { duration: 3 });
 organ.preset('chamber');                         // the Renaissance chamber organ (8' + 4')
 organ.positive.play(['G4', 'B4', 'D5'], { duration: 3 });
@@ -103,18 +115,18 @@ flutes on the swell).
 
 ## Organs are configuration
 
-Each organ is a plain `OrganDef` object: its stops, named presets, the placement of its
+Each organ is a plain `OrganDefinition` object: its stops, named presets, the placement of its
 divisions (stereo position, which one stands in a swell box), its tremulant, wind and reverb.
-The built-in organs are exported as `BUREA_ORGAN` and `VCSL_ORGAN` (from `supersynth` and from
-`supersynth/organs`), and `instrument` accepts an id or any `OrganDef`:
+The built-in organs are `ORGANS.burea` (`BUREA_ORGAN`) and `ORGANS.vcsl` (`VCSL_ORGAN`), exported
+from `supersynth` and from `supersynth/organs`; `synth.add` takes an id or any `OrganDefinition`:
 
 ```ts
-import { BUREA_ORGAN, type OrganDef } from 'supersynth/organs';
+import { BUREA_ORGAN, type OrganDefinition } from 'supersynth/organs';
 
-synth.organ({ instrument: BUREA_ORGAN });          // same as instrument: 'burea'
+synth.add(BUREA_ORGAN);                          // same as synth.add('burea')
 
 // your own presets, a tremulant on the positive, a steadier wind
-const mine: OrganDef = {
+const mine: OrganDefinition = {
   ...BUREA_ORGAN,
   id: 'burea-mine',
   presets: {
@@ -129,10 +141,10 @@ const mine: OrganDef = {
   tremulant: { division: 'positive', depth: 2, pitch: 6, rate: 5.5 },
   wind: 0.2,
 };
-const organ = synth.organ({ instrument: mine, preset: 'flute-solo' });
+const organ = synth.add(mine, { preset: 'flute-solo' });
 
 // or a small organ from a few of the recorded stops
-const box: OrganDef = {
+const box: OrganDefinition = {
   id: 'box', name: 'Box organ', description: 'Two Bureå flutes',
   stops: BUREA_ORGAN.stops.filter((s) => ['great-gedackt-8', 'pedal-subbass-16'].includes(s.id)),
   presets: { soft: { description: 'Gedackt and Subbass', great: ["Gedackt 8'"], pedal: ["Subbass 16'"] } },
@@ -143,7 +155,7 @@ const box: OrganDef = {
 A stop plays the model `organ/<id>` (or its `model`), transposed by `transpose` semitones from
 the key. Optional fields default to `CHURCH_DIVISIONS` (great centre, swell right in its swell
 box, positive left, pedal centre), `SWELL_TREMULANT` and `ORGAN_DEFAULTS`. The rest of this page
-describes the Bureå organ (the default).
+describes the Bureå organ.
 
 ## Stops
 

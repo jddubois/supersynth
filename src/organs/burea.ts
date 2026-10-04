@@ -1,10 +1,10 @@
 import { CHURCH_DIVISIONS, SWELL_TREMULANT } from './defaults.js';
-import type { OrganDef, OrganPreset, StopDef } from './types.js';
+import type { OrganDefinition, OrganPreset, StopDefinition } from './types.js';
 
 // Every pipe of every stop analysed from Lars Palo's GrandOrgue sample set (CC BY-SA 2.5 SE);
 // models/organ/<id>.ssm. The Bureå organ has 33 stops; the 7 "extra" stops come from the
 // sample set's extended version and are placed where they fit.
-const STOPS: StopDef[] = [
+const STOPS: StopDefinition[] = [
   { id: 'great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0 },
   { id: 'great-gedackt-8', name: "Gedackt 8'", division: 'great', family: 'flute', transpose: 0 },
   { id: 'extra-hohlflute-8', name: "Hohlflöte 8'", division: 'great', family: 'flute', transpose: 0 },
@@ -122,7 +122,7 @@ const PRESETS: Record<string, OrganPreset> = {
 
 /** The Bureå Church organ (Nils Hammarberg, 1967, Sweden): 40 stops on great, swell, positive
  *  and pedal, every pipe analysed from Lars Palo's recordings (CC BY-SA 2.5 SE). */
-export const BUREA_ORGAN: OrganDef = {
+export const BUREA_ORGAN: OrganDefinition = {
   id: 'burea',
   name: 'Bureå Church organ',
   description: 'Nils Hammarberg 1967, Bureå Church (Sweden): 40 stops on three manuals and pedal, every pipe recorded in the church.',

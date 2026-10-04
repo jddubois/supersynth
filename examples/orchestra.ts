@@ -12,7 +12,7 @@ const strings = synth.add('strings', { preset: 'lush' });
 const bass = synth.add('contrabass-pizzicato');
 const harp = synth.add('harp');
 const oboe = synth.add('oboe', { preset: 'vibrato' });
-const horn = synth.add('french-horn', { params: { volume: -4 } });
+const horn = synth.add('french-horn', { parameters: { volume: -4 } });
 
 const bar = 2.2;
 let t = 0.3;
@@ -26,7 +26,7 @@ for (let rep = 0; rep < 2; rep++) {
     t += bar;
   }
 }
-playSteps(oboe, GREENSLEEVES, { at: 0.3 + 8 * bar, bpm: 82, velocity: 85 });
+playSteps(oboe, GREENSLEEVES, { at: 0.3 + 8 * bar, tempo: 82, velocity: 85 });
 
 if (out) {
   synth.renderToFile(out, t + 3);

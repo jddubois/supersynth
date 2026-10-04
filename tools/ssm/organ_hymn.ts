@@ -10,8 +10,8 @@ import { OLD_HUNDREDTH } from '../../examples/util/music.ts';
 
 const [reg, out, eventsPath] = process.argv.slice(2) as [string, string, string];
 const dry = process.argv.includes('--dry');
-const synth = new Synth({ sampleRate: 44100, modelsDir: process.env.SSM_OUT_DIR || undefined, ...(dry ? { reverb: false } : {}) });
-const organ = synth.organ({ preset: reg });
+const synth = new Synth({ sampleRate: 44100, modelsDirectory: process.env.SSM_OUT_DIR || undefined, ...(dry ? { reverb: false } : {}) });
+const organ = synth.add('burea', { preset: reg });
 const bpm = reg === 'full' ? 76 : 88;
 const beat = 60 / bpm;
 const events: { stop: string; key: number; at: number; dur: number }[] = [];
