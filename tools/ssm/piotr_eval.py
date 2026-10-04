@@ -39,13 +39,17 @@ def real_sum(organ, odf, sections, play, couplers, seconds):
         byname[(st['division'], st['name'])] = st
     stops = {(s.section, s.manual): s for s in pipe_stops(odf)}
     acc, sr = None, 48000
+    # every (division, key) sounds once, whether played directly or through a coupler
+    sounding_keys: dict[str, set[int]] = {}
     for div, keys in play.items():
-        sounding = [div] + [a for a, b in (c.split('>') for c in couplers) if b == div]
-        for d in sounding:
+        for d in [div] + [a for a, b in (c.split('>') for c in couplers) if b == div]:
+            sounding_keys.setdefault(d, set()).update(keys)
+    for d, keys in sounding_keys.items():
+        if True:
             for name in sections.get(d, []):
                 st = byname[(d, name)]
                 s = stops[(st['section'], st['manual'])]
-                for k in keys:
+                for k in sorted(keys):
                     if k not in s.keys:
                         continue
                     y, sr, up = render_key(s.keys[k])
