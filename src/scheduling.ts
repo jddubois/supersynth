@@ -29,10 +29,23 @@ export interface SequenceOptions extends TimeOptions {
   legato?: number;
 }
 
-/** Something with keys: a {@link Part} or an organ {@link Division}. */
+/**
+ * Something with keys you can play: a {@link Part}, an organ {@link Division} or a standalone
+ * {@link Instrument}. Code written against `Keyboard` plays any of them.
+ */
 export interface Keyboard {
-  noteOn(note: NoteLike, velocity?: number, options?: TimeOptions): unknown;
-  noteOff(note: NoteLike, options?: TimeOptions): unknown;
+  /** Press a key. */
+  noteOn(note: NoteLike, velocity?: number, options?: TimeOptions): this;
+  /** Release a key. */
+  noteOff(note: NoteLike, options?: TimeOptions): this;
+  /** Play notes together for a duration. */
+  play(notes: NoteLike | NoteLike[], options?: PlayOptions): this;
+  /** Play steps one after another; returns the length in seconds. */
+  sequence(steps: SequenceStep[], options?: SequenceOptions): number;
+  /** Expression (swell pedal) 0–1. */
+  expression(value: number, options?: TimeOptions): this;
+  /** Release every held key. */
+  allNotesOff(options?: TimeOptions): this;
 }
 
 /** Absolute engine time of a {@link TimeOptions}, or undefined for "now". */
@@ -43,7 +56,7 @@ export function resolveTime(now: number, o: TimeOptions): number | undefined {
 }
 
 /** Press notes together and release them after `options.duration`. */
-export function playNotes(kb: Keyboard, now: number, notes: NoteLike | NoteLike[], options: PlayOptions, velocity: number): void {
+export function playNotes(kb: Pick<Keyboard, 'noteOn' | 'noteOff'>, now: number, notes: NoteLike | NoteLike[], options: PlayOptions, velocity: number): void {
   const list = Array.isArray(notes) ? notes : [notes];
   const dur = Math.max(0, options.duration ?? 1);
   const t = resolveTime(now, options);

@@ -1,24 +1,20 @@
-import type { InstrumentDef, LayerDef, PresetDef } from './catalog/index.js';
+import { findInstrument, INSTRUMENTS, type InstrumentDef, type LayerDef, type PresetDef } from './catalog/index.js';
+import { SupersynthError } from './errors.js';
 import { noteNumber, type NoteLike } from './notes.js';
-import { toNativeParam, type InstrumentParams } from './params.js';
-import { playNotes, playSequence, resolveTime, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
+import { PARAM_DEFAULTS, toNativeParam, type InstrumentParams } from './params.js';
+import { playNotes, playSequence, resolveTime, type Keyboard, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
 import type { Synth } from './Synth.js';
 
-export type { PlayOptions, TimeOptions } from './scheduling.js';
-
-/** Defaults of every parameter (used when switching presets). */
-export const PARAM_DEFAULTS: Required<Omit<InstrumentParams, 'leslie' | 'mono' | 'legato'>> & { leslie: 'off'; mono: false; legato: false } = {
-  volume: 0, pan: 0, reverbSend: -1, spread: -1, brightness: 0, evenHarmonics: 0, noise: 0, formant: -1,
-  inharmonicity: 1, maxPartials: 512, attack: 1, decay: 1, release: 1, vibrato: 0, vibratoRate: 5.5,
-  vibratoDelay: 0.3, naturalVibrato: 1, humanize: 0, transpose: 0, tune: 0, bendRange: 2, modDepth: 25,
-  velocitySensitivity: 1, mono: false, legato: false, glide: 0.06, tremolo: 0, tremoloPitch: 0, tremoloRate: 6, gain: 0, jitter: 1, shimmer: 1, eqLowGain: 0, eqLowFreq: 200, eqMidGain: 0, eqMidFreq: 1000,
-  eqMidQ: 0.7, eqHighGain: 0, eqHighFreq: 5000, lowCut: 0, highCut: 0, chorus: 0, chorusRate: 0.6,
-  chorusDepth: 3, drive: 1, driveTone: 6000, driveLevel: 0.8, leslie: 'off',
-};
+export interface PartOptions {
+  /** Preset to start with: a name from the instrument's presets, or a preset. @default 'default' */
+  preset?: string | PresetDef;
+  /** Parameter tweaks on top of the preset. */
+  params?: InstrumentParams;
+}
 
 /**
  * One instrument on its own channel of a {@link Synth}: play notes, apply presets
- * and tweak the sound live.
+ * and tweak the sound live. Created by {@link Synth.add}.
  *
  * ```ts
  * const piano = synth.add('grand-piano', { preset: 'mellow' });
@@ -27,47 +23,46 @@ export const PARAM_DEFAULTS: Required<Omit<InstrumentParams, 'leslie' | 'mono' |
  * piano.set({ brightness: 1 });
  * ```
  */
-export class Part {
+export class Part implements Keyboard {
+  /** The instrument definition this part plays. */
+  readonly definition: InstrumentDef;
+  /** @internal Engine channel (0–31). */
+  readonly channel: number;
   /** Parameters currently applied on top of the defaults. */
   private applied: InstrumentParams = {};
-  private _preset = 'default';
+  private active: string | undefined;
   private layers: LayerDef[] = [];
+  private saved: Record<string, PresetDef> = {};
 
-  /** @internal */
+  /** @internal Use {@link Synth.add}. */
   constructor(
     readonly synth: Synth,
-    /** Engine channel (MIDI channel = index + 1 when MIDI routing is on). */
-    readonly index: number,
-    /** The instrument definition this part plays. */
-    readonly instrument: InstrumentDef,
-  ) {}
-
-  /** Name of the active preset. */
-  get preset(): string {
-    return this._preset;
-  }
-
-  /** Names of the presets available for this instrument. */
-  get presets(): string[] {
-    return Object.keys(this.instrument.presets);
-  }
-
-  /** Current parameter values that differ from the defaults. */
-  get params(): Readonly<InstrumentParams> {
-    return { ...this.applied };
+    instrument: string | InstrumentDef,
+    options: PartOptions = {},
+  ) {
+    const def = typeof instrument === 'string' ? findInstrument(instrument) : instrument;
+    if (!def) {
+      throw new SupersynthError(`Unknown instrument '${String(instrument)}'. Available: ${INSTRUMENTS.map((d) => d.id).join(', ')}`);
+    }
+    this.definition = def;
+    const preset = options.preset ?? 'default';
+    const p = this.lookup(preset); // fail before taking a channel
+    this.channel = synth._attach(this);
+    synth._suggestRoom(p.reverb ?? def.reverb);
+    this.apply(p, typeof preset === 'string' ? preset : undefined, options.params);
   }
 
   // ── notes ─────────────────────────────────────────────────────────────────
 
   /** Press a key. */
   noteOn(note: NoteLike, velocity = 90, options: TimeOptions = {}): this {
-    this.synth._native().noteOn(this.index, noteNumber(note), clampVel(velocity), this.time(options));
+    this.synth._native().noteOn(this.channel, noteNumber(note), clampVel(velocity), this.time(options));
     return this;
   }
 
   /** Release a key. */
   noteOff(note: NoteLike, options: TimeOptions = {}): this {
-    this.synth._native().noteOff(this.index, noteNumber(note), this.time(options));
+    this.synth._native().noteOff(this.channel, noteNumber(note), this.time(options));
     return this;
   }
 
@@ -92,6 +87,14 @@ export class Part {
     return playSequence((n, o) => this.play(n, o), this.synth.currentTime, steps, options);
   }
 
+  /** Release all held notes of this part. */
+  allNotesOff(options: TimeOptions = {}): this {
+    this.synth._native().allNotesOff(this.channel, this.time(options));
+    return this;
+  }
+
+  // ── controllers ───────────────────────────────────────────────────────────
+
   /** Sustain (damper) pedal. */
   sustain(down: boolean, options: TimeOptions = {}): this {
     return this.cc(64, down ? 127 : 0, options);
@@ -99,7 +102,7 @@ export class Part {
 
   /** Pitch bend in -1 … 1 (scaled by `bendRange`). */
   pitchBend(value: number, options: TimeOptions = {}): this {
-    this.synth._native().pitchBend(this.index, Math.max(-1, Math.min(1, value)), this.time(options));
+    this.synth._native().pitchBend(this.channel, Math.max(-1, Math.min(1, value)), this.time(options));
     return this;
   }
 
@@ -115,13 +118,15 @@ export class Part {
 
   /** Send a MIDI control change to this part. */
   cc(controller: number, value: number, options: TimeOptions = {}): this {
-    this.synth._native().controlChange(this.index, controller, Math.max(0, Math.min(127, Math.round(value))), this.time(options));
+    this.synth._native().controlChange(this.channel, controller, Math.max(0, Math.min(127, Math.round(value))), this.time(options));
     return this;
   }
 
-  /** Release all held notes of this part. */
-  allNotesOff(options: TimeOptions = {}): this {
-    this.synth._native().allNotesOff(this.index, this.time(options));
+  /** Play this part from a MIDI keyboard on `channel` (1–16), after `synth.enableMidi()`. Notes
+   *  go straight to the engine, with no JavaScript in between. */
+  midi(channel: number): this {
+    if (!Number.isInteger(channel) || channel < 1 || channel > 16) throw new RangeError(`MIDI channel must be 1-16, got ${channel}`);
+    this.synth._native().setMidiRoute(channel, this.channel);
     return this;
   }
 
@@ -132,49 +137,107 @@ export class Part {
    * `set({ brightness: 1 })` twice is the same as once.
    */
   set(params: InstrumentParams, options: TimeOptions = {}): this {
+    this.setParams(params, this.time(options));
+    this.active = undefined;
+    return this;
+  }
+
+  /** A parameter's current value (-1 for `reverbSend`, `spread` and `formant` left at the
+   *  instrument's own value). */
+  get<K extends keyof InstrumentParams>(name: K): Required<InstrumentParams>[K] {
+    return (this.applied[name] ?? PARAM_DEFAULTS[name]) as Required<InstrumentParams>[K];
+  }
+
+  /** Parameter values that differ from the defaults. */
+  params(): InstrumentParams {
+    return { ...this.applied };
+  }
+
+  /** Reset every parameter to its default: the instrument as recorded, without preset. */
+  reset(): this {
+    this.clear();
+    this.active = undefined;
+    return this;
+  }
+
+  // ── presets ───────────────────────────────────────────────────────────────
+
+  /**
+   * Apply a preset: a name from {@link presets} or a preset object. Replaces every parameter
+   * (and the layers, if the preset has its own).
+   *
+   * ```ts
+   * piano.preset('mellow');
+   * piano.preset({ params: { brightness: -2, release: 1.5 } });
+   * ```
+   */
+  preset(preset: string | PresetDef): this {
+    this.apply(this.lookup(preset), typeof preset === 'string' ? preset : undefined);
+    return this;
+  }
+
+  /** The instrument's presets, and those added with {@link savePreset}, by name. */
+  presets(): Record<string, PresetDef> {
+    return { ...this.definition.presets, ...this.saved };
+  }
+
+  /** Store a preset under a name: by default the sound as it is now. */
+  savePreset(name: string, preset: PresetDef = this.current()): this {
+    this.saved[name] = preset;
+    return this;
+  }
+
+  /** The sound as it is now (layers and parameters), as a preset. */
+  current(): PresetDef {
+    return { layers: this.layers, params: this.params() };
+  }
+
+  /** Name of the preset in use, or `undefined` once parameters were changed by hand. */
+  activePreset(): string | undefined {
+    return this.active;
+  }
+
+  // ── internals ─────────────────────────────────────────────────────────────
+
+  private lookup(preset: string | PresetDef): PresetDef {
+    if (typeof preset !== 'string') return preset;
+    const all = this.presets();
+    const p = all[preset];
+    if (!p) throw new SupersynthError(`Unknown preset '${preset}' for ${this.definition.id}. Presets: ${Object.keys(all).join(', ')}`);
+    return p;
+  }
+
+  private apply(p: PresetDef, name: string | undefined, extra: InstrumentParams = {}): void {
+    const layers = p.layers ?? this.definition.layers;
+    if (JSON.stringify(layers) !== JSON.stringify(this.layers)) {
+      this.synth._setLayers(this.channel, layers);
+      this.layers = layers;
+    }
+    this.clear();
+    this.setParams({ ...this.definition.params, ...p.params, ...extra }, undefined);
+    this.active = name;
+  }
+
+  /** Every parameter back to its default (and the synth's partial cap). */
+  private clear(): void {
+    const reset: Record<string, unknown> = {};
+    for (const k of Object.keys(this.applied)) reset[k] = PARAM_DEFAULTS[k as keyof InstrumentParams];
+    this.setParams(reset as InstrumentParams, undefined);
+    this.applied = {};
+    if (this.synth._maxPartials < 512) {
+      this.synth._native().setParam(this.channel, 'maxPartials', this.synth._maxPartials);
+    }
+  }
+
+  private setParams(params: InstrumentParams, time: number | undefined): void {
     const n = this.synth._native();
-    const t = this.time(options);
     for (const [k, v] of Object.entries(params)) {
       if (v === undefined) continue;
       const key = k as keyof InstrumentParams;
-      if (!(key in PARAM_DEFAULTS)) throw new RangeError(`Unknown parameter '${k}'`);
-      n.setParam(this.index, key, toNativeParam(key, v), t);
+      if (!(key in PARAM_DEFAULTS)) throw new SupersynthError(`Unknown parameter '${k}'. Parameters: ${Object.keys(PARAM_DEFAULTS).join(', ')}`);
+      n.setParam(this.channel, key, toNativeParam(key, v), time);
       (this.applied as Record<string, unknown>)[key] = v;
     }
-    return this;
-  }
-
-  /** Get a parameter's current value. */
-  get<K extends keyof InstrumentParams>(name: K): InstrumentParams[K] {
-    return (this.applied[name] ?? PARAM_DEFAULTS[name]) as InstrumentParams[K];
-  }
-
-  /** Reset all parameters to the instrument's defaults (as recorded). */
-  reset(): this {
-    const reset: Record<string, unknown> = {};
-    for (const k of Object.keys(this.applied)) reset[k] = (PARAM_DEFAULTS as Record<string, unknown>)[k];
-    this.applied = {};
-    this.set(reset as InstrumentParams);
-    this.applied = {};
-    if (this.synth._maxPartials < 512) {
-      this.synth._native().setParam(this.index, 'maxPartials', this.synth._maxPartials);
-    }
-    return this;
-  }
-
-  /** Switch to a named preset (see {@link presets}). */
-  usePreset(name: string, extra: InstrumentParams = {}): this {
-    const p: PresetDef | undefined = this.instrument.presets[name];
-    if (!p) throw new RangeError(`Unknown preset '${name}' for ${this.instrument.id}. Presets: ${this.presets.join(', ')}`);
-    const layers = p.layers ?? this.instrument.layers;
-    if (!sameLayers(layers, this.layers)) {
-      this.synth._setLayers(this.index, layers);
-      this.layers = layers;
-    }
-    this.reset();
-    this.set({ ...this.instrument.params, ...p.params, ...extra });
-    this._preset = name;
-    return this;
   }
 
   private time(o: TimeOptions): number | undefined {
@@ -184,8 +247,4 @@ export class Part {
 
 function clampVel(v: number): number {
   return Math.max(1, Math.min(127, Math.round(v)));
-}
-
-function sameLayers(a: LayerDef[], b: LayerDef[]): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }

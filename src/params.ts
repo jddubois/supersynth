@@ -27,7 +27,7 @@ export interface InstrumentParams {
   formant?: number;
   /** String stiffness (inharmonicity) scale; 0 = perfectly harmonic, 2 = twice as stretched. @default 1 */
   inharmonicity?: number;
-  /** Maximum number of partials per note (lower = cheaper, darker). @default 128 */
+  /** Maximum number of partials per note (lower = cheaper, darker; see also `SynthOptions.quality`). @default 512 */
   maxPartials?: number;
 
   // ── envelope ───────────────────────────────────────────────────────────
@@ -119,14 +119,17 @@ export function toNativeParam(name: keyof InstrumentParams, value: unknown): num
   return value;
 }
 
-export const PARAM_NAMES: ReadonlyArray<keyof InstrumentParams> = [
-  'volume', 'pan', 'reverbSend', 'spread', 'brightness', 'evenHarmonics', 'noise', 'formant',
-  'inharmonicity', 'maxPartials', 'attack', 'decay', 'release', 'vibrato', 'vibratoRate',
-  'vibratoDelay', 'naturalVibrato', 'humanize', 'transpose', 'tune', 'bendRange', 'modDepth',
-  'velocitySensitivity', 'mono', 'legato', 'glide', 'tremolo', 'tremoloPitch', 'tremoloRate', 'gain', 'jitter', 'shimmer', 'eqLowGain', 'eqLowFreq', 'eqMidGain', 'eqMidFreq',
-  'eqMidQ', 'eqHighGain', 'eqHighFreq', 'lowCut', 'highCut', 'chorus', 'chorusRate',
-  'chorusDepth', 'drive', 'driveTone', 'driveLevel', 'leslie',
-];
+/** Default of every parameter: the instrument as recorded. `reverbSend`, `spread` and `formant`
+ *  default per instrument (-1 here means "the instrument's own value"). */
+export const PARAM_DEFAULTS: Readonly<Required<InstrumentParams>> = {
+  volume: 0, pan: 0, reverbSend: -1, spread: -1, brightness: 0, evenHarmonics: 0, noise: 0, formant: -1,
+  inharmonicity: 1, maxPartials: 512, attack: 1, decay: 1, release: 1, vibrato: 0, vibratoRate: 5.5,
+  vibratoDelay: 0.3, naturalVibrato: 1, humanize: 0, transpose: 0, tune: 0, bendRange: 2, modDepth: 25,
+  velocitySensitivity: 1, mono: false, legato: false, glide: 0.06, tremolo: 0, tremoloPitch: 0, tremoloRate: 6,
+  gain: 0, jitter: 1, shimmer: 1, eqLowGain: 0, eqLowFreq: 200, eqMidGain: 0, eqMidFreq: 1000, eqMidQ: 0.7,
+  eqHighGain: 0, eqHighFreq: 5000, lowCut: 0, highCut: 0, chorus: 0, chorusRate: 0.6, chorusDepth: 3,
+  drive: 1, driveTone: 6000, driveLevel: 0.8, leslie: 'off',
+};
 
 /** Reverb presets (algorithmic FDN reverb). */
 export type ReverbPreset = 'room' | 'studio' | 'chamber' | 'hall' | 'concert-hall' | 'church' | 'cathedral' | 'plate';

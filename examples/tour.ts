@@ -28,8 +28,8 @@ const program: Array<[string, typeof ODE_TO_JOY, number]> = [
 let t = 0.2;
 for (const [id, steps, bpm] of program) {
   const part = synth.add(id);
-  const fitted = fitToRange(steps, part.instrument.range);
-  console.log(`${t.toFixed(1).padStart(5)}s  ${part.instrument.name}`);
+  const fitted = fitToRange(steps, part.definition.range);
+  console.log(`${t.toFixed(1).padStart(5)}s  ${part.definition.name}`);
   t += playSteps(part, fitted, { at: t, bpm, velocity: 90 }) + 1.5;
 }
 

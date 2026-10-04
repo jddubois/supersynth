@@ -27,7 +27,7 @@ Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
 
 | | |
 |---|---|
-| `play`, `sequence`, `noteOn`, `noteOff` | playing (organs are not velocity sensitive) |
+| `play`, `sequence`, `noteOn`, `noteOff`, `allNotesOff` | playing (organs are not velocity sensitive) |
 | `pull(...stops)`, `push(...stops)`, `set(...stops)` | draw, retire, draw exactly these (`set()` silences) |
 | `couple(...divisions)`, `uncouple(...divisions)` | couplers to this keyboard (`uncouple()` releases all) |
 | `stops()`, `drawn()`, `coupled()` | the division's stops, those drawn, the divisions coupled to it |

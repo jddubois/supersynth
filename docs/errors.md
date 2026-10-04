@@ -2,9 +2,10 @@
 
 | Class | Thrown when |
 |---|---|
-| `SupersynthError` | base class; unknown instrument/stop/preset, missing model, engine errors |
+| `SupersynthError` | a name is unknown — instrument, organ, preset, stop, division, parameter (the message lists the valid ones) — or a model or the native binary is missing, all 32 channels are in use, `render()` is called during real-time output |
 | `AudioBackendError` | `start()` cannot open the audio device (e.g. unsupported sample rate — omit `sampleRate` to use the device's) |
-| `MidiError` | `enableMidi()` finds no device or cannot connect |
+| `MidiError` | `enableMidi()` finds no device or cannot connect; a MIDI file cannot be parsed |
 
-Invalid arguments (bad note names, unknown parameters or presets) throw `RangeError`/`TypeError`
-with the list of valid values.
+`AudioBackendError` and `MidiError` extend `SupersynthError`. Malformed values — a bad note
+name, a MIDI channel outside 1–16, a parameter of the wrong type — throw `RangeError` or
+`TypeError`.

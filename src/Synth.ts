@@ -2,16 +2,16 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { findInstrument, INSTRUMENTS, type InstrumentDef, type LayerDef } from './catalog/index.js';
+import type { InstrumentDef, LayerDef } from './catalog/index.js';
 import { AudioBackendError, MidiError, SupersynthError } from './errors.js';
 import { parseMidiFile, type MidiFileData, type MidiFileEvent } from './midifile.js';
 import { loadNative, packageRoot, type NativeEngine, type NativeLayer } from './native.js';
-import type { InstrumentParams, ReverbOptions, ReverbPreset } from './params.js';
+import type { ReverbOptions, ReverbPreset } from './params.js';
 import { REVERB_FIELDS } from './params.js';
-import { Division, Organ, resolveOrgan, type OrganOptions } from './Organ.js';
+import { Organ, resolveOrgan, type Division, type OrganOptions } from './Organ.js';
 import { ORGAN_DEFAULTS } from './organs/defaults.js';
 import type { OrganInstrument } from './organs/index.js';
-import { Part } from './Part.js';
+import { Part, type PartOptions } from './Part.js';
 import { deinterleave, makeAudioBuffer, writeWav, type AudioBuffer, type WavOptions } from './wav.js';
 import type { MidiEvent } from './types.js';
 
@@ -38,28 +38,8 @@ export interface SynthOptions {
   quality?: 'high' | 'balanced' | 'eco';
 }
 
-export interface AddOptions {
-  /** Preset name (see `part.presets`). @default 'default' */
-  preset?: string;
-  /** Parameter tweaks on top of the preset. */
-  params?: InstrumentParams;
-  /** Engine channel 0–31 (MIDI channel − 1). Default: next free channel. */
-  channel?: number;
-}
-
-/** Information about an available instrument. */
-export interface InstrumentInfo {
-  id: string;
-  name: string;
-  family: string;
-  description: string;
-  presets: Record<string, string>;
-  aliases: string[];
-  available: boolean;
-}
-
 export interface MidiPlayOptions {
-  /** Instrument per MIDI channel (1–16) or track name/index, e.g. `{ 1: 'grand-piano', 10: drums }`.
+  /** Instrument per MIDI channel (1–16), or per track index with `byTrack`, e.g. `{ 1: 'grand-piano', 2: organ.pedal }`.
    *  Default: every channel plays `instrument`. */
   channels?: Record<number, MidiTarget>;
   /** Instrument used for channels not listed. @default 'grand-piano' */
@@ -97,7 +77,7 @@ const MODEL_BYTES = new Map<string, Buffer>();
  */
 export class Synth extends EventEmitter {
   private engine: NativeEngine;
-  private parts: (Part | null)[] = new Array(32).fill(null);
+  private slots: (Part | 'reserved' | null)[] = new Array(32).fill(null);
   private models = new Map<string, number>();
   private modelsDir: string;
   private reverbMode: 'auto' | 'set';
@@ -122,8 +102,8 @@ export class Synth extends EventEmitter {
     this.modelsDir = options.modelsDir ?? path.join(packageRoot(), 'models');
     this.maxPartials = { high: 512, balanced: 128, eco: 32 }[options.quality ?? 'high'];
     this.reverbMode = options.reverb === undefined || options.reverb === 'auto' ? 'auto' : 'set';
-    if (options.reverb !== undefined && options.reverb !== 'auto') this.setReverb(options.reverb);
-    this.setVolume(options.volume ?? 0.5);
+    if (options.reverb !== undefined && options.reverb !== 'auto') this.reverb(options.reverb);
+    this.volume(options.volume ?? 0.5);
   }
 
   // ── info ──────────────────────────────────────────────────────────────────
@@ -151,83 +131,53 @@ export class Synth extends EventEmitter {
     return this.engine.isRunning;
   }
 
-  /** All instruments in the catalog. */
-  static instruments(): InstrumentInfo[] {
-    const dir = path.join(packageRoot(), 'models');
-    return INSTRUMENTS.map((d) => ({
-      id: d.id,
-      name: d.name,
-      family: d.family,
-      description: d.description,
-      presets: Object.fromEntries(Object.entries(d.presets).map(([k, p]) => [k, p.description])),
-      aliases: d.aliases ?? [],
-      available: d.layers.every((l) => existsSync(path.join(dir, `${l.model}.ssm`))),
-    }));
-  }
-
   // ── parts ─────────────────────────────────────────────────────────────────
 
   /**
    * Add an instrument on its own channel.
    *
-   * @param instrument  Catalog id or alias (`'grand-piano'`, `'violin'`, `'strings'`, …) or a custom
-   *                    {@link InstrumentDef}.
+   * @param instrument  Catalog id or alias (`'grand-piano'`, `'violin'`, `'strings'`, …) or any
+   *                    {@link InstrumentDef} (e.g. one imported from `supersynth/instruments`).
    */
-  add(instrument: string | InstrumentDef, options: AddOptions = {}): Part {
-    const def = typeof instrument === 'string' ? findInstrument(instrument) : instrument;
-    if (!def) {
-      throw new SupersynthError(
-        `Unknown instrument '${String(instrument)}'. Available: ${INSTRUMENTS.map((d) => d.id).join(', ')}`,
-      );
-    }
-    let ch: number;
-    if (options.channel !== undefined) {
-      ch = options.channel;
-      if (!Number.isInteger(ch) || ch < 0 || ch > 31) throw new RangeError('channel must be an integer 0-31');
-      this.used.add(ch);
-    } else {
-      ch = this.freeChannel();
-    }
-    const part = new Part(this, ch, def);
-    this.parts[ch] = part;
-    part.usePreset(options.preset ?? 'default', options.params);
-
-    if (this.reverbMode === 'auto') {
-      const preset = def.presets[options.preset ?? 'default'];
-      this.engine.setReverbPreset(preset?.reverb ?? def.reverb);
-      this.reverbMode = 'set';
-    }
-    return part;
+  add(instrument: string | InstrumentDef, options: PartOptions = {}): Part {
+    return new Part(this, instrument, options);
   }
 
-  /** The part on a channel, if any. */
-  part(channel: number): Part | undefined {
-    return this.parts[channel] ?? undefined;
+  /** The parts added with {@link add}, in channel order. */
+  parts(): Part[] {
+    return this.slots.filter((p): p is Part => p instanceof Part);
   }
 
   /** Remove a part (its notes stop immediately). */
   remove(part: Part): void {
-    if (this.parts[part.index] !== part) return;
-    this.engine.setInstrument(part.index, []);
-    this.parts[part.index] = null;
-    this.used.delete(part.index);
+    if (this.slots[part.channel] !== part) return;
+    this.engine.setInstrument(part.channel, []);
+    this.slots[part.channel] = null;
   }
 
-  /** @internal Reserve a free channel (used by the organ's divisions). */
-  _reserveChannel(): number {
-    return this.freeChannel();
-  }
-
-  private freeChannel(): number {
-    // channel 9 (MIDI channel 10) is conventionally drums; use it last
-    const order = [...Array(32).keys()].filter((c) => c !== 9).concat([9]);
-    const ch = order.find((c) => !this.used.has(c));
-    if (ch === undefined) throw new SupersynthError('All 32 channels are in use');
-    this.used.add(ch);
+  /** @internal Give a part a free engine channel. */
+  _attach(part: Part): number {
+    const ch = this._reserveChannel();
+    this.slots[ch] = part;
     return ch;
   }
 
-  private used = new Set<number>();
+  /** @internal Reserve a free engine channel (a part's, or an organ division's). */
+  _reserveChannel(): number {
+    // channel 9 (MIDI channel 10) is conventionally drums; use it last
+    const order = [...Array(32).keys()].filter((c) => c !== 9).concat([9]);
+    const ch = order.find((c) => this.slots[c] === null);
+    if (ch === undefined) throw new SupersynthError('All 32 channels are in use');
+    this.slots[ch] = 'reserved';
+    return ch;
+  }
+
+  /** @internal The room of the first instrument or organ, while the reverb is automatic. */
+  _suggestRoom(room: ReverbPreset): void {
+    if (this.reverbMode !== 'auto') return;
+    this.engine.setReverbPreset(room);
+    this.reverbMode = 'set';
+  }
 
   /**
    * A church organ (four divisions with drawable stops): the Bureå organ, another built-in
@@ -241,10 +191,7 @@ export class Synth extends EventEmitter {
    */
   organ(options: OrganOptions | OrganInstrument = {}): Organ {
     if (typeof options === 'string') options = { instrument: options };
-    if (this.reverbMode === 'auto') {
-      this.engine.setReverbPreset(resolveOrgan(options.instrument).reverb ?? ORGAN_DEFAULTS.reverb);
-      this.reverbMode = 'set';
-    }
+    this._suggestRoom(resolveOrgan(options.instrument).reverb ?? ORGAN_DEFAULTS.reverb);
     const organ = new Organ(this, options);
     if (this.maxPartials < 512) {
       for (const d of organ.divisions()) this.engine.setParam(d.channel, 'maxPartials', this.maxPartials);
@@ -255,14 +202,14 @@ export class Synth extends EventEmitter {
   // ── sound ─────────────────────────────────────────────────────────────────
 
   /** Master volume 0–1 (linear). */
-  setVolume(volume: number): this {
+  volume(volume: number): this {
     const v = Math.max(0, Math.min(1, volume));
     this.engine.setMasterParam('volume', v <= 0 ? -120 : 20 * Math.log10(v));
     return this;
   }
 
   /** Change the room: a preset, detailed options, or `false` to switch reverb off. */
-  setReverb(reverb: ReverbPreset | ReverbOptions | false): this {
+  reverb(reverb: ReverbPreset | ReverbOptions | false): this {
     this.reverbMode = 'set';
     if (reverb === false) {
       this.engine.setMasterParam('reverbLevel', -120);
@@ -408,37 +355,37 @@ export class Synth extends EventEmitter {
       events: raw.events.map((e) => ({ ...e, time: e.time / speed })),
     };
     const transpose = options.transpose ?? 0;
-    const partsByKey = new Map<number, { index: number }>();
-    const resolvePart = (key: number): { index: number } => {
-      let p = partsByKey.get(key);
-      if (p) return p;
+    const channelByKey = new Map<number, number>();
+    const resolveChannel = (key: number): number => {
+      let ch = channelByKey.get(key);
+      if (ch !== undefined) return ch;
       const spec = options.channels?.[key] ?? options.instrument ?? 'grand-piano';
-      p = typeof spec === 'string' ? this.add(spec) : spec instanceof Division ? { index: spec.channel } : spec;
-      partsByKey.set(key, p);
-      return p;
+      ch = typeof spec === 'string' ? this.add(spec).channel : spec.channel;
+      channelByKey.set(key, ch);
+      return ch;
     };
     const n = this.engine;
     const route = (e: MidiFileEvent, t0: number) => {
       const key = options.byTrack ? e.track : e.channel + 1;
       if (!options.byTrack && e.channel === 9 && !options.channels?.[10]) return; // GM drums: skip unless mapped
-      const p = resolvePart(key);
+      const ch = resolveChannel(key);
       const at = t0 + e.time;
       switch (e.type) {
         case 'noteOn': {
           const note = e.note + transpose;
-          if (note >= 0 && note <= 127) n.noteOn(p.index, note, e.velocity, at);
+          if (note >= 0 && note <= 127) n.noteOn(ch, note, e.velocity, at);
           break;
         }
         case 'noteOff': {
           const note = e.note + transpose;
-          if (note >= 0 && note <= 127) n.noteOff(p.index, note, at);
+          if (note >= 0 && note <= 127) n.noteOff(ch, note, at);
           break;
         }
         case 'cc':
-          if ([1, 7, 10, 11, 64, 91].includes(e.controller)) n.controlChange(p.index, e.controller, e.value, at);
+          if ([1, 7, 10, 11, 64, 91].includes(e.controller)) n.controlChange(ch, e.controller, e.value, at);
           break;
         case 'pitchBend':
-          n.pitchBend(p.index, e.value, at);
+          n.pitchBend(ch, e.value, at);
           break;
         default:
           break;
@@ -450,9 +397,12 @@ export class Synth extends EventEmitter {
   // ── MIDI input ────────────────────────────────────────────────────────────
 
   /**
-   * Connect a hardware MIDI input. With `route` (default), channel N plays the part on
-   * channel N−1 with no JS round-trip (an organ's {@link Organ.midi} assigns channels to its
-   * divisions). Emits `'midi'` events for every message.
+   * Connect a hardware MIDI input (the first device, or the first whose name contains `device`).
+   * With `route` (default) notes go straight to the engine, with no JavaScript in between:
+   * to the part or division given that channel with {@link Part.midi} or {@link Organ.midi},
+   * otherwise channels 1–9 play the first nine parts and organ divisions created and channels
+   * 11–16 the next six (10 is the General MIDI drum channel). Emits a `'midi'` event for every
+   * message.
    */
   async enableMidi(device?: string, options: { route?: boolean } = {}): Promise<this> {
     try {
@@ -462,6 +412,12 @@ export class Synth extends EventEmitter {
     } catch (e) {
       throw new MidiError(`Failed to enable MIDI: ${(e as Error).message}`);
     }
+    return this;
+  }
+
+  /** Disconnect the MIDI input. */
+  disableMidi(): this {
+    this.engine.disableMidi();
     return this;
   }
 

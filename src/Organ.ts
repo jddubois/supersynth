@@ -38,7 +38,7 @@ export class Division {
   constructor(
     private readonly organ: Organ,
     readonly name: DivisionName,
-    /** Engine channel of this division. */
+    /** @internal Engine channel (0–31). */
     readonly channel: number,
   ) {}
 
@@ -124,6 +124,12 @@ export class Division {
    *  divisions it is a plain volume control. */
   expression(value: number, options: TimeOptions = {}): this {
     this.organ.synth._native().controlChange(this.channel, 11, Math.round(Math.max(0, Math.min(1, value)) * 127), this.organ._time(options));
+    return this;
+  }
+
+  /** Release every held key of this division. */
+  allNotesOff(options: TimeOptions = {}): this {
+    this.organ.synth._native().allNotesOff(this.channel, this.organ._time(options));
     return this;
   }
 
@@ -361,6 +367,12 @@ export class Organ {
 
   noteOff(note: NoteLike, options: TimeOptions = {}): this {
     this.great.noteOff(note, options);
+    return this;
+  }
+
+  /** Release every held key on every division. */
+  allNotesOff(options: TimeOptions = {}): this {
+    for (const d of this.divisions()) d.allNotesOff(options);
     return this;
   }
 

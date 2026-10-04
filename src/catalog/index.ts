@@ -67,8 +67,3 @@ for (const d of INSTRUMENTS) {
 export function findInstrument(id: string): InstrumentDef | undefined {
   return BY_ID.get(id.toLowerCase());
 }
-
-/** All instrument ids (and aliases with `withAliases`). */
-export function instrumentIds(withAliases = false): string[] {
-  return withAliases ? [...BY_ID.keys()] : INSTRUMENTS.map((d) => d.id);
-}

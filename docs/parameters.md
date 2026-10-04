@@ -1,7 +1,9 @@
 # Parameters, reverb and effects
 
-`part.set({...})` changes any of these at any time (also while notes sound). All are relative to
-the instrument as recorded; the defaults reproduce the recording.
+`part.set({...})` changes any of these at any time, also while notes sound (changes are smoothed;
+`{ at }` schedules them). All are relative to the instrument as recorded: the defaults reproduce
+the recording, and are exported as `PARAM_DEFAULTS`. `part.get(name)` reads one value,
+`part.params()` the ones that differ from the defaults, `part.reset()` restores them all.
 
 | Parameter | Default | Range / unit | |
 |---|---|---|---|
@@ -49,14 +51,15 @@ touch-sensitive).
 
 ## Reverb
 
-A 16-line feedback-delay-network reverb with frequency-dependent decay, early reflections and
+The room is chosen with `new Synth({ reverb })` and changed with `synth.reverb()`. By default
+(`'auto'`) it is the suggested room of the first instrument or organ added. A 16-line feedback-delay-network reverb with frequency-dependent decay, early reflections and
 modulation. Presets: `room`, `studio`, `chamber`, `hall`, `concert-hall`, `church`, `cathedral`,
 `plate`.
 
 ```ts
-synth.setReverb('cathedral');
-synth.setReverb({ preset: 'hall', decay: 3.2, predelay: 30, highDecay: 0.4, level: -2 });
-synth.setReverb(false);
+synth.reverb('cathedral');
+synth.reverb({ preset: 'hall', decay: 3.2, predelay: 30, highDecay: 0.4, level: -2 });
+synth.reverb(false);
 ```
 
 | `ReverbOptions` | |

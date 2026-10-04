@@ -49,8 +49,24 @@ blind listening tests (see `tools/ssm/blind.py`) are used to hunt down any remai
 | Brass | `trumpet`, `french-horn`, `trombone`, `tuba`, `brass` (section) |
 | Percussion | `marimba`, `vibraphone`, `xylophone`, `glockenspiel`, `tubular-bells` |
 
-Each comes with presets (`synth.add('grand-piano', { preset: 'felt' })`); list everything with
-`Synth.instruments()`.
+Each comes with presets (`synth.add('grand-piano', { preset: 'felt' })`); `INSTRUMENTS` and
+`ORGANS` list everything, with presets and descriptions (see [docs/instruments.md](docs/instruments.md)).
+
+## The API in one screen
+
+- **`Synth`** is the engine. `synth.add(instrument)` gives a **`Part`** (one instrument),
+  `synth.organ()` an **`Organ`** with four **`Division`s**.
+- Parts and divisions are **keyboards**: `noteOn`, `noteOff`, `play`, `sequence`,
+  `expression`, `allNotesOff` — each taking `{ at }` or `{ delay }` for sample-accurate timing.
+- Parts and organs share one **preset** API: `preset(name | object)`, `presets()`,
+  `savePreset(name)`, `current()`, `activePreset()`.
+- **MIDI channels** are 1–16 everywhere: `part.midi(1)`, `organ.midi({ great: 1 })`.
+- Instruments and organs are **configuration** (`InstrumentDef`, `OrganDef`): import, copy, change.
+- `new Piano()`, `new Violin()`, `new ChurchOrgan()` … are a part or an organ with their own engine.
+
+Reference: [docs/synth.md](docs/synth.md) (Synth, Part, standalone instruments),
+[docs/organ.md](docs/organ.md), [docs/parameters.md](docs/parameters.md) (parameters, reverb),
+[docs/midi.md](docs/midi.md), [docs/errors.md](docs/errors.md).
 
 ## Install
 
@@ -78,15 +94,19 @@ piano.sustain(true);                                        // pedal
 violin.pitchBend(0.5); violin.modWheel(0.3); violin.expression(0.6); // swells
 ```
 
-All note methods accept `{ at }` (absolute seconds on `synth.currentTime`) for sample-accurate
-scheduling.
+All note methods accept `{ at }` (absolute seconds on `synth.currentTime`) or `{ delay }` for
+sample-accurate scheduling.
 
-### Tweaks
+### Presets and tweaks
 
 ```ts
 piano.set({ brightness: 1.5, release: 2, reverbSend: 0.3 });
 violin.set({ vibrato: 8, vibratoRate: 5.8, naturalVibrato: 0.5 });
 synth.add('grand-piano', { preset: 'honky-tonk', params: { volume: -3 } });
+
+piano.preset('felt');                       // replaces every parameter
+piano.savePreset('mine');                   // the sound as it is now
+piano.presets();                            // the instrument's presets and yours
 ```
 
 | Parameter | Meaning |
@@ -159,7 +179,7 @@ await synth.playMidi('song.mid', { channels: { 1: 'violin', 2: 'cellos' } });
 ### Hardware MIDI
 
 ```ts
-synth.add('grand-piano', { channel: 0 });   // MIDI channel 1
+synth.add('grand-piano').midi(1);          // MIDI channel 1
 await synth.enableMidi('Keystation');      // played directly by the engine, no JS latency
 synth.on('midi', (e) => console.log(e));
 ```

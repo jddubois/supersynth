@@ -3,8 +3,8 @@ import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
 import {
-  chord, encodeWav, findInstrument, Instrument, INSTRUMENTS, instrumentIds, noteName, noteNumber, parseMidiFile, Piano, Synth,
-  SupersynthError, type InstrumentDef, type OrganDef,
+  chord, encodeWav, findInstrument, Instrument, INSTRUMENTS, MidiError, noteName, noteNumber, parseMidiFile, Piano, Synth,
+  SupersynthError, type InstrumentDef, type Keyboard, type OrganDef,
 } from '../src/index.js';
 import * as instrumentConfigs from '../src/catalog/index.js';
 import { BUREA_ORGAN, ORGANS } from '../src/organs/index.js';
@@ -96,7 +96,7 @@ describe('instruments', () => {
   test.each(INSTRUMENTS.map((d) => d.id))('%s loads and plays', (id) => {
     const synth = new Synth({ sampleRate: 48000 });
     const part = synth.add(id);
-    const mid = Math.round((part.instrument.range[0] + part.instrument.range[1]) / 2);
+    const mid = Math.round((part.definition.range[0] + part.definition.range[1]) / 2);
     part.play(mid, { velocity: 100, duration: 0.6 });
     const a = synth.render(0.8);
     expect(rms(a.left)).toBeGreaterThan(1e-4);
@@ -105,16 +105,51 @@ describe('instruments', () => {
   test('presets and parameters', () => {
     const synth = new Synth({ sampleRate: 48000 });
     const p = synth.add('grand-piano', { preset: 'mellow' });
-    expect(p.preset).toBe('mellow');
+    expect(p.activePreset()).toBe('mellow');
     expect(p.get('brightness')).toBeLessThan(0);
-    p.usePreset('honky-tonk');
-    expect(p.preset).toBe('honky-tonk');
+    p.preset('honky-tonk');
+    expect(p.activePreset()).toBe('honky-tonk');
     p.set({ brightness: 2, release: 1.5, leslie: 'slow' });
     expect(p.get('brightness')).toBe(2);
-    expect(() => p.usePreset('nope')).toThrow(RangeError);
-    expect(() => p.set({ nope: 1 } as never)).toThrow(RangeError);
+    expect(p.activePreset()).toBeUndefined();
+    expect(() => p.preset('nope')).toThrow(SupersynthError);
+    expect(() => p.set({ nope: 1 } as never)).toThrow(SupersynthError);
     p.reset();
     expect(p.get('brightness')).toBe(0);
+  });
+
+  test('parameters given with the preset at creation keep it active', () => {
+    const synth = new Synth({ sampleRate: 22050 });
+    const p = synth.add('grand-piano', { preset: 'mellow', params: { volume: -3 } });
+    expect(p.activePreset()).toBe('mellow');
+    expect(p.get('volume')).toBe(-3);
+    expect(p.params()).toMatchObject({ volume: -3, brightness: -1.6 });
+  });
+
+  test('presets can be objects, saved and read back (like the organ)', () => {
+    const synth = new Synth({ sampleRate: 22050 });
+    const p = synth.add('grand-piano');
+    expect(Object.keys(p.presets())).toContain('felt');
+    p.preset({ params: { brightness: -2, release: 1.5 } });
+    expect(p.activePreset()).toBeUndefined();
+    p.savePreset('mine');
+    p.preset('bright').preset('mine');
+    expect(p.activePreset()).toBe('mine');
+    expect(p.get('brightness')).toBe(-2);
+    expect(p.get('eqHighGain')).toBe(0); // the old preset's parameters are gone
+    expect(Object.keys(p.presets())).toContain('mine');
+  });
+
+  test('parts are listed and removed', () => {
+    const synth = new Synth({ sampleRate: 22050 });
+    const a = synth.add('piano');
+    synth.organ();
+    const b = synth.add('violin');
+    expect(synth.parts()).toEqual([a, b]);
+    synth.remove(a);
+    expect(synth.parts()).toEqual([b]);
+    expect(() => b.midi(17)).toThrow(RangeError);
+    b.midi(1);
   });
 
   test('unknown instrument throws a helpful error', () => {
@@ -122,16 +157,20 @@ describe('instruments', () => {
     expect(() => synth.add('kazoo')).toThrow(SupersynthError);
   });
 
-  test('standalone instrument classes', () => {
+  test('standalone instrument classes are parts with their own engine', () => {
     const piano = new Piano({ sampleRate: 48000, preset: 'bright' });
-    piano.play(['C4', 'E4', 'G4'], { duration: 0.5 });
+    expect(piano.activePreset()).toBe('bright');
+    piano.sustain(true).play(['C4', 'E4', 'G4'], { duration: 0.5 });
     expect(rms(piano.render(0.6).left)).toBeGreaterThan(1e-3);
+    expect(piano.synth.parts()).toEqual([piano]);
   });
 
-  test('catalog lists available instruments', () => {
-    const list = Synth.instruments();
-    expect(list.length).toBeGreaterThan(20);
-    expect(list.every((i) => i.available)).toBe(true);
+  test('parts, divisions and standalone instruments are all keyboards', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const keyboards: Keyboard[] = [synth.add('flute'), synth.organ({ preset: 'flutes' }).great];
+    for (const k of keyboards) k.play('C5', { duration: 0.2 }).expression(0.8);
+    expect(rms(synth.render(0.3).left)).toBeGreaterThan(1e-4);
+    for (const k of keyboards) k.noteOn('G4').allNotesOff();
   });
 });
 
@@ -220,7 +259,6 @@ describe('configurations', () => {
     const named = Object.values(instrumentConfigs).filter((v): v is InstrumentDef => typeof v === 'object' && v !== null && 'layers' in v);
     expect(named.length).toBe(INSTRUMENTS.length);
     for (const def of named) expect(findInstrument(def.id)).toBe(def);
-    expect(instrumentIds()).toEqual(INSTRUMENTS.map((d) => d.id));
   });
 
   test('an instrument config can be copied, changed and played', () => {
@@ -286,6 +324,10 @@ describe('files', () => {
     const audio = synth.renderMidi(bytes, { instrument: 'harpsichord', tail: 0.5, speed: 8 });
     expect(audio.duration).toBeGreaterThan(1);
     expect(rms(audio.left)).toBeGreaterThan(1e-3);
+  });
+
+  test('a file that is not MIDI throws MidiError', () => {
+    expect(() => parseMidiFile(Uint8Array.from([1, 2, 3, 4]))).toThrow(MidiError);
   });
 
   test('WAV encoding', () => {

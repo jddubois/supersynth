@@ -1,3 +1,5 @@
+import { MidiError } from './errors.js';
+
 /**
  * Minimal Standard MIDI File (SMF type 0/1) reader → time-ordered events in seconds.
  */
@@ -22,7 +24,7 @@ export interface MidiFileData {
   ticksPerBeat: number;
 }
 
-/** Parse a .mid file. */
+/** Parse a Standard MIDI File (throws {@link MidiError} if it is not one). */
 export function parseMidiFile(data: Uint8Array): MidiFileData {
   let p = 0;
   const u32 = () => {
@@ -45,7 +47,7 @@ export function parseMidiFile(data: Uint8Array): MidiFileData {
     return v;
   };
   const tag = () => String.fromCharCode(data[p]!, data[p + 1]!, data[p + 2]!, data[p + 3]!);
-  if (tag() !== 'MThd') throw new Error('Not a MIDI file (missing MThd)');
+  if (tag() !== 'MThd') throw new MidiError('Not a MIDI file (missing MThd)');
   p += 4;
   const hlen = u32();
   const hstart = p;
@@ -53,7 +55,7 @@ export function parseMidiFile(data: Uint8Array): MidiFileData {
   const ntracks = u16();
   const division = u16();
   p = hstart + hlen;
-  if (division & 0x8000) throw new Error('SMPTE time division is not supported');
+  if (division & 0x8000) throw new MidiError('SMPTE time division is not supported');
   const tpb = division;
 
   interface Raw { tick: number; track: number; order: number; ev: WithoutTime<MidiFileEvent> | { type: 'tempo'; usPerBeat: number } }

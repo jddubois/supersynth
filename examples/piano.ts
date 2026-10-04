@@ -25,7 +25,7 @@ for (const v of [30, 60, 90, 120]) {
 }
 
 // 3. Presets: mellow and bright
-piano.usePreset('mellow', {});
+piano.preset('mellow');
 piano.play(chord('F3', 'add9'), { at: t, velocity: 85, duration: 2 });
 t += 2.5;
 piano.set({ brightness: 1.5 }, { at: t });

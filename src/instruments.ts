@@ -1,18 +1,12 @@
-import { Organ as OrganHandle, resolveOrgan, type OrganOptions } from './Organ.js';
-import { ORGAN_DEFAULTS } from './organs/defaults.js';
-import { Part, type PlayOptions, type TimeOptions } from './Part.js';
 import type { InstrumentDef } from './catalog/index.js';
-import type { NoteLike } from './notes.js';
-import type { InstrumentParams } from './params.js';
+import { Organ, resolveOrgan, type OrganOptions } from './Organ.js';
+import { ORGAN_DEFAULTS } from './organs/defaults.js';
+import { Part, type PartOptions } from './Part.js';
 import { Synth, type SynthOptions } from './Synth.js';
 import type { AudioBuffer, WavOptions } from './wav.js';
 
-export interface InstrumentOptions extends SynthOptions {
-  /** Preset name. @default 'default' */
-  preset?: string;
-  /** Parameter tweaks. */
-  params?: InstrumentParams;
-}
+/** Options of a standalone {@link Instrument}: its engine's and its part's. */
+export type InstrumentOptions = SynthOptions & PartOptions;
 
 type WithSynth = abstract new (...args: any[]) => { readonly synth: Synth };
 
@@ -54,22 +48,10 @@ function OwnEngine<B extends WithSynth>(Base: B) {
   return Owned;
 }
 
-class SinglePart {
-  /** The underlying engine (add more instruments to it with `synth.add`). */
-  readonly synth: Synth;
-  /** The instrument's part (channel). */
-  readonly part: Part;
-
-  constructor(instrument: string | InstrumentDef, options: InstrumentOptions = {}) {
-    const { preset, params, ...synthOptions } = options;
-    this.synth = new Synth(synthOptions);
-    this.part = this.synth.add(instrument, { ...(preset ? { preset } : {}), ...(params ? { params } : {}) });
-  }
-}
-
 /**
- * A single instrument with its own engine — the quickest way to make sound. Takes a catalog
- * id or any {@link InstrumentDef} (e.g. one imported from `supersynth/instruments`).
+ * A single instrument with its own engine — the quickest way to make sound. It is a {@link Part}
+ * (everything a part does, it does) plus the engine controls: `start`, `stop`, `render`, …
+ * Takes a catalog id or any {@link InstrumentDef} (e.g. one imported from `supersynth/instruments`).
  *
  * ```ts
  * import { Piano } from 'supersynth';
@@ -78,43 +60,10 @@ class SinglePart {
  * piano.play(['C4', 'E4', 'G4'], { duration: 2 });
  * ```
  */
-export class Instrument extends OwnEngine(SinglePart) {
-  get presets(): string[] {
-    return this.part.presets;
-  }
-
-  play(notes: NoteLike | NoteLike[], options: PlayOptions = {}): this {
-    this.part.play(notes, options);
-    return this;
-  }
-
-  noteOn(note: NoteLike, velocity = 90, options: TimeOptions = {}): this {
-    this.part.noteOn(note, velocity, options);
-    return this;
-  }
-
-  noteOff(note: NoteLike, options: TimeOptions = {}): this {
-    this.part.noteOff(note, options);
-    return this;
-  }
-
-  sequence(...args: Parameters<Part['sequence']>): number {
-    return this.part.sequence(...args);
-  }
-
-  sustain(down: boolean, options: TimeOptions = {}): this {
-    this.part.sustain(down, options);
-    return this;
-  }
-
-  set(params: InstrumentParams): this {
-    this.part.set(params);
-    return this;
-  }
-
-  usePreset(name: string, extra: InstrumentParams = {}): this {
-    this.part.usePreset(name, extra);
-    return this;
+export class Instrument extends OwnEngine(Part) {
+  constructor(instrument: string | InstrumentDef, options: InstrumentOptions = {}) {
+    const { preset, params, ...synthOptions } = options;
+    super(new Synth(synthOptions), instrument, { ...(preset ? { preset } : {}), ...(params ? { params } : {}) });
   }
 }
 
@@ -192,7 +141,8 @@ export class Vibraphone extends Instrument {
 }
 
 /**
- * A church organ with its own engine (any organ {@link OrganOptions.instrument} accepts).
+ * A church organ with its own engine: an {@link Organ} plus the engine controls (any organ
+ * {@link OrganOptions.instrument} accepts).
  *
  * ```ts
  * const organ = new ChurchOrgan({ preset: 'plenum' });
@@ -201,11 +151,10 @@ export class Vibraphone extends Instrument {
  * organ.pedal.play('C2', { duration: 4 });
  * ```
  */
-export class ChurchOrgan extends OwnEngine(OrganHandle) {
+export class ChurchOrgan extends OwnEngine(Organ) {
   constructor(options: OrganOptions & SynthOptions = {}) {
     const { preset, presets, tremulant, instrument, wind, ...synthOptions } = options;
-    const synth = new Synth({ reverb: resolveOrgan(instrument).reverb ?? ORGAN_DEFAULTS.reverb, ...synthOptions });
-    super(synth, {
+    super(new Synth({ reverb: resolveOrgan(instrument).reverb ?? ORGAN_DEFAULTS.reverb, ...synthOptions }), {
       ...(instrument ? { instrument } : {}),
       ...(preset ? { preset } : {}),
       ...(presets ? { presets } : {}),

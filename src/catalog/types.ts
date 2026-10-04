@@ -22,8 +22,9 @@ export interface LayerDef {
   trigger?: 'release';
 }
 
+/** A preset: parameters (and optionally layers) applied together. */
 export interface PresetDef {
-  description: string;
+  description?: string;
   params?: InstrumentParams;
   /** Replace the instrument's layers. */
   layers?: LayerDef[];
