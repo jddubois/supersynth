@@ -10,7 +10,6 @@ export const GRAND_PIANO: InstrumentDef = {
   layers: [{ model: 'grand-piano' }, { model: 'grand-piano-release', trigger: 'release' }],
   range: [21, 108],
   reverb: 'hall',
-  aliases: ['piano', 'grand', 'steinway'],
   presets: {
     default: { description: 'As recorded' },
     bright: { description: 'Harder hammers, pop/rock piano', params: { brightness: 1.2, eqHighGain: 2, eqHighFreq: 5000 } },
@@ -40,7 +39,6 @@ export const UPRIGHT_PIANO: InstrumentDef = {
   layers: [{ model: 'upright-piano' }, { model: 'upright-piano-release', trigger: 'release' }],
   range: [21, 108],
   reverb: 'room',
-  aliases: ['upright'],
   presets: {
     default: { description: 'As recorded' },
     vintage: { description: 'Older instrument: duller, slightly out of tune', params: { brightness: -1.2, humanize: 5 } },

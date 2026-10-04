@@ -4,13 +4,13 @@
  *   npm run example:tour            # through your speakers
  *   npm run example:tour -- out.wav # or render to a file
  */
-import { Synth } from '../src/index.ts';
+import { Synth, type InstrumentId } from '../src/index.ts';
 import { AMAZING_GRACE, BWV846, fitToRange, GREENSLEEVES, ODE_TO_JOY, playSteps, WESTMINSTER } from './util/music.ts';
 
 const out = process.argv[2];
 const synth = new Synth({ reverb: 'hall' });
 
-const program: Array<[string, typeof ODE_TO_JOY, number]> = [
+const program: Array<[InstrumentId, typeof ODE_TO_JOY, number]> = [
   ['grand-piano', BWV846, 110],
   ['harpsichord', BWV846, 110],
   ['violin', GREENSLEEVES, 80],
@@ -27,10 +27,10 @@ const program: Array<[string, typeof ODE_TO_JOY, number]> = [
 
 let t = 0.2;
 for (const [id, steps, bpm] of program) {
-  const part = synth.add(id);
-  const fitted = fitToRange(steps, part.definition.range);
-  console.log(`${t.toFixed(1).padStart(5)}s  ${part.definition.name}`);
-  t += playSteps(part, fitted, { at: t, bpm, velocity: 90 }) + 1.5;
+  const instrument = synth.add(id);
+  const fitted = fitToRange(steps, instrument.definition.range);
+  console.log(`${t.toFixed(1).padStart(5)}s  ${instrument.definition.name}`);
+  t += playSteps(instrument, fitted, { at: t, bpm, velocity: 90 }) + 1.5;
 }
 
 if (out) {

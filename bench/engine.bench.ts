@@ -38,7 +38,7 @@ const scenarios: Scenario[] = [
   {
     name: 'church organ plenum, 4 notes + pedal',
     setup: (s) => {
-      const o = s.organ({ preset: 'plenum' });
+      const o = s.addOrgan('burea', { preset: 'plenum' });
       o.great.play(['C4', 'E4', 'G4', 'C5'], { duration: 6 });
       o.pedal.play('C2', { duration: 6 });
       return 5;
@@ -47,7 +47,7 @@ const scenarios: Scenario[] = [
   {
     name: 'full organ, 6 notes + pedal, all couplers',
     setup: (s) => {
-      const o = s.organ({ preset: 'full' });
+      const o = s.addOrgan('burea', { preset: 'full' });
       o.great.play(['C3', 'G3', 'C4', 'E4', 'G4', 'C5'], { duration: 6 });
       o.pedal.play('C2', { duration: 6 });
       return 7;

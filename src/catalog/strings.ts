@@ -51,7 +51,6 @@ export const CONTRABASS_PIZZICATO: InstrumentDef = {
   layers: one('contrabass-pizzicato'),
   range: [28, 67],
   reverb: 'hall',
-  aliases: ['upright-bass', 'jazz-bass'],
   presets: { default: { description: 'As recorded' }, jazz: { description: 'Dry jazz-club bass', params: { reverbSend: 0.05, brightness: 0.5 }, reverb: 'room' } },
 };
 
@@ -112,7 +111,6 @@ export const CELLOS: InstrumentDef = {
   layers: one('cellos'),
   range: [36, 76],
   reverb: 'hall',
-  aliases: ['cello'],
   presets: {
     legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, soft: { description: 'Slow bow attack', params: { attack: 2.0, brightness: -1 } } },
 };
@@ -126,7 +124,6 @@ export const CONTRABASS: InstrumentDef = {
   layers: one('contrabass'),
   range: [28, 67],
   reverb: 'hall',
-  aliases: ['double-bass'],
   presets: {
     legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
 };
@@ -145,7 +142,6 @@ export const STRINGS: InstrumentDef = {
   ],
   range: [28, 100],
   reverb: 'hall',
-  aliases: ['string-ensemble', 'orchestra-strings'],
   presets: {
     default: { description: 'Divisi across the keyboard' },
     octaves: {

@@ -1,6 +1,7 @@
 import type { NoteLike } from './notes.js';
 
-/** Timing options shared by note methods. Times are in seconds on the synth clock. */
+/** When a change happens: every method that makes or changes sound takes these as its last
+ *  argument. Without either, it happens now. */
 export interface TimeOptions {
   /** Absolute time (seconds, `synth.currentTime` clock). */
   at?: number;
@@ -30,10 +31,10 @@ export interface SequenceOptions extends TimeOptions {
 }
 
 /**
- * Something with keys you can play: a {@link Part}, an organ {@link Division} or a standalone
- * {@link Instrument}. Code written against `Keyboard` plays any of them.
+ * Anything you can play notes on: an {@link Instrument} or one {@link Division} of an organ.
+ * Code written against `Playable` plays either.
  */
-export interface Keyboard {
+export interface Playable {
   /** Press a key. */
   noteOn(note: NoteLike, velocity?: number, options?: TimeOptions): this;
   /** Release a key. */
@@ -56,7 +57,7 @@ export function resolveTime(now: number, o: TimeOptions): number | undefined {
 }
 
 /** Press notes together and release them after `options.duration`. */
-export function playNotes(kb: Pick<Keyboard, 'noteOn' | 'noteOff'>, now: number, notes: NoteLike | NoteLike[], options: PlayOptions, velocity: number): void {
+export function playNotes(kb: Pick<Playable, 'noteOn' | 'noteOff'>, now: number, notes: NoteLike | NoteLike[], options: PlayOptions, velocity: number): void {
   const list = Array.isArray(notes) ? notes : [notes];
   const dur = Math.max(0, options.duration ?? 1);
   const t = resolveTime(now, options);

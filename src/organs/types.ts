@@ -71,7 +71,7 @@ export interface TremulantDef {
 
 /**
  * A complete organ as configuration: its stops, named presets, the layout of its
- * divisions and its wind. Pass one to `synth.organ({ instrument })` to play it; the built-in
+ * divisions and its wind. Pass one to `synth.addOrgan()` to play it; the built-in
  * organs ({@link BUREA_ORGAN}, {@link VCSL_ORGAN}) are plain `OrganDef`s that can be copied and
  * changed:
  *
@@ -81,13 +81,13 @@ export interface TremulantDef {
  *   ...BUREA_ORGAN,
  *   presets: { ...BUREA_ORGAN.presets, bright: { description: 'Flutes 8 + 2', great: ["Gedackt 8'", "Octave 2'"] } },
  * };
- * synth.organ({ instrument: mine, preset: 'bright' });
+ * synth.addOrgan(mine, { preset: 'bright' });
  * ```
  *
  * To add presets without a new definition, pass them to the organ instead:
  *
  * ```ts
- * synth.organ({ presets: { bright: { great: ["Gedackt 8'", "Octave 2'"] } }, preset: 'bright' });
+ * synth.addOrgan('burea', { presets: { bright: { great: ["Gedackt 8'", "Octave 2'"] } }, preset: 'bright' });
  * ```
  */
 export interface OrganDef {

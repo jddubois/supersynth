@@ -27,7 +27,6 @@ export const FRENCH_HORN: InstrumentDef = {
   layers: one('french-horn'),
   range: [34, 77],
   reverb: 'hall',
-  aliases: ['horn'],
   presets: {
     legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, distant: { description: 'Distant, at the back of the hall', params: { reverbSend: 0.45, brightness: -1 } } },
 };
@@ -72,6 +71,5 @@ export const BRASS: InstrumentDef = {
   ],
   range: [22, 84],
   reverb: 'hall',
-  aliases: ['brass-section'],
   presets: { default: { description: 'As recorded' } },
 };

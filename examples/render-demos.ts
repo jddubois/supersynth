@@ -29,23 +29,23 @@ function material(id: string, family: string): { steps: Step[]; bpm: number; cho
 }
 
 let count = 0;
-for (const def of INSTRUMENTS) {
+for (const def of Object.values(INSTRUMENTS)) {
   if (only && def.id !== only) continue;
   for (const preset of Object.keys(def.presets)) {
     const synth = new Synth({ sampleRate: 48000 });
-    const part = synth.add(def.id, { preset });
+    const instrument = synth.add(def, { preset });
     const m = material(def.id, def.family);
     let dur: number;
     if (m.chords) {
       let t = 0.2;
       for (const c of CANON_CHORDS.slice(0, 4)) {
         const fitted = c.map((n) => n).filter(Boolean);
-        part.play(fitted, { at: t, duration: 1.9, velocity: 80 });
+        instrument.play(fitted, { at: t, duration: 1.9, velocity: 80 });
         t += 2;
       }
       dur = t;
     } else {
-      dur = 0.2 + playSteps(part, fitToRange(m.steps, def.range), { at: 0.2, bpm: m.bpm, velocity: 88 });
+      dur = 0.2 + playSteps(instrument, fitToRange(m.steps, def.range), { at: 0.2, bpm: m.bpm, velocity: 88 });
     }
     const file = path.join(outDir, def.id, `${preset}.wav`);
     mkdirSync(path.dirname(file), { recursive: true });
@@ -59,7 +59,7 @@ for (const def of INSTRUMENTS) {
 if (!only || only === 'organ') {
   for (const reg of Object.keys(BUREA_ORGAN.presets)) {
     const synth = new Synth({ sampleRate: 48000 });
-    const organ = synth.organ({ preset: reg });
+    const organ = synth.addOrgan(BUREA_ORGAN, { preset: reg });
     const beat = 60 / 84;
     let t = 0.3;
     for (const [s, a, tn, b, beats] of OLD_HUNDREDTH.slice(0, 8)) {

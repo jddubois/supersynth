@@ -44,7 +44,6 @@ export interface InstrumentDef {
   reverb: ReverbPreset;
   params?: InstrumentParams;
   presets: Record<string, PresetDef>;
-  aliases?: string[];
 }
 
 /** A single layer playing one model. */

@@ -10,7 +10,6 @@ export const PIPE_ORGAN: InstrumentDef = {
   layers: one('pipe-organ'),
   range: [24, 96],
   reverb: 'church',
-  aliases: ['church-organ'],
   presets: {
     default: { description: 'Full swell' },
     soft: { description: 'Soft flutes', layers: one('pipe-organ-soft') },
@@ -31,7 +30,6 @@ export const CHAMBER_ORGAN: InstrumentDef = {
   layers: one('renaissance-organ-8'),
   range: [36, 89],
   reverb: 'chamber',
-  aliases: ['positive-organ'],
   presets: {
     default: { description: "8' flute" },
     '4ft': { description: "4' flute alone", layers: one('renaissance-organ-4') },

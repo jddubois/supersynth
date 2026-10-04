@@ -2,7 +2,7 @@
  * Small library of public-domain musical material used by the examples.
  * Durations are in beats; `null` is a rest.
  */
-import type { Part } from '../../src/index.ts';
+import type { Playable } from '../../src/index.ts';
 
 export type Step = [string | string[] | null, number] | [string | string[] | null, number, number];
 
@@ -79,9 +79,9 @@ export function fitToRange(steps: Step[], range: [number, number]): Step[] {
   });
 }
 
-/** Play steps on a part; returns the duration in seconds. */
-export function playSteps(part: Part, steps: Step[], opts: { at?: number; bpm?: number; velocity?: number; legato?: number } = {}): number {
-  return part.sequence(
+/** Play steps on an instrument or organ division; returns the duration in seconds. */
+export function playSteps(playable: Playable, steps: Step[], opts: { at?: number; bpm?: number; velocity?: number; legato?: number } = {}): number {
+  return playable.sequence(
     steps.map(([note, beats, vel]) => ({ note, beats, velocity: vel ?? opts.velocity ?? 90 })),
     { ...(opts.at !== undefined ? { at: opts.at } : {}), bpm: opts.bpm ?? 90, legato: opts.legato ?? 0.97 },
   );

@@ -43,7 +43,7 @@ blind listening tests (see `tools/ssm/blind.py`) are used to hunt down any remai
 | Family | Instruments (ids) |
 |---|---|
 | Keyboards | `grand-piano`, `upright-piano`, `harpsichord` |
-| Organs | `organ()` — the full Bureå church organ (40 stops, 4 divisions); `organ({ instrument: 'vcsl' })` — the VCSL church organ with a Renaissance chamber organ; `pipe-organ`, `chamber-organ` |
+| Organs | `addOrgan('burea')` — the full Bureå church organ (40 stops, 4 divisions); `addOrgan('vcsl')` — the VCSL church organ with a Renaissance chamber organ; `pipe-organ`, `chamber-organ` (single sounds) |
 | Strings | `violin`, `violins`, `violas`, `cellos`, `contrabass`, `strings` (full section), `harp`, `violin-pizzicato`, `cello-pizzicato`, `contrabass-pizzicato` |
 | Woodwinds | `flute`, `oboe`, `clarinet`, `bassoon`, `tenor-sax` |
 | Brass | `trumpet`, `french-horn`, `trombone`, `tuba`, `brass` (section) |
@@ -54,17 +54,22 @@ Each comes with presets (`synth.add('grand-piano', { preset: 'felt' })`); `INSTR
 
 ## The API in one screen
 
-- **`Synth`** is the engine. `synth.add(instrument)` gives a **`Part`** (one instrument),
-  `synth.organ()` an **`Organ`** with four **`Division`s**.
-- Parts and divisions are **keyboards**: `noteOn`, `noteOff`, `play`, `sequence`,
-  `expression`, `allNotesOff` — each taking `{ at }` or `{ delay }` for sample-accurate timing.
-- Parts and organs share one **preset** API: `preset(name | object)`, `presets()`,
+- **`Synth`** is the engine. `synth.add(id)` adds an **`Instrument`**; `synth.addOrgan(id)` an
+  **`Organ`** with four **`Division`s** (its keyboards).
+- Instruments and divisions are **`Playable`**: `noteOn`, `noteOff`, `play`, `sequence`,
+  `expression`, `allNotesOff`.
+- **Every change can be scheduled**: notes, controllers, parameters, presets, stops, couplers,
+  volume and room all take `{ at }` or `{ delay }` last, so a whole piece renders in one go.
+- **`set(settings)`** changes some settings and keeps the rest — `synth.set({ volume, reverb })`,
+  `instrument.set({ brightness })`, `organ.set({ tremulant, wind })`, `division.set({ stops })`.
+- Instruments and organs share one **preset** API: `preset(name | object)`, `presets()`,
   `savePreset(name)`, `current()`, `activePreset()`.
-- **MIDI channels** are 1–16 everywhere: `part.midi(1)`, `organ.midi({ great: 1 })`.
-- Instruments and organs are **configuration** (`InstrumentDef`, `OrganDef`): import, copy, change.
-- `new Piano()`, `new Violin()`, `new ChurchOrgan()` … are a part or an organ with their own engine.
+- **MIDI channels** are 1–16, and a MIDI keyboard plays only what you give a channel:
+  `instrument.midi(1)`, `organ.midi({ great: 1, pedal: 2 })`.
+- Instruments and organs are **configuration** (`InstrumentDef`, `OrganDef`), with the
+  built-in ones in `INSTRUMENTS` and `ORGANS` by id: import, copy, change.
 
-Reference: [docs/synth.md](docs/synth.md) (Synth, Part, standalone instruments),
+Reference: [docs/synth.md](docs/synth.md) (Synth, Instrument, the rules above),
 [docs/organ.md](docs/organ.md), [docs/parameters.md](docs/parameters.md) (parameters, reverb),
 [docs/midi.md](docs/midi.md), [docs/errors.md](docs/errors.md).
 
@@ -125,17 +130,17 @@ piano.presets();                            // the instrument's presets and your
 ### The church organ
 
 ```ts
-const organ = synth.organ({ preset: 'plenum' });
+const organ = synth.addOrgan('burea', { preset: 'plenum' });
 organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
 organ.pedal.play('C2', { duration: 4 });
 
 organ.great.pull("Trumpet 8'");           // draw a stop, even while notes are held
-organ.swell.pull("Salicional 8'", "Voix céleste 8'");
+organ.swell.pull(["Salicional 8'", "Voix céleste 8'"]);
 organ.great.couple('swell');              // Swell to Great
 organ.swell.expression(0.4);              // swell pedal
-organ.tremulant(true);
+organ.set({ tremulant: true });
 
-organ.preset('celeste');                  // plenum, flutes, cornet, trumpet, krummhorn, celeste, full, …
+organ.preset('celeste', { at: 8 });       // plenum, flutes, cornet, trumpet, krummhorn, celeste, full, …
 organ.preset({ great: ["Principal 8'"], pedal: ["Subbass 16'"], couple: { pedal: ['great'] } });
 organ.savePreset('mine');                 // what is drawn now, under a name
 
@@ -159,7 +164,7 @@ const organ: OrganDef = {
   ...BUREA_ORGAN,
   presets: { ...BUREA_ORGAN.presets, solo: { description: 'Krummhorn solo', positive: ["Gedackt 8'", "Krummhorn 8'"] } },
 };
-synth.organ({ instrument: organ, preset: 'solo' });
+synth.addOrgan(organ, { preset: 'solo' });
 ```
 
 See [docs/organ.md](docs/organ.md#organs-are-configuration) and [docs/instruments.md](docs/instruments.md).
@@ -170,7 +175,7 @@ See [docs/organ.md](docs/organ.md#organs-are-configuration) and [docs/instrument
 const synth = new Synth();
 synth.add('harpsichord').play(['D4', 'F4', 'A4'], { duration: 2 });
 synth.renderToFile('chord.wav', 3);                     // no audio device needed
-const audio = synth.render(3);                          // { sampleRate, left, right }
+const audio = synth.render(3);                          // { sampleRate, left, right, duration }
 
 synth.renderMidi('bach.mid', { instrument: 'harpsichord' });
 await synth.playMidi('song.mid', { channels: { 1: 'violin', 2: 'cellos' } });
@@ -218,7 +223,7 @@ whole core there.
 ## Architecture
 
 ```
-TypeScript API (src/)          Synth · Part · Organ · instruments · MIDI files · WAV
+TypeScript API (src/)          Synth · Instrument · Organ · catalog · MIDI files · WAV
         │ napi-rs
 native/src/                    bindings, CPAL audio output, MIDI input
 native/core/                   supersynth-core (pure Rust)

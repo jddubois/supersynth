@@ -17,6 +17,9 @@ use audio::backend::{list_available_backends, BackendKind};
 use audio::output::{default_output_rate, AudioOutput};
 use midi::input::{connect_midi_device, list_midi_devices, MidiInputHandle};
 use midi::message::{MidiMessage, MidiMessageKind};
+
+/// A MIDI channel routed to no part: its messages only reach the JavaScript callback.
+const NO_ROUTE: u8 = 255;
 use supersynth_core::engine::params::{MasterParam, PartParam};
 use supersynth_core::engine::{Command, Controller, Engine, EngineConfig, InstLayer, Instrument, Status as EngineStatus};
 use supersynth_core::fx::reverb::ReverbParams;
@@ -57,7 +60,7 @@ struct Shared {
     ctl: Mutex<Controller>,
     status: Arc<EngineStatus>,
     sample_rate: f32,
-    /// Part each MIDI channel (1–16) plays when MIDI input is routed; channel N → part N-1
+    /// Part each MIDI channel (1–16) plays when MIDI input is routed (`NO_ROUTE`: none)
     /// until changed.
     midi_routes: [AtomicU8; 16],
 }
@@ -117,7 +120,7 @@ impl SynthEngine {
                 ctl: Mutex::new(ctl),
                 status,
                 sample_rate: sample_rate as f32,
-                midi_routes: std::array::from_fn(|i| AtomicU8::new(i as u8)),
+                midi_routes: std::array::from_fn(|_| AtomicU8::new(NO_ROUTE)),
             }),
             output: None,
             midi: None,
@@ -321,13 +324,13 @@ impl SynthEngine {
         self.shared.send(time, Command::SetCouplers { part: part as u16, targets: mask })
     }
 
-    /// Part that MIDI input on `channel` (1–16) plays.
+    /// Part that MIDI input on `channel` (1–16) plays; 255 (or more) routes it to no part.
     #[napi]
     pub fn set_midi_route(&self, channel: u32, part: u32) -> Result<()> {
         if !(1..=16).contains(&channel) {
             return Err(err(format!("MIDI channel {channel} is not 1–16")));
         }
-        self.shared.midi_routes[channel as usize - 1].store(part.min(255) as u8, Ordering::Relaxed);
+        self.shared.midi_routes[channel as usize - 1].store(part.min(NO_ROUTE as u32) as u8, Ordering::Relaxed);
         Ok(())
     }
 
@@ -392,8 +395,8 @@ impl SynthEngine {
         list_available_backends()
     }
 
-    /// Connect a MIDI input. Messages are applied to the engine immediately (channel N →
-    /// part N-1, or as set by `set_midi_route`, when `route` is true) and forwarded to
+    /// Connect a MIDI input. Messages are applied to the engine immediately (to the part each
+    /// channel is given with `set_midi_route`, when `route` is true) and forwarded to
     /// `callback` as raw bytes.
     #[napi]
     pub fn enable_midi(&mut self, device_name: Option<String>, route: bool, callback: JsFunction) -> Result<()> {
@@ -406,7 +409,12 @@ impl SynthEngine {
                 if route {
                     if let Some(msg) = MidiMessage::parse(&bytes) {
                         let ch = (msg.channel.clamp(1, 16) - 1) as usize;
-                        let part = shared.midi_routes[ch].load(Ordering::Relaxed) as u16;
+                        let part = shared.midi_routes[ch].load(Ordering::Relaxed);
+                        if part == NO_ROUTE {
+                            tsfn.call(bytes, ThreadsafeFunctionCallMode::NonBlocking);
+                            return;
+                        }
+                        let part = part as u16;
                         let cmd = match msg.kind {
                             MidiMessageKind::NoteOn => Some(Command::NoteOn { part, note: msg.data1, velocity: msg.data2 }),
                             MidiMessageKind::NoteOff => Some(Command::NoteOff { part, note: msg.data1 }),

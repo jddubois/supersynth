@@ -1,15 +1,10 @@
 export { Synth } from './Synth.js';
-export type { SynthOptions, MidiPlayOptions, MidiTarget, BackendKind } from './Synth.js';
-export { Part } from './Part.js';
-export type { PartOptions } from './Part.js';
-export type { Keyboard, PlayOptions, TimeOptions, SequenceStep, SequenceOptions } from './scheduling.js';
+export type { SynthOptions, SynthSettings, MidiPlayOptions, MidiTarget, BackendKind } from './Synth.js';
+export { Instrument } from './Instrument.js';
+export type { InstrumentOptions } from './Instrument.js';
 export { Organ, Division } from './Organ.js';
-export type { OrganOptions, OrganMidiChannels, OrganMidiOptions } from './Organ.js';
-export {
-  Instrument, Piano, UprightPiano, Harpsichord, Harp, Violin, Cello, Strings, Flute, Oboe, Clarinet,
-  Bassoon, Saxophone, Trumpet, FrenchHorn, Trombone, Tuba, Marimba, Vibraphone, ChurchOrgan,
-} from './instruments.js';
-export type { InstrumentOptions } from './instruments.js';
+export type { OrganOptions, OrganSettings, DivisionSettings, OrganMidiChannels, OrganMidiOptions } from './Organ.js';
+export type { Playable, PlayOptions, TimeOptions, SequenceStep, SequenceOptions } from './scheduling.js';
 // configurations (also importable on their own from 'supersynth/instruments' and 'supersynth/organs')
 export * from './catalog/index.js';
 export * from './organs/index.js';

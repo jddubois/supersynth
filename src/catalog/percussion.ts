@@ -22,7 +22,6 @@ export const VIBRAPHONE: InstrumentDef = {
   layers: one('vibraphone'),
   range: [53, 89],
   reverb: 'hall',
-  aliases: ['vibes'],
   presets: {
     default: { description: 'As recorded' },
     'let-ring': { description: 'Pedal down: notes ring', params: { release: 8 } },
@@ -63,6 +62,5 @@ export const TUBULAR_BELLS: InstrumentDef = {
   layers: one('tubular-bells'),
   range: [60, 77],
   reverb: 'church',
-  aliases: ['chimes'],
   presets: { default: { description: 'As recorded' } },
 };

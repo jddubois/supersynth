@@ -3,8 +3,8 @@ import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
 import {
-  chord, encodeWav, findInstrument, Instrument, INSTRUMENTS, MidiError, noteName, noteNumber, parseMidiFile, Piano, Synth,
-  SupersynthError, type InstrumentDef, type Keyboard, type OrganDef,
+  chord, encodeWav, INSTRUMENTS, MidiError, noteName, noteNumber, parseMidiFile, Synth,
+  SupersynthError, type InstrumentDef, type InstrumentId, type OrganDef, type Playable,
 } from '../src/index.js';
 import * as instrumentConfigs from '../src/catalog/index.js';
 import { BUREA_ORGAN, ORGANS } from '../src/organs/index.js';
@@ -55,7 +55,7 @@ describe('Synth offline rendering', () => {
 
   test('a piano note sounds, stays finite and bounded, and ends after release', () => {
     const synth = new Synth({ sampleRate: 48000 });
-    const piano = synth.add('piano');
+    const piano = synth.add('grand-piano');
     piano.play('C4', { velocity: 100, duration: 0.5 });
     const a = synth.render(1.5);
     expect(rms(a.left)).toBeGreaterThan(1e-3);
@@ -93,7 +93,7 @@ describe('Synth offline rendering', () => {
 });
 
 describe('instruments', () => {
-  test.each(INSTRUMENTS.map((d) => d.id))('%s loads and plays', (id) => {
+  test.each(Object.keys(INSTRUMENTS) as InstrumentId[])('%s loads and plays', (id) => {
     const synth = new Synth({ sampleRate: 48000 });
     const part = synth.add(id);
     const mid = Math.round((part.definition.range[0] + part.definition.range[1]) / 2);
@@ -114,8 +114,9 @@ describe('instruments', () => {
     expect(p.activePreset()).toBeUndefined();
     expect(() => p.preset('nope')).toThrow(SupersynthError);
     expect(() => p.set({ nope: 1 } as never)).toThrow(SupersynthError);
-    p.reset();
+    p.preset('default');
     expect(p.get('brightness')).toBe(0);
+    expect(p.get('reverbSend')).toBeUndefined(); // the instrument's own
   });
 
   test('parameters given with the preset at creation keep it active', () => {
@@ -140,44 +141,66 @@ describe('instruments', () => {
     expect(Object.keys(p.presets())).toContain('mine');
   });
 
-  test('parts are listed and removed', () => {
-    const synth = new Synth({ sampleRate: 22050 });
-    const a = synth.add('piano');
-    synth.organ();
+  test('instruments and organs are listed and removed', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const a = synth.add('grand-piano');
+    const organ = synth.addOrgan('burea', { preset: 'flutes' });
     const b = synth.add('violin');
-    expect(synth.parts()).toEqual([a, b]);
+    expect(synth.instruments()).toEqual([a, b]);
     synth.remove(a);
-    expect(synth.parts()).toEqual([b]);
+    expect(synth.instruments()).toEqual([b]);
+    organ.great.play('C4', { duration: 0.2 });
+    synth.remove(organ);
+    expect(rms(synth.render(0.3).left.subarray(1100))).toBeLessThan(1e-6); // after a 50 ms fade
+    // the organ's four channels are free again
+    for (let i = 0; i < 4; i++) synth.add('flute');
     expect(() => b.midi(17)).toThrow(RangeError);
     b.midi(1);
   });
 
+  test('presets and parameters can be scheduled', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const p = synth.add('flute');
+    p.noteOn('A4');
+    p.set({ volume: -40 }, { at: 0.5 });
+    const a = synth.render(1);
+    expect(rms(a.left.subarray(11025 + 1000))).toBeLessThan(rms(a.left.subarray(2000, 11025)) * 0.1);
+    p.preset('default', { delay: 0.2 });
+    synth.render(0.3);
+    expect(p.get('volume')).toBe(0);
+  });
+
   test('unknown instrument throws a helpful error', () => {
     const synth = new Synth({ sampleRate: 48000 });
-    expect(() => synth.add('kazoo')).toThrow(SupersynthError);
+    expect(() => synth.add('kazoo' as InstrumentId)).toThrow(SupersynthError);
+    expect(() => synth.addOrgan('kazoo' as never)).toThrow(SupersynthError);
   });
 
-  test('standalone instrument classes are parts with their own engine', () => {
-    const piano = new Piano({ sampleRate: 48000, preset: 'bright' });
-    expect(piano.activePreset()).toBe('bright');
-    piano.sustain(true).play(['C4', 'E4', 'G4'], { duration: 0.5 });
-    expect(rms(piano.render(0.6).left)).toBeGreaterThan(1e-3);
-    expect(piano.synth.parts()).toEqual([piano]);
-  });
-
-  test('parts, divisions and standalone instruments are all keyboards', () => {
+  test('instruments and organ divisions are both playable', () => {
     const synth = new Synth({ sampleRate: 22050, reverb: false });
-    const keyboards: Keyboard[] = [synth.add('flute'), synth.organ({ preset: 'flutes' }).great];
-    for (const k of keyboards) k.play('C5', { duration: 0.2 }).expression(0.8);
+    const playables: Playable[] = [synth.add('flute'), synth.addOrgan('burea', { preset: 'flutes' }).great];
+    for (const k of playables) k.play('C5', { duration: 0.2 }).expression(0.8);
     expect(rms(synth.render(0.3).left)).toBeGreaterThan(1e-4);
-    for (const k of keyboards) k.noteOn('G4').allNotesOff();
+    for (const k of playables) k.noteOn('G4').allNotesOff();
+  });
+
+  test('synth settings', () => {
+    const level = (volume: number) => {
+      const s = new Synth({ sampleRate: 22050, reverb: false });
+      s.add('flute').play('A4', { duration: 0.5 });
+      s.set({ volume });
+      return rms(s.render(0.5).left);
+    };
+    expect(level(0.1)).toBeLessThan(level(0.8) * 0.3);
+    const s = new Synth({ sampleRate: 22050 });
+    s.set({ reverb: 'cathedral' }, { at: 1 }).set({ reverb: { preset: 'hall', decay: 2 } }).set({ reverb: false });
   });
 });
 
 describe('organ', () => {
   test('presets, stops and couplers', () => {
     const synth = new Synth({ sampleRate: 48000 });
-    const organ = synth.organ({ preset: 'flutes' });
+    const organ = synth.addOrgan('burea', { preset: 'flutes' });
     expect(organ.great.drawn()).toEqual(["Gedackt 8'", "Rohrflöte 4'"]);
     expect(organ.activePreset()).toBe('flutes');
     organ.great.play(['C4', 'E4'], { duration: 0.5 });
@@ -191,14 +214,20 @@ describe('organ', () => {
     expect(organ.activePreset()).toBeUndefined();
     organ.great.push('great-trumpet-8'); // by id
     expect(organ.great.drawn()).not.toContain("Trumpet 8'");
-    organ.great.set("Principal 8'", ["Octave 4'"]);
+    organ.great.set({ stops: ["Principal 8'", "Octave 4'"] });
     expect(organ.great.drawn()).toEqual(["Principal 8'", "Octave 4'"]);
+    organ.great.pull(["Trumpet 8'", 'Mixture V']).push("Trumpet 8'");
+    expect(organ.great.drawn()).toEqual(["Principal 8'", "Octave 4'", 'Mixture V']);
+    organ.pedal.set({ couple: [] });
+    expect(organ.pedal.coupled()).toEqual([]);
     expect(() => organ.great.pull('Bombarde 32')).toThrow(SupersynthError);
+    expect(() => organ.great.set({ stops: ['Bombarde 32'] })).toThrow(SupersynthError);
+    expect(organ.great.drawn()).toEqual(["Principal 8'", "Octave 4'", 'Mixture V']);
   });
 
   test('a preset can be an object, saved and read back', () => {
     const synth = new Synth({ sampleRate: 22050 });
-    const organ = synth.organ({ presets: { soft: { description: 'Soft', swell: ["Salicional 8'"], pedal: ["Subbass 16'"] } }, preset: 'soft' });
+    const organ = synth.addOrgan('burea', { presets: { soft: { description: 'Soft', swell: ["Salicional 8'"], pedal: ["Subbass 16'"] } }, preset: 'soft' });
     expect(organ.swell.drawn()).toEqual(["Salicional 8'"]);
     organ.preset({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] } });
     expect(organ.current()).toEqual({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] } });
@@ -215,20 +244,20 @@ describe('organ', () => {
 
   test('couplers act in the engine, for every note source', () => {
     const synth = new Synth({ sampleRate: 22050, reverb: false });
-    const organ = synth.organ({ preset: { swell: ["Rohrflöte 8'"] } });
+    const organ = synth.addOrgan('burea', { preset: { swell: ["Rohrflöte 8'"] } });
     // a MIDI file played on the great (straight to the engine, like a MIDI keyboard)
     const great = () => rms(synth.renderMidi(midiFile([[0, 0x90, 60, 100], [240, 0x80, 60, 0]]), { instrument: organ.great, tail: 0.1 }).left);
     expect(great()).toBeLessThan(1e-6); // nothing drawn on the great
     organ.great.couple('swell');
     expect(great()).toBeGreaterThan(1e-3); // sounds the swell
-    organ.great.uncouple();
+    organ.great.uncouple('swell');
     synth.render(3);
     expect(great()).toBeLessThan(1e-6);
   });
 
   test('program changes select presets', () => {
     const synth = new Synth({ sampleRate: 22050 });
-    const organ = synth.organ().midi({ great: 1, pedal: 2 }, { presets: ['flutes', 'plenum'] });
+    const organ = synth.addOrgan('burea').midi({ great: 1, pedal: 2 }, { presets: ['flutes', 'plenum'] });
     synth.emit('midi', { type: 'programChange', channel: 2, program: 1, raw: Buffer.from([0xc1, 1]) });
     expect(organ.activePreset()).toBe('plenum');
     synth.emit('midi', { type: 'programChange', channel: 5, program: 0, raw: Buffer.from([0xc4, 0]) });
@@ -237,7 +266,7 @@ describe('organ', () => {
 
   test('pulling a stop while a note is held adds it to the sounding note', () => {
     const synth = new Synth({ sampleRate: 48000, reverb: false });
-    const organ = synth.organ({ preset: 'flute-8' });
+    const organ = synth.addOrgan('burea', { preset: 'flute-8' });
     organ.positive.noteOn('C4');
     const before = rms(synth.render(0.5).right);
     organ.positive.pull("Krummhorn 8'");
@@ -245,6 +274,28 @@ describe('organ', () => {
     const after = rms(synth.render(0.5).right);
     // the recorded Krummhorn C4 sounds ~4.5 dB below the Gedackt: about +1.4 dB together
     expect(after).toBeGreaterThan(before * 1.1);
+  });
+
+  test('preset changes can be scheduled, so a piece renders in one go', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const organ = synth.addOrgan('burea', { preset: { positive: ["Gedackt 8'"] } });
+    organ.positive.play('C4', { at: 0, duration: 2 });
+    organ.preset({ positive: ["Gedackt 8'", "Krummhorn 8'"] }, { at: 1 });
+    organ.set({ tremulant: true }, { at: 1.5 });
+    expect(organ.positive.drawn()).toEqual(["Gedackt 8'", "Krummhorn 8'"]);
+    const a = synth.render(2);
+    const level = (from: number, to: number) => rms(a.right.subarray(from * 22050, to * 22050));
+    expect(level(1.2, 1.5)).toBeGreaterThan(level(0.5, 0.95) * 1.1);
+  });
+
+  test('a stop pulled for later sounds only from then', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const organ = synth.addOrgan('burea', { preset: {} });
+    organ.great.noteOn('C4');
+    organ.great.pull("Principal 8'", { at: 0.5 });
+    const a = synth.render(1);
+    expect(rms(a.left.subarray(0, 10000))).toBeLessThan(1e-6);
+    expect(rms(a.left.subarray(13000))).toBeGreaterThan(1e-3);
   });
 });
 
@@ -257,15 +308,16 @@ describe('configurations', () => {
 
   test('every named instrument config is in the catalog, under its own id', () => {
     const named = Object.values(instrumentConfigs).filter((v): v is InstrumentDef => typeof v === 'object' && v !== null && 'layers' in v);
-    expect(named.length).toBe(INSTRUMENTS.length);
-    for (const def of named) expect(findInstrument(def.id)).toBe(def);
+    expect(named.length).toBe(Object.keys(INSTRUMENTS).length);
+    for (const def of named) expect((INSTRUMENTS as Record<string, InstrumentDef>)[def.id]).toBe(def);
   });
 
   test('an instrument config can be copied, changed and played', () => {
-    const def = instrumentConfigs.MARIMBA;
-    const inst = new Instrument({ ...def, id: 'dark-marimba', params: { brightness: -2 } }, { sampleRate: 22050 });
-    inst.play('C5', { duration: 0.3 });
-    expect(rms(inst.render(0.5).left)).toBeGreaterThan(1e-4);
+    const synth = new Synth({ sampleRate: 22050 });
+    const marimba = synth.add({ ...instrumentConfigs.MARIMBA, id: 'dark-marimba', params: { brightness: -2 } });
+    expect(marimba.get('brightness')).toBe(-2);
+    marimba.play('C5', { duration: 0.3 });
+    expect(rms(synth.render(0.5).left)).toBeGreaterThan(1e-4);
   });
 
   test('Bureå stops agree with the stop data analysed into their models', () => {
@@ -299,7 +351,7 @@ describe('configurations', () => {
       tremulant: { division: 'great', depth: 3, pitch: 5, rate: 5 },
     };
     const synth = new Synth({ sampleRate: 22050, reverb: false });
-    const organ = synth.organ({ instrument: tiny, tremulant: true });
+    const organ = synth.addOrgan(tiny, { tremulant: true });
     expect(organ.definition.id).toBe('tiny');
     expect(organ.great.drawn()).toEqual(["Gedackt 8'"]);
     expect(Object.keys(organ.presets())).toEqual(['soft']);

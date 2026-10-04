@@ -67,7 +67,6 @@ export const TENOR_SAX: InstrumentDef = {
   layers: one('tenor-sax'),
   range: [44, 88],
   reverb: 'room',
-  aliases: ['sax', 'saxophone'],
   presets: {
     legato: { description: 'Slurred melody: notes connect without re-attacking', params: { legato: true, glide: 0.05 } },
     default: { description: 'Straight tone' },

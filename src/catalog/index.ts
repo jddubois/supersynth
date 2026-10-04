@@ -23,47 +23,39 @@ export * from './brass.js';
 export * from './percussion.js';
 export type { InstrumentDef, InstrumentFamily, LayerDef, PresetDef } from './types.js';
 
-/** Every built-in instrument. */
-export const INSTRUMENTS: InstrumentDef[] = [
-  GRAND_PIANO,
-  UPRIGHT_PIANO,
-  HARPSICHORD,
-  PIPE_ORGAN,
-  CHAMBER_ORGAN,
-  HARP,
-  VIOLIN_PIZZICATO,
-  CELLO_PIZZICATO,
-  CONTRABASS_PIZZICATO,
-  VIOLIN,
-  VIOLINS,
-  VIOLAS,
-  CELLOS,
-  CONTRABASS,
-  STRINGS,
-  FLUTE,
-  OBOE,
-  CLARINET,
-  BASSOON,
-  TENOR_SAX,
-  TRUMPET,
-  FRENCH_HORN,
-  TROMBONE,
-  TUBA,
-  BRASS,
-  MARIMBA,
-  VIBRAPHONE,
-  XYLOPHONE,
-  GLOCKENSPIEL,
-  TUBULAR_BELLS,
-];
+/** Every built-in instrument, by id (`synth.add('grand-piano')`). */
+export const INSTRUMENTS = {
+  'grand-piano': GRAND_PIANO,
+  'upright-piano': UPRIGHT_PIANO,
+  'harpsichord': HARPSICHORD,
+  'pipe-organ': PIPE_ORGAN,
+  'chamber-organ': CHAMBER_ORGAN,
+  'harp': HARP,
+  'violin-pizzicato': VIOLIN_PIZZICATO,
+  'cello-pizzicato': CELLO_PIZZICATO,
+  'contrabass-pizzicato': CONTRABASS_PIZZICATO,
+  'violin': VIOLIN,
+  'violins': VIOLINS,
+  'violas': VIOLAS,
+  'cellos': CELLOS,
+  'contrabass': CONTRABASS,
+  'strings': STRINGS,
+  'flute': FLUTE,
+  'oboe': OBOE,
+  'clarinet': CLARINET,
+  'bassoon': BASSOON,
+  'tenor-sax': TENOR_SAX,
+  'trumpet': TRUMPET,
+  'french-horn': FRENCH_HORN,
+  'trombone': TROMBONE,
+  'tuba': TUBA,
+  'brass': BRASS,
+  'marimba': MARIMBA,
+  'vibraphone': VIBRAPHONE,
+  'xylophone': XYLOPHONE,
+  'glockenspiel': GLOCKENSPIEL,
+  'tubular-bells': TUBULAR_BELLS,
+} satisfies Record<string, InstrumentDef>;
 
-const BY_ID = new Map<string, InstrumentDef>();
-for (const d of INSTRUMENTS) {
-  BY_ID.set(d.id, d);
-  for (const a of d.aliases ?? []) BY_ID.set(a, d);
-}
-
-/** Look up an instrument by id or alias. */
-export function findInstrument(id: string): InstrumentDef | undefined {
-  return BY_ID.get(id.toLowerCase());
-}
+/** Id of a built-in instrument. */
+export type InstrumentId = keyof typeof INSTRUMENTS;

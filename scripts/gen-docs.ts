@@ -10,23 +10,22 @@ const constName = new Map<InstrumentDef, string>(
 
 const fam: Record<string, string> = { keyboard: 'Keyboards', organ: 'Organs', strings: 'Strings', woodwind: 'Woodwinds', brass: 'Brass', percussion: 'Mallets & bells' };
 let md = '# Instruments\n\nEvery instrument is a spectral model analysed from real recordings (see NOTICE.md).\n' +
-  'Add one with `synth.add(id, { preset })`. Aliases are accepted wherever an id is.\n\n' +
+  'Add one with `synth.add(id, { preset })`; `INSTRUMENTS` holds them all, by id.\n\n' +
   'Every instrument is also a plain configuration object (`InstrumentDef`) exported under the name\n' +
-  'shown with it, from `supersynth` and from `supersynth/instruments`. Pass it to `synth.add` or\n' +
-  '`new Instrument`, or copy and change it:\n\n' +
+  'shown with it, from `supersynth` and from `supersynth/instruments`. Pass it to `synth.add`, or\n' +
+  'copy and change it:\n\n' +
   '```ts\nimport { GRAND_PIANO } from \'supersynth/instruments\';\n' +
   'synth.add({ ...GRAND_PIANO, id: \'dark-piano\', params: { brightness: -1.5 } });\n```\n';
 for (const f of Object.keys(fam)) {
   md += `\n## ${fam[f]}\n`;
-  for (const d of INSTRUMENTS.filter((x) => x.family === f)) {
+  for (const d of Object.values(INSTRUMENTS).filter((x) => x.family === f)) {
     md += `\n### \`${d.id}\` — ${d.name}\n\n${d.description}\n\n`;
     md += `Config: \`${constName.get(d)}\`. `;
-    if (d.aliases?.length) md += `Aliases: ${d.aliases.map((a) => `\`${a}\``).join(', ')}. `;
     md += `Suggested room: \`${d.reverb}\`.\n\n| Preset | Description |\n|---|---|\n`;
     for (const [k, p] of Object.entries(d.presets)) md += `| \`${k}\` | ${p.description} |\n`;
   }
 }
-md += '\nThe full church organ is not a single instrument but an `Organ` with four divisions — see [organ.md](organ.md).\n';
+md += '\nThe full church organ is not a single instrument but an `Organ` with four divisions (`synth.addOrgan`) — see [organ.md](organ.md).\n';
 writeFileSync('docs/instruments.md', md);
 
 let org = '';
