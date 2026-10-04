@@ -1,0 +1,372 @@
+{
+ "id": "giubiasco",
+ "church": "Giubiasco",
+ "address": "Giubiasco, Switzerland",
+ "builder": "Mascioni",
+ "year": "2008",
+ "pitch": 0.215,
+ "reference": "great-principale-8",
+ "swellBoxes": [],
+ "tremulants": [
+  {
+   "division": "positive",
+   "depth": 1.91,
+   "pitch": 3.5,
+   "rate": 5.07,
+   "sampled": true,
+   "pipes": 18
+  }
+ ],
+ "stops": [
+  {
+   "id": "pedal-subbasso-16",
+   "name": "Subbasso 16'",
+   "odfName": "P  Subbasso 16'",
+   "section": "stop001",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-flauto-8",
+   "name": "Flauto 8'",
+   "odfName": "P  Flauto 8'",
+   "section": "stop002",
+   "manual": 0,
+   "division": "pedal",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-ottava-4",
+   "name": "Ottava 4'",
+   "odfName": "P  Ottava 4'",
+   "section": "stop003",
+   "manual": 0,
+   "division": "pedal",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "pedal-contro-fagotto-16",
+   "name": "Contro Fagotto 16'",
+   "odfName": "P  Contro Fagotto 16'",
+   "section": "stop004",
+   "manual": 0,
+   "division": "pedal",
+   "family": "reed",
+   "transpose": -12,
+   "keys": [
+    36,
+    65
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-bordone-8",
+   "name": "Bordone 8'",
+   "odfName": "PT  Bordone 8'",
+   "section": "stop005",
+   "manual": 1,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-flauto-4",
+   "name": "Flauto 4'",
+   "odfName": "PT  Flauto 4'",
+   "section": "stop006",
+   "manual": 1,
+   "division": "positive",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-quinta-2-2-3",
+   "name": "Quinta 2 2/3'",
+   "odfName": "PT  Quinta 2 2/3'",
+   "section": "stop007",
+   "manual": 1,
+   "division": "positive",
+   "family": "mutation",
+   "transpose": 19,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-principale-2",
+   "name": "Principale 2'",
+   "odfName": "PT  Principale 2'",
+   "section": "stop008",
+   "manual": 1,
+   "division": "positive",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-terza-1-3-5",
+   "name": "Terza 1 3/5'",
+   "odfName": "PT  Terza 1 3/5'",
+   "section": "stop009",
+   "manual": 1,
+   "division": "positive",
+   "family": "mutation",
+   "transpose": 28,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-larigot-1-1-3",
+   "name": "Larigot 1 1/3'",
+   "odfName": "PT  Larigot 1 1/3'",
+   "section": "stop010",
+   "manual": 1,
+   "division": "positive",
+   "family": "mutation",
+   "transpose": 31,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-cimbalo-2-file",
+   "name": "Cimbalo 2 file",
+   "odfName": "PT  Cimbalo 2 file 1'",
+   "section": "stop011",
+   "manual": 1,
+   "division": "positive",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "positive-regale-8",
+   "name": "Regale 8'",
+   "odfName": "PT  Regale 8'",
+   "section": "stop012",
+   "manual": 1,
+   "division": "positive",
+   "family": "reed",
+   "transpose": 0,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-principale-8",
+   "name": "Principale 8'",
+   "odfName": "GO  Principale 8'",
+   "section": "stop013",
+   "manual": 2,
+   "division": "great",
+   "family": "principal",
+   "transpose": 0,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-viola-da-gamba-8",
+   "name": "Viola da Gamba 8'",
+   "odfName": "GO  Viola da Gamba 8'",
+   "section": "stop014",
+   "manual": 2,
+   "division": "great",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-flauto-a-camino-8",
+   "name": "Flauto a camino 8'",
+   "odfName": "GO  Flauto a camino 8'",
+   "section": "stop015",
+   "manual": 2,
+   "division": "great",
+   "family": "flute",
+   "transpose": 0,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-voce-umana-8",
+   "name": "Voce umana 8'",
+   "odfName": "GO  Voce umana 8'",
+   "section": "stop016",
+   "manual": 2,
+   "division": "great",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    55,
+    93
+   ],
+   "missing": [
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54
+   ]
+  },
+  {
+   "id": "great-ottava-4",
+   "name": "Ottava 4'",
+   "odfName": "GO  Ottava 4'",
+   "section": "stop017",
+   "manual": 2,
+   "division": "great",
+   "family": "principal",
+   "transpose": 12,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-flauto-conico-4",
+   "name": "Flauto conico 4'",
+   "odfName": "GO  Flauto conico 4'",
+   "section": "stop018",
+   "manual": 2,
+   "division": "great",
+   "family": "flute",
+   "transpose": 12,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-quintadecima-2",
+   "name": "Quintadecima 2'",
+   "odfName": "GO  Quintadecima 2'",
+   "section": "stop019",
+   "manual": 2,
+   "division": "great",
+   "family": "principal",
+   "transpose": 24,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-cornetto-2-2-3",
+   "name": "Cornetto 2 2/3'",
+   "odfName": "GO  Cornetto 2 2/3'",
+   "section": "stop020",
+   "manual": 2,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-ripieno-4-file",
+   "name": "Ripieno 4 file",
+   "odfName": "GO  Ripieno 4 file 1 1/3'",
+   "section": "stop021",
+   "manual": 2,
+   "division": "great",
+   "family": "mixture",
+   "transpose": 0,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  },
+  {
+   "id": "great-violoncello-8",
+   "name": "Violoncello 8'",
+   "odfName": "GO  Violoncello 8'",
+   "section": "stop022",
+   "manual": 2,
+   "division": "great",
+   "family": "string",
+   "transpose": 0,
+   "keys": [
+    36,
+    93
+   ],
+   "missing": []
+  }
+ ]
+}

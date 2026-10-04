@@ -5,7 +5,9 @@
  */
 import type { OrganDef } from '../types.js';
 import { AZZIO_ORGAN } from './azzio.js';
+import { DLUGA_KOSCIELNA_ORGAN } from './dluga-koscielna.js';
 import { FRIESACH_ORGAN } from './friesach.js';
+import { GIUBIASCO_ORGAN } from './giubiasco.js';
 import { GREEN_POSITIV_ORGAN } from './green-positiv.js';
 import { HARMONIUM_ORGAN } from './harmonium.js';
 import { LEDZINY_ORGAN } from './ledziny.js';
@@ -17,12 +19,14 @@ import { SKRZATUSZ_ORGAN } from './skrzatusz.js';
 import { STRASSBURG_ORGAN } from './strassburg.js';
 import { SZCZECINEK_ORGAN } from './szczecinek.js';
 
-export { AZZIO_ORGAN, FRIESACH_ORGAN, GREEN_POSITIV_ORGAN, HARMONIUM_ORGAN, LEDZINY_ORGAN, LIPINY_ORGAN, MELCER_ORGAN, RASZCZYCE_ORGAN, SAINT_JEAN_DE_LUZ_ORGAN, SKRZATUSZ_ORGAN, STRASSBURG_ORGAN, SZCZECINEK_ORGAN };
+export { AZZIO_ORGAN, DLUGA_KOSCIELNA_ORGAN, FRIESACH_ORGAN, GIUBIASCO_ORGAN, GREEN_POSITIV_ORGAN, HARMONIUM_ORGAN, LEDZINY_ORGAN, LIPINY_ORGAN, MELCER_ORGAN, RASZCZYCE_ORGAN, SAINT_JEAN_DE_LUZ_ORGAN, SKRZATUSZ_ORGAN, STRASSBURG_ORGAN, SZCZECINEK_ORGAN };
 
 /** Piotr Grabowski's organs by id. */
 export const PIOTR_ORGANS = {
   azzio: AZZIO_ORGAN,
+  'dluga-koscielna': DLUGA_KOSCIELNA_ORGAN,
   friesach: FRIESACH_ORGAN,
+  giubiasco: GIUBIASCO_ORGAN,
   'green-positiv': GREEN_POSITIV_ORGAN,
   harmonium: HARMONIUM_ORGAN,
   ledziny: LEDZINY_ORGAN,
