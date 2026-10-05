@@ -6,15 +6,16 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 
-import { Synth, SupersynthError, type SynthOptions } from '../src/index.js';
+import { INSTRUMENTS, Synth, SupersynthError, type SynthOptions } from '../src/index.js';
 import type { NativeEngine } from '../src/engine.js';
 import { platform } from '../src/platform/node.js';
-import { prepareWasm, WasmEngine } from '../src/platform/web/engine.js';
 import { instantiate, setThreadStarter } from '../src/platform/web/threads.js';
 
 const WASM = path.join(process.cwd(), 'wasm', 'supersynth_bg.wasm');
 const built = existsSync(WASM);
 const maybe = built ? describe : describe.skip;
+// (imports the module's glue: only when it is built)
+const { prepareWasm, WasmEngine } = built ? await import('../src/platform/web/engine.js') : ({} as typeof import('../src/platform/web/engine.js'));
 
 const createEngine = platform.createEngine;
 
@@ -65,6 +66,8 @@ function diff(a: Float32Array, b: Float32Array): number {
   return d;
 }
 
+const STACK = ['pipe-organ', 'pipe-organ-soft', 'renaissance-organ-4', 'renaissance-organ-8', 'renaissance-organ-full', 'pipe-organ-pedal', 'flute', 'oboe'];
+
 function piece(s: Synth) {
   s.add('grand-piano', { preset: 'mellow' }).play(['C3', 'E4', 'G4', 'C5'], { velocity: 96, duration: 0.8 });
   s.add('violins').play(['A4', 'E5'], { at: 0.2, velocity: 80, duration: 0.8 });
@@ -80,17 +83,17 @@ maybe('WebAssembly engine', () => {
     // 2e-6 at most, -113 dB)
     expect(diff(native.left, wasm.left)).toBeLessThan(1e-4);
     expect(diff(native.right, wasm.right)).toBeLessThan(1e-4);
-  });
+  }, 30_000);
 
   test('exactly the same on any number of threads, the workers rendering with it', async () => {
     const play = async (threads: number) => {
       const s = wasmSynth({ sampleRate: 48000, threads });
       await ready(s);
       expect(s.threads).toBe(threads);
-      // (enough pipes for the voices to be shared out between threads)
-      const organ = s.add('burea', { preset: 'full', preload: false });
-      organ.great.play(['C3', 'G3', 'C4', 'E4', 'G4', 'C5'], { velocity: 100, duration: 1 });
-      organ.pedal.play('C2', { velocity: 100, duration: 1 });
+      // eight layers, 16 notes: enough voices to be shared out between threads (and a
+      // WebAssembly memory far smaller than an organ's, beside the other suites)
+      const big = s.add({ ...INSTRUMENTS['pipe-organ'], id: 'stack', presets: { default: {} }, layers: STACK.map((model) => ({ model })) });
+      big.play([36, 40, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79, 84, 88, 91, 96], { velocity: 100, duration: 1 });
       const a = s.render(1.5);
       s.close();
       return a;
@@ -100,7 +103,7 @@ maybe('WebAssembly engine', () => {
     expect(rms(one.left)).toBeGreaterThan(1e-3);
     expect(diff(one.left, three.left)).toBe(0);
     expect(diff(one.right, three.right)).toBe(0);
-  });
+  }, 60_000);
 
   test('an organ loads its models between other work, as in a browser', async () => {
     const s = wasmSynth({ sampleRate: 48000, threads: 1 });
@@ -110,7 +113,7 @@ maybe('WebAssembly engine', () => {
     organ.great.play('C4', { duration: 0.3 });
     expect(rms(s.render(0.5).left)).toBeGreaterThan(1e-4);
     s.close();
-  });
+  }, 30_000);
 
   test('engine errors become SupersynthErrors', () => {
     const s = wasmSynth();

@@ -1,8 +1,9 @@
 name: Release
 
 # Push a tag vX.Y.Z (after `npm version X.Y.Z`, which also moves the platform packages to X.Y.Z):
-# builds the engine for every platform, then publishes to npm, in order, the platform packages,
-# the organ model packages and @supersynth/organs (only versions not on npm yet), and supersynth.
+# builds the engine for every platform and the browser's (WebAssembly, shipped in supersynth's
+# wasm/), then publishes to npm, in order, the platform packages, the organ model packages and
+# @supersynth/organs (only versions not on npm yet), and supersynth.
 on:
   push:
     tags: ['v*']
@@ -88,9 +89,41 @@ jobs:
           path: npm/${{ matrix.triple }}/supersynth.${{ matrix.triple }}.node
           if-no-files-found: error
 
+  wasm:
+    name: Browser engine (WebAssembly)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            native
+            scripts
+
+      # threads need the standard library rebuilt with atomics: nightly, with rust-src
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: wasm-bindgen CLI (the version native/wasm pins)
+        run: cargo install wasm-bindgen-cli --locked --version "$(sed -n 's/^wasm-bindgen = "=\(.*\)"/\1/p' native/wasm/Cargo.toml)"
+
+      - name: Build
+        run: node scripts/build-wasm.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm
+          path: wasm/
+          if-no-files-found: error
+
   publish:
     name: Publish to npm
-    needs: build
+    needs: [build, wasm]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -120,6 +153,14 @@ jobs:
             mv "$dir/supersynth.$triple.node" "npm/$triple/"
           done
           ls -l npm/*/*.node
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm
+          path: wasm
+
+      - name: The browser engine ships in supersynth (wasm/)
+        run: ls -l wasm/supersynth.js wasm/supersynth_bg.wasm
 
       - name: Platform fields (os, cpu, libc) and checks
         run: node scripts/prepare-platform-packages.mjs

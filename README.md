@@ -1,7 +1,8 @@
 # supersynth
 
-Real instrument sounds for Node.js — a concert grand, sixteen real pipe organs and a harmonium, an orchestra
-of strings, winds, brass and mallets — synthesised in real time by a native Rust engine.
+Real instrument sounds for Node.js and browsers — a concert grand, sixteen real pipe organs and a harmonium,
+an orchestra of strings, winds, brass and mallets — synthesised in real time by a Rust engine (native in
+Node.js, WebAssembly on several cores in a browser).
 
 ```ts
 import { Synth } from 'supersynth';
@@ -95,8 +96,24 @@ npm install @supersynth/organs           # all 16 organs (about 900 MB)
 `synth.add('friesach')` without its package throws an error naming the package to install. The
 VCSL organ (`vcsl`) and the single organ sounds ship with supersynth.
 
+### In a browser
+
+The same package runs in a browser, with the same API. Its engine is compiled to WebAssembly,
+renders in an AudioWorklet and spreads voices over the cores with Web Workers. The page must be
+cross-origin isolated (two headers), and models are downloaded before use:
+
+```ts
+const synth = await Synth.create();          // instead of new Synth()
+await synth.load('grand-piano');             // downloads the models (in Node.js: a no-op check)
+synth.add('grand-piano').play('C4');
+await synth.start();                         // from a user gesture
+```
+
+See [docs/browser.md](docs/browser.md) (headers, where the files are served from, bundlers,
+what differs), and `examples/browser/` for a page to play every instrument.
+
 Building from source needs Rust ([rustup.rs](https://rustup.rs)): `npm ci && npm run build` in a
-clone. The git history holds every version of the models, so a full clone is about 1 GB
+clone (the browser engine: `npm run build:wasm`, see [docs/browser.md](docs/browser.md#building-it)). The git history holds every version of the models, so a full clone is about 1 GB
 (`git clone --depth 1` fetches only the current ones).
 
 ## Usage
@@ -298,9 +315,16 @@ in 0.12 s.
 ## Architecture
 
 ```
-TypeScript API (src/)          Synth · Instrument · Organ · catalog · MIDI files · WAV · model lookup
-        │ napi-rs
-native/src/                    bindings, CPAL audio output, MIDI input
+TypeScript API (src/)          Synth · Instrument · Organ · catalog · MIDI files · WAV
+  src/platform/                what differs by platform, behind the `#platform` import:
+                               node.ts (napi engine, model files) · browser.ts (WebAssembly engine,
+                               AudioWorklet, Web Workers, fetched models, Web MIDI)
+        │ napi-rs (Node.js)            │ wasm-bindgen (browser)
+native/src/                    native/wasm/
+  CPAL audio output, MIDI input  render entry for the AudioWorklet, threads for Web Workers
+        └──────────────┬───────────────┘
+native/host/                   supersynth-host: everything the two share — argument checks,
+                               commands at their frame, models and their loading, MIDI routing
 native/core/                   supersynth-core (pure Rust)
   ├── model/                   .ssm spectral model format
   ├── voice/                   spectral voice (oscillator bank, transients), pooled FFT noise
@@ -313,7 +337,8 @@ packages/organ-<id>/           one npm package per organ: models/organ/<id>/*.ss
                                (Bureå: packages/organ-burea/models/organ/*.ssm)
 packages/organs/               @supersynth/organs: depends on every organ package
 npm/<platform>/                the engine prebuilt per platform (@supersynth/<platform>)
-scripts/                       build-native.mjs, release helpers, doc generators
+wasm/                          the browser engine (built by scripts/build-wasm.mjs; in the package)
+scripts/                       build-native.mjs, build-wasm.mjs, release helpers, doc generators
 ```
 
 The repository is an npm workspace: `npm ci` links the organ packages into `node_modules`, where
@@ -325,8 +350,10 @@ scipy, numba, soundfile; see `tools/ssm/`).
 ## Tests
 
 ```bash
-npm test             # TypeScript API (offline, no audio device)
+npm test             # TypeScript API (offline, no audio device); with the browser engine built,
+                     # also that engine against the native one
 npm run test:rust    # engine and DSP
+npm run test:browser # the browser engine in headless Chromium (after build:wasm and build:ts)
 ```
 
 ## License

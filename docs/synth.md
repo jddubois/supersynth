@@ -33,7 +33,11 @@ Six rules hold everywhere:
    everything you change, and every list, is a method. Methods that change something return
    the object, so calls chain: `synth.add('grand-piano').preset('mellow').midi(1)`.
 
-## `new Synth(options?)`
+## `new Synth(options?)`, `await Synth.create(options?)`
+
+`Synth.create()` gets the platform ready, then creates the synth. In a browser it loads the
+WebAssembly engine and waits for its render workers, and `new Synth()` works only after it. In
+Node.js the two are the same. See [browser.md](browser.md).
 
 | Option | Default | |
 |---|---|---|
@@ -46,10 +50,12 @@ Six rules hold everywhere:
 | `bufferSize` | device default | frames per audio callback |
 | `threads` | `'auto'` | CPU cores rendering audio, the audio thread included (1–16); `'auto'`: one per core but one, at most 8 (3 on a Raspberry Pi 5). Voices, and then the parts' effects, are shared out over the cores; the sound is bit-for-bit the same for any number. Offline `render()` uses them too |
 | `releaseCulling` | `false` | opt-in for machines too slow for a large organ (it changes the sound): `{ floorDb?, belowMixDb?, hold? }` ends notes in their release early: below `floorDb` dBFS, or more than `belowMixDb` dB below both their keyboard's output and the whole output (followed with `hold: 'peak'`, held 1 s then falling 40 dB/s, or `'smooth'`, ~300 ms). Off, every recorded tail plays out in full. Also with `synth.set({ releaseCulling })`. See the README's Performance section for what it saves and changes |
-| `modelsDirectory` | none | a directory searched first for `.ssm` models, laid out like `models/` (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`); then supersynth's own models and the installed organ packages |
+| `modelsDirectory` | none | a directory searched first for `.ssm` models, laid out like `models/` (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`); then supersynth's own models and the installed organ packages. In a browser: the URL models are downloaded from |
+| `wasmUrl` | next to the package's `wasm/supersynth.js` | browser: where the WebAssembly engine is (read by the first `Synth.create()`) |
 
 | Method | |
 |---|---|
+| `load(...ids \| definitions)` | a promise: the models of these instruments and organs are available. A browser downloads them, which `add()` needs first; in Node.js it only checks that they are installed |
 | `add(id \| definition, options)` | add an instrument → `Instrument` (options `{ preset, parameters }`), or an organ → `Organ` (options `{ preset, presets, tremulant, wind, noises, preload }`; its other stops load in the background, see [organ.md](organ.md#loading)) |
 | `ready()` | a promise: every organ added has loaded the models it loads in the background |
 | `instruments()`, `remove(instrument \| organ)` | the instruments and organs added; remove one (its notes stop, its channels — an organ's noise channel too — are freed and cleared, the models nothing else uses are unloaded; using it afterwards throws) |

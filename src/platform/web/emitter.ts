@@ -1,6 +1,5 @@
-// Node's EventEmitter, as much of it as the API and its users need, for browsers (which have
-// none). Same behaviour: listeners run in order, synchronously; an 'error' event with no
-// listener throws.
+// Node's EventEmitter for browsers (which have none): its methods, with the same behaviour —
+// listeners run in order, synchronously; an 'error' event with no listener throws.
 
 type Listener = (...args: any[]) => void;
 
@@ -21,6 +20,15 @@ export class EventEmitter {
   prependListener(event: string | symbol, listener: Listener): this {
     this.events.set(event, [listener, ...(this.events.get(event) ?? [])]);
     return this;
+  }
+
+  prependOnceListener(event: string | symbol, listener: Listener): this {
+    const once: Listener & { listener?: Listener } = (...args) => {
+      this.off(event, once);
+      listener.apply(this, args);
+    };
+    once.listener = listener;
+    return this.prependListener(event, once);
   }
 
   once(event: string | symbol, listener: Listener): this {
@@ -72,6 +80,22 @@ export class EventEmitter {
   listeners(event: string | symbol): Listener[] {
     return (this.events.get(event) ?? []).map((l) => (l as { listener?: Listener }).listener ?? l);
   }
+
+  rawListeners(event: string | symbol): Listener[] {
+    return [...(this.events.get(event) ?? [])];
+  }
+
+  /** (No limit is enforced: kept for Node.js compatibility.) */
+  setMaxListeners(n: number): this {
+    this.maxListeners = n;
+    return this;
+  }
+
+  getMaxListeners(): number {
+    return this.maxListeners;
+  }
+
+  private maxListeners = 10;
 
   eventNames(): (string | symbol)[] {
     return [...this.events.keys()];

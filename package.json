@@ -1,7 +1,7 @@
 {
   "name": "supersynth",
   "version": "0.3.0",
-  "description": "Real instrument sounds for Node.js: spectral resynthesis of real recordings (piano, 16 pipe organs and a harmonium, strings, winds, brass, mallets) in a native Rust engine",
+  "description": "Real instrument sounds for Node.js and browsers: spectral resynthesis of real recordings (piano, 16 pipe organs and a harmonium, strings, winds, brass, mallets) in a Rust engine, native or WebAssembly",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -25,9 +25,18 @@
   },
   "imports": {
     "#platform": {
-      "types": "./dist/platform/node.d.ts",
-      "browser": "./dist/platform/browser.js",
-      "default": "./dist/platform/node.js"
+      "node": {
+        "types": "./dist/platform/node.d.ts",
+        "default": "./dist/platform/node.js"
+      },
+      "browser": {
+        "types": "./dist/platform/browser.d.ts",
+        "default": "./dist/platform/browser.js"
+      },
+      "default": {
+        "types": "./dist/platform/browser.d.ts",
+        "default": "./dist/platform/node.js"
+      }
     },
     "#wasm": "./wasm/supersynth.js"
   },
@@ -73,6 +82,8 @@
   "keywords": [
     "additive",
     "audio",
+    "audioworklet",
+    "browser",
     "dsp",
     "instruments",
     "midi",
@@ -86,7 +97,10 @@
     "sampler",
     "sound",
     "synth",
-    "synthesis"
+    "synthesis",
+    "wasm",
+    "web-audio",
+    "webassembly"
   ],
   "license": "MIT",
   "repository": {

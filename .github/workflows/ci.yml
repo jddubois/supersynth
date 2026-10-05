@@ -54,6 +54,10 @@ jobs:
         working-directory: native
         run: cargo clippy --release --workspace -- -D warnings
 
+      - name: Clippy (WebAssembly, without threads)
+        working-directory: native
+        run: rustup target add wasm32-unknown-unknown && cargo clippy --release -p supersynth-core -p supersynth-host -p supersynth-wasm --target wasm32-unknown-unknown -- -D warnings
+
       - name: Rust tests
         working-directory: native
         run: cargo test --release --workspace
@@ -68,6 +72,49 @@ jobs:
           name: supersynth-linux-x64-gnu-dev
           path: supersynth.node
           retention-days: 3
+
+  browser:
+    name: Browser (WebAssembly engine, Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Audio libraries (ALSA, JACK)
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libasound2-dev libjack-jackd2-dev
+
+      # threads need the standard library rebuilt with atomics: nightly, with rust-src
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+          targets: wasm32-unknown-unknown
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: wasm-bindgen CLI (the version native/wasm pins)
+        run: cargo install wasm-bindgen-cli --locked --version "$(sed -n 's/^wasm-bindgen = "=\(.*\)"/\1/p' native/wasm/Cargo.toml)"
+
+      - run: npm ci
+      - run: npm run build:native
+      - run: npm run build:wasm
+      - run: npm run build:ts
+
+      - name: The WebAssembly engine against the native one (Node.js)
+        run: npm test -- test/wasm.test.ts
+
+      - name: Chromium
+        run: npx playwright-core install --with-deps chromium
+
+      - name: In the browser (offline, AudioWorklet, render workers)
+        run: npm run test:browser
 
   platforms:
     name: ${{ matrix.os }} (engine, unit tests, smoke render)
