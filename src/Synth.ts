@@ -38,7 +38,8 @@ export interface SynthOptions extends Omit<SynthSettings, 'reverb'> {
   reverb?: ReverbPreset | ReverbOptions | false | 'auto';
   /** Master volume, 0–1 (linear). @default 0.5 */
   volume?: number;
-  /** Maximum sounding voices before the quietest are stolen. @default 192 */
+  /** Maximum sounding voices before the quietest are stolen (each takes about 85 kB). An organ
+   *  plenum in a fast piece keeps hundreds of pipes sounding in their release. @default 1024 */
   maxVoices?: number;
   /** Audio buffer size in frames (smaller = lower latency, more CPU risk). Default: device default. */
   bufferSize?: number;

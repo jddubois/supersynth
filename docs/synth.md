@@ -42,8 +42,9 @@ Six rules hold everywhere:
 | `reverb` | `'auto'` | preset name, `ReverbOptions`, `false`, or `'auto'` (the room suggested by the first instrument or organ added; it follows that instrument's presets until the reverb is set by hand) |
 | `volume` | `0.5` | master volume 0–1 |
 | `quality` | `'high'` | partials per note: `'high'` 512, `'balanced'` 128, `'eco'` 32 (small boards such as a Raspberry Pi) |
-| `maxVoices` | `192` | quietest/oldest voices are stolen beyond this |
+| `maxVoices` | `1024` | quietest/oldest voices are stolen beyond this (about 85 kB each; a full organ plenum playing a fast piece keeps several hundred pipes sounding in their release) |
 | `bufferSize` | device default | frames per audio callback |
+| `threads` | `'auto'` | CPU cores rendering audio, the audio thread included (1–16); `'auto'`: one per core but one, at most 8 (3 on a Raspberry Pi 5). Voices, and then the parts' effects, are shared out over the cores; the sound is bit-for-bit the same for any number. Offline `render()` uses them too |
 | `modelsDirectory` | none | a directory searched first for `.ssm` models, laid out like `models/` (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`); then supersynth's own models and the installed organ packages |
 
 | Method | |
@@ -64,6 +65,7 @@ Six rules hold everywhere:
 |---|---|
 | `currentTime` | engine clock, seconds — schedule with `{ at: synth.currentTime + x }` |
 | `sampleRate`, `activeVoices`, `cpuLoad`, `isRunning` | |
+| `threads` | threads rendering audio (the audio thread included) |
 | `engineError` | the engine's internal error, or `null`; after one the engine is silent until a new `Synth` is created |
 
 Events: `'midi'` (`MidiEvent`) for every message once hardware MIDI is enabled; `'error'` for an

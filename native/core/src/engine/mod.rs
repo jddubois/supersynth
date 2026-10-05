@@ -511,7 +511,7 @@ pub struct EngineConfig {
 }
 
 /// Default for [`EngineConfig::max_voices`].
-pub const DEFAULT_MAX_VOICES: usize = 192;
+pub const DEFAULT_MAX_VOICES: usize = 1024;
 
 impl Default for EngineConfig {
     fn default() -> Self {
@@ -579,6 +579,8 @@ pub struct Engine {
     vtr_on: Vec<bool>,
     /// offset given to voices started now (see `render_planar`)
     start_offset: usize,
+    /// free voice slots, highest first (rebuilt after every block: voices end while rendering)
+    free: Vec<u32>,
     /// split blocks at engine-scheduled starts too, as earlier versions did (for comparisons:
     /// `SUPERSYNTH_SPLIT_STARTS=1`)
     split_starts: bool,
@@ -649,6 +651,7 @@ impl Engine {
             vtr: vec![[[0.0; BLOCK]; 2]; slots],
             vtr_on: vec![false; slots],
             start_offset: 0,
+            free: (0..slots as u32).rev().collect(),
             split_starts: std::env::var_os("SUPERSYNTH_SPLIT_STARTS").is_some_and(|v| v == "1"),
             order: Vec::with_capacity(slots),
             part_range: [(0, 0); MAX_PARTS],
@@ -1234,6 +1237,10 @@ impl Engine {
         let v = &mut self.voices[slot];
         // (set up by the thread that renders the voice first)
         v.start_deferred(NoteOn { model: &model, note, velocity, pitch, pan, params: &sp, sample_rate: sr, rng: &mut self.rng });
+        if !v.is_active() {
+            // (nothing to play: the slot stays free)
+            self.free.push(slot as u32);
+        }
         v.part = pi;
         v.layer_id = li as u32;
         v.age = age;
@@ -1288,8 +1295,13 @@ impl Engine {
     /// stolen: it fades out (~25 ms) in one of the spare slots while the new note starts.
     fn alloc_voice(&mut self) -> usize {
         // voices already fading out after a steal no longer count, and are not stolen again:
-        // every voice needed beyond the limit takes its own victim
-        let live = self.voices.iter().filter(|v| v.is_active() && !v.is_killing()).count();
+        // every voice needed beyond the limit takes its own victim (counted only near the
+        // limit: the slots not in the free list bound the sounding voices)
+        let live = if self.voices.len() - self.free.len() < self.max_voices {
+            0
+        } else {
+            self.voices.iter().filter(|v| v.is_active() && !v.is_killing()).count()
+        };
         if live >= self.max_voices {
             // prefer released voices, then the quietest, then the oldest
             let mut best = None;
@@ -1306,6 +1318,12 @@ impl Engine {
             }
             if let Some(i) = best {
                 self.voices[i].kill();
+            }
+        }
+        // the lowest free slot
+        while let Some(i) = self.free.pop() {
+            if !self.voices[i as usize].is_active() {
+                return i as usize;
             }
         }
         if let Some(i) = self.voices.iter().position(|v| !v.is_active()) {
@@ -1764,6 +1782,16 @@ impl Engine {
             pk = pk.max(out_l[i].abs()).max(out_r[i].abs());
         }
         self.peak = pk;
+        self.collect_free();
+    }
+
+    fn collect_free(&mut self) {
+        self.free.clear();
+        for (i, v) in self.voices.iter().enumerate().rev() {
+            if !v.is_active() {
+                self.free.push(i as u32);
+            }
+        }
     }
 }
 

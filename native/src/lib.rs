@@ -37,7 +37,7 @@ pub struct JsEngineOptions {
     /// Sample rate in Hz. Default: the output device's rate (or 48000 without a device).
     pub sample_rate: Option<u32>,
     pub backend: Option<String>,
-    /// Maximum simultaneously sounding voices (default 192).
+    /// Maximum simultaneously sounding voices (default 1024).
     pub max_voices: Option<u32>,
     /// Reverb preset name (default "hall").
     pub reverb: Option<String>,

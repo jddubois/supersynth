@@ -29,7 +29,7 @@ fn main() {
         }
     }
     files.sort();
-    println!("instruction set: {}", supersynth_core::dsp::simd::name());
+    println!("instruction set: {}; one voice's state: {} kB", supersynth_core::dsp::simd::name(), std::mem::size_of::<SpectralVoice>() / 1024);
     println!("{:<40} {:>8} {:>9} {:>9} {:>9}", "model", "start µs", "held µs", "release µs", "partials");
     let p = SpectralParams::default();
     let md = BlockMod::default();
