@@ -11,7 +11,7 @@
 pub mod params;
 
 use std::collections::BinaryHeap;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::dsp::noise::Rng;
@@ -29,7 +29,8 @@ use crate::voice::spectral::{BlockMod, NoteOn, SpectralParams, SpectralVoice, MA
 use params::{MasterParam, PartParam};
 
 pub const MAX_PARTS: usize = 32;
-const QUEUE_CAPACITY: usize = 1 << 15;
+/// Most events waiting to be applied at once.
+pub const QUEUE_CAPACITY: usize = 1 << 15;
 
 // ── instruments ───────────────────────────────────────────────────────────────
 
@@ -197,6 +198,8 @@ pub struct Status {
     pub active_voices: AtomicU32,
     pub peak_milli: AtomicU32,
     pub load_permille: AtomicU32,
+    /// Events sent but not yet applied (queued or waiting for their time).
+    pub pending_events: AtomicUsize,
 }
 
 // ── controller (API side) ────────────────────────────────────────────────────
@@ -211,14 +214,25 @@ pub struct Controller {
 }
 
 impl Controller {
+    /// Queue `cmd` for engine frame `time` (0 or a past frame: as soon as possible). Fails,
+    /// without queueing, when QUEUE_CAPACITY events are already waiting: an event is never
+    /// applied before its time.
     pub fn send(&mut self, time: u64, mut cmd: Command) -> Result<(), String> {
         self.collect_garbage();
+        if self.queue_free() == 0 {
+            return Err(format!("supersynth command queue is full ({QUEUE_CAPACITY} events waiting)"));
+        }
         self.prepare(&mut cmd);
         let bank_for = match &cmd {
             Command::SetInstrument { part, noise: Some(_), .. } | Command::AddLayer { part, noise: Some(_), .. } => Some(*part),
             _ => None,
         };
-        self.tx.push(Event { time, cmd }).map_err(|_| "supersynth command queue is full".to_string())?;
+        // counted before it is pushed, so the engine never decrements below zero
+        self.status.pending_events.fetch_add(1, Ordering::AcqRel);
+        if self.tx.push(Event { time, cmd }).is_err() {
+            self.status.pending_events.fetch_sub(1, Ordering::AcqRel);
+            return Err("supersynth command queue is full".to_string());
+        }
         if let Some(p) = bank_for.filter(|&p| (p as usize) < MAX_PARTS) {
             self.noise_sent |= 1 << p;
         }
@@ -259,8 +273,9 @@ impl Controller {
         self.status.frames.load(Ordering::Relaxed)
     }
 
+    /// Events that can still be sent (sent events count until they have been applied).
     pub fn queue_free(&self) -> usize {
-        self.tx.slots()
+        QUEUE_CAPACITY.saturating_sub(self.status.pending_events.load(Ordering::Acquire))
     }
 }
 
@@ -566,6 +581,7 @@ impl Engine {
                 if top.time <= self.now {
                     let ev = self.heap.pop().unwrap();
                     self.apply(ev.cmd);
+                    self.status.pending_events.fetch_sub(1, Ordering::AcqRel);
                 } else {
                     break;
                 }
@@ -596,13 +612,12 @@ impl Engine {
     }
 
     fn drain_queue(&mut self) {
-        while let Ok(ev) = self.rx.pop() {
+        // The controller admits at most QUEUE_CAPACITY unapplied events, so the heap (with that
+        // capacity reserved) never grows here; should it be full, events wait in the ring
+        // rather than being applied before their time.
+        while self.heap.len() < QUEUE_CAPACITY {
+            let Ok(ev) = self.rx.pop() else { break };
             self.seq += 1;
-            if self.heap.len() >= QUEUE_CAPACITY {
-                // never reallocate on the audio thread: apply immediately
-                self.apply(ev.cmd);
-                continue;
-            }
             self.heap.push(Pending { time: ev.time, seq: self.seq, cmd: ev.cmd });
         }
     }
@@ -1741,6 +1756,27 @@ mod tests {
             assert!((ratio - want).abs() < 0.02, "return at {k} samples into the change: {ratio:.3}, want {want:.3}");
         }
         assert!(b[t0 + 100..].iter().zip(&c[t0 + 100..]).all(|(x, y)| (x - y).abs() < 1e-5));
+    }
+
+    #[test]
+    fn a_full_queue_refuses_events_instead_of_playing_them_early() {
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(testing::model()))).unwrap();
+        render(&mut eng, 64);
+        assert_eq!(ctl.queue_free(), QUEUE_CAPACITY);
+        for i in 0..QUEUE_CAPACITY as u64 {
+            let cmd = if i % 2 == 0 { Command::NoteOn { part: 0, note: 60, velocity: 90 } } else { Command::NoteOff { part: 0, note: 60 } };
+            ctl.send(48_000 + i, cmd).unwrap();
+        }
+        assert_eq!(ctl.queue_free(), 0);
+        assert!(ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 90 }).is_err());
+        // the engine takes them all in, but nothing sounds before its time
+        render(&mut eng, 24_000);
+        assert_eq!(eng.active_voices(), 0);
+        assert!(ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 90 }).is_err(), "still waiting");
+        render(&mut eng, 24_000 + 100);
+        assert_eq!(ctl.queue_free(), 64 + 24_000 + 24_100 - 48_000, "applied events free their places");
+        ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 90 }).unwrap();
     }
 
     #[test]

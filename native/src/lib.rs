@@ -6,7 +6,7 @@ mod audio;
 mod midi;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use napi::bindgen_prelude::*;
@@ -63,6 +63,9 @@ struct Shared {
     /// Part each MIDI channel (1–16) plays when MIDI input is routed (`NO_ROUTE`: none)
     /// until changed.
     midi_routes: [AtomicU8; 16],
+    /// Real-time output is running. MIDI input is routed into the engine only then: nothing
+    /// would consume it otherwise, and the backlog would all sound at once on `start()`.
+    running: AtomicBool,
 }
 
 impl Shared {
@@ -121,6 +124,7 @@ impl SynthEngine {
                 status,
                 sample_rate: sample_rate as f32,
                 midi_routes: std::array::from_fn(|_| AtomicU8::new(NO_ROUTE)),
+                running: AtomicBool::new(false),
             }),
             output: None,
             midi: None,
@@ -359,11 +363,13 @@ impl SynthEngine {
         }
         let out = AudioOutput::start(Arc::clone(&self.engine), &self.backend, self.sample_rate, self.buffer_size).map_err(err)?;
         self.output = Some(out);
+        self.shared.running.store(true, Ordering::Release);
         Ok(())
     }
 
     #[napi]
     pub fn stop(&mut self) {
+        self.shared.running.store(false, Ordering::Release);
         self.output = None;
     }
 
@@ -396,8 +402,8 @@ impl SynthEngine {
     }
 
     /// Connect a MIDI input. Messages are applied to the engine immediately (to the part each
-    /// channel is given with `set_midi_route`, when `route` is true) and forwarded to
-    /// `callback` as raw bytes.
+    /// channel is given with `set_midi_route`, when `route` is true, and only while real-time
+    /// output is running) and forwarded to `callback` as raw bytes.
     #[napi]
     pub fn enable_midi(&mut self, device_name: Option<String>, route: bool, callback: JsFunction) -> Result<()> {
         let tsfn: ThreadsafeFunction<Vec<u8>, ErrorStrategy::Fatal> =
@@ -406,7 +412,7 @@ impl SynthEngine {
         let handle = connect_midi_device(
             device_name.as_deref(),
             Box::new(move |bytes| {
-                if route {
+                if route && shared.running.load(Ordering::Acquire) {
                     if let Some(msg) = MidiMessage::parse(&bytes) {
                         let ch = (msg.channel.clamp(1, 16) - 1) as usize;
                         let part = shared.midi_routes[ch].load(Ordering::Relaxed);
@@ -428,6 +434,7 @@ impl SynthEngine {
                             _ => None,
                         };
                         if let Some(c) = cmd {
+                            // (a full queue drops the message: there is no caller to tell)
                             let _ = shared.send(None, c);
                         }
                     }
