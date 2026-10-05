@@ -45,6 +45,7 @@
     "test:rust": "cd native && cargo test --release --workspace",
     "bench": "node --import tsx bench/engine.bench.ts",
     "live-test": "node --import tsx bench/live.ts",
+    "bench:organs": "node --import tsx bench/organs.bench.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "example:tour": "node --import tsx examples/tour.ts",
     "example:piano": "node --import tsx examples/piano.ts",
