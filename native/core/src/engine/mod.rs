@@ -741,6 +741,7 @@ impl Engine {
     /// `process_planar` without switching the denormal mode (the caller has).
     fn render_planar(&mut self, left: &mut [f32], right: &mut [f32]) {
         let start = std::time::Instant::now();
+        self.pool.set_hot(true);
         self.drain_queue();
         let frames = left.len();
         let mut i = 0;
@@ -783,6 +784,7 @@ impl Engine {
             self.now += n as u64;
             i += n;
         }
+        self.pool.set_hot(false);
         self.reclaim_models();
         self.publish(start.elapsed().as_secs_f32(), frames);
     }

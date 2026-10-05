@@ -49,7 +49,7 @@ fn main() {
             for &note in &notes {
                 let t0 = Instant::now();
                 for _ in 0..20 {
-                    v.start(NoteOn { model: &m, note, velocity: 100, pitch: note as f32, pan: 0.0, params: &p, sample_rate: 48000.0, rng: &mut rng });
+                    v.start(NoteOn { model: &m, note, velocity: 100, pitch: note as f32 + std::env::var("VB_DETUNE").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0), pan: 0.0, params: &p, sample_rate: 48000.0, rng: &mut rng });
                 }
                 start += t0.elapsed().as_secs_f64() / 20.0;
                 partials = partials.max(v.partials());

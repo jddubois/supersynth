@@ -46,6 +46,9 @@ struct Shared {
     panicked: AtomicBool,
     /// requested scheduling: 0 normal, 1 real-time (applied by each worker when it wakes)
     realtime: AtomicU8,
+    /// the dispatching thread is rendering a buffer: more jobs follow within microseconds, so
+    /// idle workers keep spinning instead of parking
+    hot: AtomicBool,
 }
 
 // SAFETY: `job` is only accessed under the generation protocol described above.
@@ -86,6 +89,7 @@ impl Pool {
             shutdown: AtomicBool::new(false),
             panicked: AtomicBool::new(false),
             realtime: AtomicU8::new(0),
+            hot: AtomicBool::new(false),
         });
         let mut workers = Vec::with_capacity(threads - 1);
         for w in 1..threads {
@@ -113,6 +117,13 @@ impl Pool {
     /// (no permission) are ignored.
     pub fn set_realtime(&self, on: bool) {
         self.shared.realtime.store(on as u8, Ordering::Relaxed);
+    }
+
+    /// A buffer's rendering starts (`true`) or ends: in between, idle workers wait for the next
+    /// job spinning rather than parked, so that the jobs of one buffer (two per block) start
+    /// on every core at once.
+    pub fn set_hot(&self, hot: bool) {
+        self.shared.hot.store(hot, Ordering::Relaxed);
     }
 
     /// Run `f(item, thread)` for every item in 0..n, on this thread and the workers, and
@@ -224,7 +235,7 @@ fn worker(sh: Arc<Shared>, w: usize) {
                 break;
             }
             let t0 = *since.get_or_insert_with(Instant::now);
-            if t0.elapsed() < SPIN {
+            if sh.hot.load(Ordering::Relaxed) || t0.elapsed() < SPIN {
                 for _ in 0..64 {
                     std::hint::spin_loop();
                 }

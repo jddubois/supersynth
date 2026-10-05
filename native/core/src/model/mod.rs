@@ -14,11 +14,21 @@
 
 use serde::Deserialize;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ZoneStereo {
     pub l: Vec<f32>,
     pub r: Vec<f32>,
     pub ph: Vec<f32>,
+    /// `ph[i].cos()` and `ph[i].sin()` (computed once, not per block)
+    pub cos: Vec<f32>,
+    pub sin: Vec<f32>,
+}
+
+// (the stored fields only: model fingerprints are taken from this text)
+impl std::fmt::Debug for ZoneStereo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ZoneStereo").field("l", &self.l).field("r", &self.r).field("ph", &self.ph).finish()
+    }
 }
 
 /// Time-varying stereo image of the harmonics (frames × `k`, frame-major): inter-channel
@@ -872,10 +882,13 @@ impl Model {
                 },
                 stereo: hz.stereo.as_ref().filter(|st| st.l.len() == st.r.len() && st.l.len() == st.ph.len()).map(|st| {
                     let g = |q: &u8| *q as f32 / 255.0 * std::f32::consts::SQRT_2;
+                    let ph: Vec<f32> = st.ph.iter().map(|&q| q as f32 / 255.0 * std::f32::consts::TAU - std::f32::consts::PI).collect();
                     ZoneStereo {
                         l: st.l.iter().map(g).collect(),
                         r: st.r.iter().map(g).collect(),
-                        ph: st.ph.iter().map(|&q| q as f32 / 255.0 * std::f32::consts::TAU - std::f32::consts::PI).collect(),
+                        cos: ph.iter().map(|p| p.cos()).collect(),
+                        sin: ph.iter().map(|p| p.sin()).collect(),
+                        ph,
                     }
                 }),
                 pulse: if hz.pulse.len() == PULSE_BINS {
@@ -994,7 +1007,7 @@ impl Model {
             .zones
             .iter()
             .map(|z| {
-                let st = z.stereo.as_ref().map_or(0, |s| b(&s.l) + b(&s.r) + b(&s.ph));
+                let st = z.stereo.as_ref().map_or(0, |s| b(&s.l) + b(&s.r) + b(&s.ph) + b(&s.cos) + b(&s.sin));
                 let im = z.image.as_ref().map_or(0, |i| b(&i.row) + b(&i.ild) + b(&i.iph) + b(&i.lph));
                 let tr = z.transient.as_ref().map_or(0, |t| b(&t.data) + t.data_r.as_deref().map_or(0, b));
                 b(&z.ratios)

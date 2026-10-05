@@ -927,8 +927,8 @@ impl SpectralVoice {
                         Some(st) if ii < st.l.len() => {
                             gl += w * st.l[ii];
                             gr += w * st.r[ii];
-                            vc += w * st.ph[ii].cos();
-                            vs += w * st.ph[ii].sin();
+                            vc += w * st.cos[ii];
+                            vs += w * st.sin[ii];
                         }
                         _ => {
                             gl += w;
@@ -1086,8 +1086,8 @@ impl SpectralVoice {
                     (None, Some(st)) if ii < st.l.len() => {
                         sc.stl[t] = st.l[ii];
                         sc.str_[t] = st.r[ii];
-                        sc.stc[t] = st.ph[ii].cos();
-                        sc.sts[t] = st.ph[ii].sin();
+                        sc.stc[t] = st.cos[ii];
+                        sc.sts[t] = st.sin[ii];
                         2
                     }
                     _ => 0,
