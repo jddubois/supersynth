@@ -694,8 +694,13 @@ impl Model {
         };
 
         let mut zones = zones;
-        for z in zones.iter_mut() {
-            z.amps_smooth = smooth_rows(&z.amps, z.frames, z.partials, &z.grid, 0.3);
+        // smoothed envelopes serve only notes blended from two recordings (pitch morphing, or
+        // between velocity layers); a model that plays every note from one recording does
+        // without them (half its amplitude memory)
+        if params.pitch_morph || layers.len() > 1 {
+            for z in zones.iter_mut() {
+                z.amps_smooth = smooth_rows(&z.amps, z.frames, z.partials, &z.grid, 0.3);
+            }
         }
 
         Ok(Model {
