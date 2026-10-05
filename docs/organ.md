@@ -5,6 +5,16 @@
 Pipes keep their own tuning and voicing, stops keep their natural balance, and the pipes carry
 the church acoustic they were recorded in.
 
+Each organ's models are an npm package of their own (only the VCSL organ ships with supersynth):
+
+```bash
+npm install supersynth-organ-burea        # the Bureå organ (71 MB)
+npm install supersynth-organ-friesach     # one of Piotr Grabowski's organs
+npm install supersynth-organs             # every organ (about 550 MB)
+```
+
+Adding an organ whose package is missing throws a `SupersynthError` naming the package to install.
+
 ```ts
 const organ = synth.add('burea', { preset: 'plenum' });
 
@@ -129,7 +139,8 @@ Cantius (Siedlar 2004), Szczecinek (Voelkner 1908), Lipiny, Skrzatusz (Sauer 187
 Melcer Chamber Music Hall (Walcker 1993), Saint-Jean-de-Luz (Gonzalez 1931), Lędziny, the Green
 Positiv and a two-manual Harmonium (Emil Müller). They keep their own pitch (Azzio sounds at
 a ≈ 420 Hz, the Green Positiv a semitone low), their borrowed and extended ranks, and the
-balance between their stops. Stops, presets and ids of every organ:
+balance between their stops. Each one's models are the package `supersynth-organ-<id>`
+(`npm install supersynth-organ-friesach`). Stops, presets, ids and package sizes of every organ:
 [piotr-organs.md](piotr-organs.md). These models are not covered by the MIT license — see
 NOTICE.md.
 
@@ -173,7 +184,9 @@ const box: OrganDefinition = {
 ```
 
 A stop plays the model `organ/<id>` (or its `model`), transposed by `transpose` semitones from
-the key. Optional fields default to `CHURCH_DIVISIONS` (great centre, swell right in its swell
+the key. A model `<name>` is the file `<name>.ssm`, looked up in the Synth's `modelsDirectory`
+(and `$SUPERSYNTH_MODELS_DIR`) first, then in supersynth's `models/`, then in the organ's package
+(`organ/friesach/…` in `supersynth-organ-friesach`, `organ/…` in `supersynth-organ-burea`). Optional fields default to `CHURCH_DIVISIONS` (great centre, swell right in its swell
 box, positive left, pedal centre), `SWELL_TREMULANT` and `ORGAN_DEFAULTS`. The rest of this page
 describes the Bureå organ.
 

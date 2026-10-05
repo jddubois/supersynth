@@ -1,0 +1,44 @@
+{
+  "name": "supersynth-organs",
+  "version": "0.2.0",
+  "description": "Every organ for supersynth: the Bureå organ and Piotr Grabowski's 15 organs (installs their model packages)",
+  "license": "SEE LICENSE IN NOTICE.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jddubois/supersynth.git",
+    "directory": "packages/organs"
+  },
+  "homepage": "https://github.com/jddubois/supersynth#readme",
+  "bugs": {
+    "url": "https://github.com/jddubois/supersynth/issues"
+  },
+  "files": [
+    "NOTICE.md"
+  ],
+  "keywords": [
+    "supersynth",
+    "organ",
+    "pipe-organ",
+    "spectral-model",
+    "piotr-grabowski",
+    "burea"
+  ],
+  "dependencies": {
+    "supersynth-organ-burea": "^0.2.0",
+    "supersynth-organ-azzio": "^0.2.0",
+    "supersynth-organ-cracow": "^0.2.0",
+    "supersynth-organ-dluga-koscielna": "^0.2.0",
+    "supersynth-organ-friesach": "^0.2.0",
+    "supersynth-organ-giubiasco": "^0.2.0",
+    "supersynth-organ-green-positiv": "^0.2.0",
+    "supersynth-organ-harmonium": "^0.2.0",
+    "supersynth-organ-ledziny": "^0.2.0",
+    "supersynth-organ-lipiny": "^0.2.0",
+    "supersynth-organ-melcer": "^0.2.0",
+    "supersynth-organ-raszczyce": "^0.2.0",
+    "supersynth-organ-saint-jean-de-luz": "^0.2.0",
+    "supersynth-organ-skrzatusz": "^0.2.0",
+    "supersynth-organ-strassburg": "^0.2.0",
+    "supersynth-organ-szczecinek": "^0.2.0"
+  }
+}
