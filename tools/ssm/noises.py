@@ -18,10 +18,12 @@ import sys
 from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
+from scipy import signal
 
 import build
 import piotr
 from analysis import NOISE_EDGES, Zone, band_powers, hz_to_midi, make_time_grid, midi_to_hz
+from paths import model_path
 from grandorgue import ODF, HauptwerkODF, Pipe, _pipe_from, _rank_family, _read, wav_cue
 
 CLICK_S = 0.05          # stored onset of a click (key and stop action)
@@ -95,9 +97,11 @@ def signal_of(p: Pipe | list[Pipe], part: str) -> tuple[np.ndarray, int, int | N
     if isinstance(p, list):
         parts = [signal_of(q, part) for q in p]
         sr = parts[0][1]
-        n = max(len(x) for x, _, _ in parts)
+        # perspectives recorded at another rate are resampled to the first one's (as mix_key does)
+        xs = [x if s == sr else signal.resample_poly(x, sr, s, axis=0) for x, s, _ in parts]
+        n = max(len(x) for x in xs)
         acc = np.zeros((n, 2))
-        for x, _, _ in parts:
+        for x in xs:
             acc[:len(x)] += x
         return acc, sr, parts[0][2]
     path = p.attack if part == 'on' or p.release is None else p.release
@@ -290,7 +294,9 @@ def _job(args):
 
 def write(model: str, zones: list[Zone], cat: dict, display: str, release_mode: str) -> str:
     zones = sorted((z for z in zones if z is not None), key=lambda z: z.f0)
-    ref = os.path.join(build.OUT_DIR, piotr.model_id(cat['id'], cat['reference']) + '.ssm')
+    ref = build.gain_reference(model, piotr.model_id(cat['id'], cat['reference']), build.OUT_DIR)
+    if ref is None:
+        raise RuntimeError(f"{model}: build the organ's gain reference {cat['reference']} first")
     gain = json.loads(_header(ref))['params']['gainDb']
     end = max(float(z.times[-1]) for z in zones) + 0.01
     header = {
@@ -303,7 +309,7 @@ def write(model: str, zones: list[Zone], cat: dict, display: str, release_mode: 
         'params': {'gainDb': gain, 'releaseMode': release_mode, 'pitchMorph': False, 'reverbSend': 0.06,
                    'spread': 0.0, 'formant': 0.0},
     }
-    path = os.path.join(build.OUT_DIR, f'{model}.ssm')
+    path = model_path(model, build.OUT_DIR)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     build.write_model(path, header, zones)
     print(f'  wrote {path} ({os.path.getsize(path) / 1024:.0f} KB, {len(zones)} zones)', flush=True)

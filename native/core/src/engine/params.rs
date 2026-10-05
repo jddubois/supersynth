@@ -115,6 +115,62 @@ impl PartParam {
     pub fn parse(name: &str) -> Option<PartParam> {
         Self::ALL.iter().find(|(n, _)| *n == name).map(|(_, p)| *p)
     }
+
+    /// The range values are clamped to: far beyond musical use, but small enough that no
+    /// setting can overflow the synthesis (negative `reverbSend`, `formant` and `spread` mean
+    /// "the instrument's own value").
+    pub fn range(self) -> (f32, f32) {
+        use PartParam::*;
+        match self {
+            Volume => (-120.0, 24.0),
+            Pan => (-1.0, 1.0),
+            ReverbSend => (-1.0, 4.0),
+            Brightness => (-24.0, 24.0),
+            EvenDb => (-60.0, 24.0),
+            NoiseDb => (-120.0, 40.0),
+            AttackScale | DecayScale => (0.05, 20.0),
+            ReleaseScale => (0.01, 20.0),
+            VibratoCents => (0.0, 1200.0),
+            VibratoRate => (0.0, 40.0),
+            VibratoDelay => (0.0, 60.0),
+            Expression => (0.0, 2.0),
+            Formant | Spread => (-1.0, 1.0),
+            Inharmonicity => (0.0, 10.0),
+            Humanize => (0.0, 100.0),
+            VelocitySens => (0.0, 1.0),
+            MaxPartials => (1.0, crate::model::MAX_PARTIALS as f32),
+            GainDb => (-120.0, 48.0),
+            Jitter | Shimmer => (0.0, 10.0),
+            Transpose => (-96.0, 96.0),
+            Tune => (-1200.0, 1200.0),
+            BendRange => (-48.0, 48.0),
+            ModDepth => (-1200.0, 1200.0),
+            Mono | Legato | SwellBox => (0.0, 1.0),
+            Glide => (0.0, 10.0),
+            TremDepth => (0.0, 24.0),
+            TremPitch => (0.0, 200.0),
+            TremRate => (0.0, 40.0),
+            EqLowDb | EqMidDb | EqHighDb => (-24.0, 24.0),
+            EqLowHz | EqMidHz | EqHighHz => (10.0, 100_000.0),
+            EqMidQ => (0.1, 10.0),
+            LowCut | HighCut | DriveTone => (0.0, 100_000.0),
+            ChorusMix => (0.0, 1.0),
+            ChorusRate => (0.0, 20.0),
+            ChorusDepth => (0.0, 50.0),
+            DriveAmount => (1.0, 20.0),
+            DriveLevel => (0.0, 4.0),
+            Leslie => (0.0, 3.0),
+            SwellClosed => (-60.0, 0.0),
+            SwellShelf => (-40.0, 0.0),
+            Wind => (0.0, 4.0),
+        }
+    }
+
+    /// `v` clamped to [`range`](Self::range); `None` for NaN and infinities.
+    pub fn sanitize(self, v: f32) -> Option<f32> {
+        let (lo, hi) = self.range();
+        v.is_finite().then(|| v.clamp(lo, hi))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,6 +189,17 @@ pub enum MasterParam {
     ReverbLowCut,
     ReverbHighCut,
     ReverbModulation,
+    /// Retire a released voice once its output falls below this level (dBFS). The engine
+    /// already lets voices end at about −110 dB of their own scale; this is an opt-in, lower-
+    /// quality setting for slow machines (−200 = off, the default).
+    ReleaseFloor,
+    /// Retire a released voice once it is this many dB below both its part's (smoothed)
+    /// output and the (smoothed) master output (0 = off, the default): tails far under the
+    /// music are cut, tails that are what is left to hear (pauses, the end) play on.
+    ReleaseBelowMix,
+    /// How those output levels are followed: 0 = power smoothed over ~300 ms, 1 = peak held
+    /// for 1 s, then falling 40 dB/s.
+    ReleaseHold,
 }
 
 impl MasterParam {
@@ -151,9 +218,26 @@ impl MasterParam {
         ("reverbLowCut", MasterParam::ReverbLowCut),
         ("reverbHighCut", MasterParam::ReverbHighCut),
         ("reverbModulation", MasterParam::ReverbModulation),
+        ("releaseFloor", MasterParam::ReleaseFloor),
+        ("releaseBelowMix", MasterParam::ReleaseBelowMix),
+        ("releaseHold", MasterParam::ReleaseHold),
     ];
 
     pub fn parse(name: &str) -> Option<MasterParam> {
         Self::ALL.iter().find(|(n, _)| *n == name).map(|(_, p)| *p)
+    }
+
+    /// `v` clamped to a sane range; `None` for NaN and infinities. (The reverb clamps its own
+    /// parameters.)
+    pub fn sanitize(self, v: f32) -> Option<f32> {
+        let (lo, hi) = match self {
+            MasterParam::Volume | MasterParam::ReverbReturn => (-120.0, 24.0),
+            MasterParam::Ceiling => (-40.0, 0.0),
+            MasterParam::ReleaseFloor => (-200.0, 0.0),
+            MasterParam::ReleaseHold => (0.0, 1.0),
+            MasterParam::ReleaseBelowMix => (0.0, 200.0),
+            _ => (f32::MIN, f32::MAX),
+        };
+        v.is_finite().then(|| v.clamp(lo, hi))
     }
 }

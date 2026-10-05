@@ -22,6 +22,7 @@ import noises
 import piotr
 import piotr_config
 import ssm_patch
+from paths import model_path
 
 
 def has_alts(path: str) -> bool:
@@ -41,7 +42,7 @@ def upgrade(organ: str, rebuild: bool = False, only: list[str] | None = None) ->
     for st in order:
         if only and st['id'] not in only:
             continue
-        path = os.path.join(build.OUT_DIR, piotr.model_id(organ, st['id']) + '.ssm')
+        path = model_path(piotr.model_id(organ, st['id']), build.OUT_DIR)
         s = next(x for x, y in stops if y['id'] == st['id'])
         alts = any(p.alt_releases for ps in s.keys.values() for p in ps[:1])
         if alts and has_alts(path) or not alts and not rebuild:

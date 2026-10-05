@@ -5,9 +5,10 @@ node_modules/
 dist/
 native/target/
 
-# Compiled native addon
+# Compiled native addon (dev build at the root; release builds in npm/<triple>/)
 supersynth.node
 supersynth.*.node
+npm/*/*.node
 *.dylib
 *.so
 *.dll

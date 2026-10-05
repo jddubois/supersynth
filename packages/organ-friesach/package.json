@@ -1,0 +1,27 @@
+{
+  "name": "@supersynth/organ-friesach",
+  "version": "0.2.0",
+  "description": "The Friesach, St. Bartholomäus organ for supersynth: spectral models of every stop of Piotr Grabowski's free sample set (not for sale)",
+  "license": "SEE LICENSE IN NOTICE.md",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jddubois/supersynth.git",
+    "directory": "packages/organ-friesach"
+  },
+  "homepage": "https://github.com/jddubois/supersynth#readme",
+  "bugs": {
+    "url": "https://github.com/jddubois/supersynth/issues"
+  },
+  "files": [
+    "models",
+    "NOTICE.md"
+  ],
+  "keywords": [
+    "supersynth",
+    "organ",
+    "pipe-organ",
+    "spectral-model",
+    "friesach",
+    "piotr-grabowski"
+  ]
+}

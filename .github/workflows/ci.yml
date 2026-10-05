@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux (engine, typecheck, clippy, all tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Organ models live in their packages (packages/organ-<id>/models/organ/…)
+        run: |
+          stray=$(find models/organ -name '*.ssm' 2>/dev/null || true)
+          if [ -n "$stray" ]; then
+            echo "::error::Organ models under models/organ/ (they belong in packages/organ-<id>/models/organ/; tools/ssm/paths.py model_path):"
+            echo "$stray"
+            exit 1
+          fi
+
+      - name: Audio libraries (ALSA, JACK)
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libasound2-dev libjack-jackd2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build:native
+      - run: npm run typecheck
+
+      - name: Clippy
+        working-directory: native
+        run: cargo clippy --release --workspace -- -D warnings
+
+      - name: Rust tests
+        working-directory: native
+        run: cargo test --release --workspace
+
+      - run: npm test
+
+      - name: Smoke render (package exports, ESM and require)
+        run: npm run build:ts && node scripts/smoke.mjs
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: supersynth-linux-x64-gnu-dev
+          path: supersynth.node
+          retention-days: 3
+
+  platforms:
+    name: ${{ matrix.os }} (engine, unit tests, smoke render)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build:native
+      - run: npm run test:unit
+      - run: npm run build:ts
+      - run: node scripts/smoke.mjs
+
+  node-versions:
+    name: Node ${{ matrix.node }} (smoke render)
+    needs: linux
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 24]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ALSA runtime
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: supersynth-linux-x64-gnu-dev
+
+      - run: npm run build:ts
+      - run: node scripts/smoke.mjs

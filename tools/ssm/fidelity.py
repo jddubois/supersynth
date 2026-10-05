@@ -39,9 +39,14 @@ from analysis import find_onset
 from compare import logmel
 from engine import read_header, ssrender
 from evaluate import sustain_duration
+from paths import existing_model_path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-MODELS = os.environ.get('SSM_OUT_DIR', os.path.join(HERE, '..', '..', 'models'))
+# SSM_OUT_DIR: evaluate models built into a scratch directory (default: the committed ones)
+MODELS = os.environ.get('SSM_OUT_DIR') or None
+
+
+def default_model_path(model_id: str) -> str:
+    return existing_model_path(model_id, MODELS)
 
 NFFT = 4096
 HOP = 512
@@ -280,7 +285,7 @@ def model_zones(model_id: str, path: str | None = None, max_notes: int | None = 
     (only `notes`, if given; at most `max_notes`, spread evenly over the range)."""
     from build import collect
     from instruments import INSTRUMENTS
-    hdr = read_header(path or os.path.join(MODELS, f'{model_id}.ssm'))
+    hdr = read_header(path or default_model_path(model_id))
     byname = {os.path.basename(f): f for f, _, _ in collect(INSTRUMENTS[model_id])}
     zones = [z for z in hdr['zones'] if z['src'] in byname]
     if notes:
@@ -305,7 +310,7 @@ def main():
     a = ap.parse_args()
     if a.holdout:
         return main_holdout(a)
-    path = a.model_path or os.path.join(MODELS, f'{a.model}.ssm')
+    path = a.model_path or default_model_path(a.model)
     want = {int(n) for n in a.notes.split(',')} if a.notes else None
     hdr, zones = model_zones(a.model, path, a.max, want)
     results = []
@@ -350,8 +355,8 @@ def main_holdout(a):
     path, test = holdout_model(a.model)
     hdr = read_header(path)
     zones = hdr['zones']
-    full = read_header(os.path.join(os.path.dirname(MODELS) if False else MODELS, f'{a.model}.ssm')) \
-        if os.path.exists(os.path.join(MODELS, f'{a.model}.ssm')) else hdr
+    full_path = default_model_path(a.model)
+    full = read_header(full_path) if os.path.exists(full_path) else hdr
     # the octave convention of this instrument's file names, from the full model's zones
     nom = {os.path.basename(f): n for f, n, _ in collect(INSTRUMENTS[a.model])}
     offs = [round((z['note'] - nom[z['src']]) / 12) * 12 for z in full['zones'] if z['src'] in nom]

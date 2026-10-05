@@ -1,0 +1,16 @@
+{
+  "name": "@supersynth/win32-x64-msvc",
+  "version": "0.2.0",
+  "description": "supersynth's native engine for Windows x64",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jddubois/supersynth.git",
+    "directory": "npm/win32-x64-msvc"
+  },
+  "homepage": "https://github.com/jddubois/supersynth#readme",
+  "main": "supersynth.win32-x64-msvc.node",
+  "files": [
+    "supersynth.win32-x64-msvc.node"
+  ]
+}

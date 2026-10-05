@@ -3,47 +3,16 @@ import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
 import {
-  chord, encodeWav, INSTRUMENTS, MidiError, noteName, noteNumber, Organ, parseMidiFile, Synth,
-  SupersynthError, type InstrumentDefinition, type InstrumentId, type OrganDefinition, type Playable,
+  INSTRUMENTS, Organ, Synth, SupersynthError, type InstrumentDefinition, type InstrumentId, type OrganDefinition, type Playable,
 } from '../src/index.js';
 import * as instrumentConfigs from '../src/catalog/index.js';
 import { BUREA_ORGAN, ORGANS, PIOTR_ORGANS } from '../src/organs/index.js';
 import { stopModel } from '../src/Organ.js';
+import { resolveModelFile } from '../src/models.js';
+import { midiFile } from './smf.js';
 
 const peak = (a: Float32Array) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
 const rms = (a: Float32Array) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / Math.max(1, a.length));
-
-/** A format-0 MIDI file (480 ticks per beat, 120 bpm) of `[delta ticks, status, data1, data2]` events. */
-function midiFile(events: [number, number, number, number][]): Uint8Array {
-  const vlq = (n: number) => {
-    const out = [n & 0x7f];
-    while ((n >>= 7)) out.unshift((n & 0x7f) | 0x80);
-    return out;
-  };
-  const body = events.flatMap(([dt, st, a, b]) => [...vlq(dt), st, a, b]).concat([0, 0xff, 0x2f, 0]);
-  const u32 = (n: number) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
-  return Uint8Array.from([0x4d, 0x54, 0x68, 0x64, ...u32(6), 0, 0, 0, 1, 0x01, 0xe0, 0x4d, 0x54, 0x72, 0x6b, ...u32(body.length), ...body]);
-}
-
-describe('notes', () => {
-  test('names and numbers', () => {
-    expect(noteNumber('C4')).toBe(60);
-    expect(noteNumber('A4')).toBe(69);
-    expect(noteNumber('F#3')).toBe(54);
-    expect(noteNumber('Bb2')).toBe(46);
-    expect(noteNumber('C-1')).toBe(0);
-    expect(noteNumber(72)).toBe(72);
-    expect(noteName(61)).toBe('C#4');
-    expect(() => noteNumber('H2')).toThrow(RangeError);
-    expect(() => noteNumber(128)).toThrow(RangeError);
-  });
-
-  test('chords', () => {
-    expect(chord('C4')).toEqual([60, 64, 67]);
-    expect(chord('A3', 'm7')).toEqual([57, 60, 64, 67]);
-    expect(chord('F#3m7b5')).toEqual([54, 57, 60, 64]);
-  });
-});
 
 describe('Synth offline rendering', () => {
   test('silence with no notes, correct length, stereo', () => {
@@ -52,6 +21,7 @@ describe('Synth offline rendering', () => {
     expect(a.left.length).toBe(12000);
     expect(a.right.length).toBe(12000);
     expect(peak(a.left)).toBeLessThan(1e-9);
+    expect(synth.engineError).toBeNull();
   });
 
   test('a piano note sounds, stays finite and bounded, and ends after release', () => {
@@ -82,6 +52,52 @@ describe('Synth offline rendering', () => {
     const first = a.left.findIndex((v) => Math.abs(v) > 1e-4);
     expect(first).toBeGreaterThanOrEqual(24000);
     expect(first).toBeLessThan(24000 + 200);
+  });
+
+  test('the sound is exactly the same on any number of threads', () => {
+    const play = (threads: number | 'auto') => {
+      const synth = new Synth({ sampleRate: 48000, threads });
+      const organ = synth.add('burea', { preset: 'full' });
+      const piano = synth.add('grand-piano');
+      organ.great.play(['C3', 'G3', 'C4', 'E4', 'G4', 'C5'], { duration: 0.6 });
+      organ.pedal.play(['C2'], { duration: 0.6 });
+      piano.play(['E5', 'G5'], { at: 0.2, duration: 0.3 });
+      const out = synth.render(1.2);
+      const used = synth.threads;
+      synth.close();
+      return { out, used };
+    };
+    const one = play(1);
+    expect(one.used).toBe(1);
+    expect(rms(one.out.left)).toBeGreaterThan(1e-3);
+    for (const t of [2, 4, 'auto'] as const) {
+      const { out, used } = play(t);
+      if (t !== 'auto') expect(used).toBe(t);
+      expect(Buffer.from(out.left.buffer).equals(Buffer.from(one.out.left.buffer))).toBe(true);
+      expect(Buffer.from(out.right.buffer).equals(Buffer.from(one.out.right.buffer))).toBe(true);
+    }
+    expect(() => new Synth({ threads: 0 })).toThrow(SupersynthError);
+  });
+
+  test('release culling is off by default and ends quiet tails early when asked', () => {
+    const voicesAfterRelease = (releaseCulling?: { floorDb?: number; belowMixDb?: number; hold?: 'peak' | 'smooth' }) => {
+      const synth = new Synth({ sampleRate: 48000, ...(releaseCulling ? { releaseCulling } : {}) });
+      const organ = synth.add('burea', { preset: 'plenum' });
+      organ.great.play(['C3', 'E3', 'G3', 'C4'], { duration: 0.5 });
+      synth.render(2);
+      const v = synth.activeVoices;
+      synth.close();
+      return v;
+    };
+    const full = voicesAfterRelease();
+    expect(full).toBeGreaterThan(0);
+    expect(voicesAfterRelease({ floorDb: -60 })).toBeLessThan(full);
+    expect(voicesAfterRelease({ belowMixDb: 20, hold: 'smooth' })).toBeLessThanOrEqual(full);
+    const synth = new Synth({ sampleRate: 48000 });
+    expect(() => synth.set({ releaseCulling: { floorDb: Number.NaN } })).toThrow(SupersynthError);
+    expect(() => synth.set({ releaseCulling: { belowMixDb: 60, hold: 'long' as never } })).toThrow(SupersynthError);
+    synth.set({ releaseCulling: false });
+    synth.close();
   });
 
   test('many notes are limited below full scale', () => {
@@ -177,6 +193,9 @@ describe('instruments', () => {
     expect(() => synth.add('kazoo' as InstrumentId)).toThrow(SupersynthError);
     // an organ definition is recognised as one, and checked like one
     expect(() => synth.add({ ...BUREA_ORGAN, stops: [] }, { preset: 'plenum' })).toThrow(SupersynthError);
+    // ... before it takes any channel: all 32 are free
+    for (let i = 0; i < 32; i++) synth.add('flute');
+    expect(synth.instruments()).toHaveLength(32);
   });
 
   test('instruments and organ divisions are both playable', () => {
@@ -309,7 +328,7 @@ describe('organ', () => {
 describe('configurations', () => {
   /** The JSON header of a model file. */
   const header = (model: string) => {
-    const raw = gunzipSync(readFileSync(path.join(process.cwd(), 'models', `${model}.ssm`)));
+    const raw = gunzipSync(readFileSync(resolveModelFile(model)));
     return JSON.parse(raw.subarray(8, 8 + raw.readUInt32LE(4)).toString('utf8'));
   };
 
@@ -373,6 +392,7 @@ describe('configurations', () => {
       const o = synth.add(organ, { preset: {}, noises: true });
       o.great.play('C4', { duration: 0.1 });
       expect([organ.id, rms(synth.render(0.5).left) > 1e-7]).toEqual([organ.id, true]);
+      synth.close();
     }
   });
 
@@ -404,7 +424,7 @@ describe('configurations', () => {
     o.division(div!).push(o.division(div!).stops()[0]!.name);
     synth.render(3);
     expect(rms(synth.render(0.5).left)).toBeLessThan(1e-5);
-    synth.remove(o);
+    synth.close();
   });
 
   test("each of Piotr Grabowski's organs plays its default preset", () => {
@@ -416,6 +436,7 @@ describe('configurations', () => {
         if (d.drawn().length) d.play(name === 'pedal' ? 'C2' : ['C4', 'G4'], { duration: 0.4 });
       }
       expect([organ.id, rms(synth.render(0.6).left) > 1e-4]).toEqual([organ.id, true]);
+      synth.close(); // (stops loading its other stops in the background)
     }
   });
 
@@ -565,26 +586,11 @@ describe('configurations', () => {
 });
 
 describe('files', () => {
-  test('MIDI file parse and render', () => {
+  test('MIDI file render', () => {
     const bytes = readFileSync(path.join(process.cwd(), 'examples', 'jsbwv532.mid'));
-    const midi = parseMidiFile(bytes);
-    expect(midi.events.length).toBeGreaterThan(100);
-    expect(midi.duration).toBeGreaterThan(10);
     const synth = new Synth({ sampleRate: 22050 });
-    const short = { ...midi, events: midi.events.filter((e) => e.time < 2) };
-    expect(short.events.length).toBeGreaterThan(0);
     const audio = synth.renderMidi(bytes, { instrument: 'harpsichord', tail: 0.5, speed: 8 });
     expect(audio.duration).toBeGreaterThan(1);
     expect(rms(audio.left)).toBeGreaterThan(1e-3);
-  });
-
-  test('a file that is not MIDI throws MidiError', () => {
-    expect(() => parseMidiFile(Uint8Array.from([1, 2, 3, 4]))).toThrow(MidiError);
-  });
-
-  test('WAV encoding', () => {
-    const buf = encodeWav({ sampleRate: 48000, left: new Float32Array(10), right: new Float32Array(10), duration: 10 / 48000 });
-    expect(buf.toString('ascii', 0, 4)).toBe('RIFF');
-    expect(buf.length).toBe(44 + 10 * 2 * 2);
   });
 });

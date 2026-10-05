@@ -1,7 +1,9 @@
 # Third-party material
 
-The instrument models in `models/` are spectral analyses (partial envelopes, noise spectra and
-short attack excerpts) of the following recordings.
+The instrument models are spectral analyses (partial envelopes, noise spectra and short attack
+excerpts) of the following recordings. The `supersynth` package ships the CC0 models in
+`models/`; each organ sample set ships in an npm package of its own (`@supersynth/organ-<id>`,
+source in `packages/organ-<id>/`), which carries its own NOTICE.md and license.
 
 ## Versilian Community Sample Library (VCSL)
 Versilian Studios LLC — https://github.com/sgossner/VCSL — **CC0 1.0** (public domain).
@@ -19,19 +21,19 @@ trumpet-muted, french-horn, trombone, tuba.
 Organ by Nils Hammarberg (1967), Bureå Church, Sweden. GrandOrgue sample set recorded by
 **Lars Palo** (2010, updated 2023) — https://familjenpalo.se/vpo/ — licensed under
 **Creative Commons Attribution-ShareAlike 2.5 Sweden** (http://creativecommons.org/licenses/by-sa/2.5/se/).
-Models: `models/organ/*`. These models are an adaptation of that work and are distributed under the
-same license (CC BY-SA 2.5 SE).
+Models: `models/organ/*` in the package `@supersynth/organ-burea` (`packages/organ-burea/`). These
+models are an adaptation of that work and are distributed under the same license (CC BY-SA 2.5 SE).
 
 ## Piotr Grabowski's free organ sample sets
 Sample sets recorded and produced by **Piotr Grabowski** (Piotr Grabowski Wirtualne Organy) —
 https://piotrgrabowski.pl/instruments/ — distributed by him free of charge. Models:
-`models/organ/<organ>/*` for the organs `azzio`, `cracow`, `dluga-koscielna`, `friesach`,
-`giubiasco`, `green-positiv`, `harmonium`, `ledziny`, `lipiny`, `melcer`, `raszczyce`,
-`saint-jean-de-luz`, `skrzatusz`, `strassburg`, `szczecinek` (the organs present in this
-directory). Each stop was analysed from the sample set's recordings as its organ definition
-plays them.
+`models/organ/<organ>/*` in the package `@supersynth/organ-<organ>` (`packages/organ-<organ>/`) for
+the organs `azzio`, `cracow`, `dluga-koscielna`, `friesach`, `giubiasco`, `green-positiv`,
+`harmonium`, `ledziny`, `lipiny`, `melcer`, `raszczyce`, `saint-jean-de-luz`, `skrzatusz`,
+`strassburg`, `szczecinek`. Each stop was analysed from the sample set's recordings as its organ
+definition plays them. None of them is in the `supersynth` package itself.
 
-These models are **not** covered by this package's MIT license. The sample sets' terms
+These models are **not** covered by supersynth's MIT license. The sample sets' terms
 (https://piotrgrabowski.pl, Terms and Conditions → Licence) do not allow free sample sets, as a
 whole or in part, to be sold, or to be included in computers or products intended for sale
 (e.g. a MIDI console with a built-in system); the same restriction applies to these models.

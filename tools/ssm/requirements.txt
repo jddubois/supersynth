@@ -1,0 +1,12 @@
+# Python analysis pipeline (tools/ssm). Exact versions, verified together on CPython 3.12.
+# STFT/Welch defaults, resampling filters and numba's compiled kernels differ between
+# releases, so a model is only reproducible with the same versions:
+#   python3.12 -m venv tools/ssm/.venv && tools/ssm/.venv/bin/pip install -r tools/ssm/requirements.txt
+numpy==2.5.3
+scipy==1.18.1
+numba==0.68.0
+llvmlite==0.50.0
+soundfile==0.14.0
+cffi==2.1.1
+pycparser==3.0
+typing_extensions==4.16.0

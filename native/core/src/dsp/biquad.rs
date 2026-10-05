@@ -113,6 +113,21 @@ impl Biquad {
         y
     }
 
+    /// Zero state values that have decayed below 1e-20. `process` (per
+    /// sample) never flushes, so per-sample users must call this once per
+    /// block: after the input stops, an IIR state otherwise decays into the
+    /// subnormal range and stays there (~1e-44 limit cycle), which costs
+    /// ~100x per operation on x86 without FTZ/DAZ.
+    #[inline]
+    pub fn flush_denormals(&mut self) {
+        if self.z1.abs() < 1e-20 {
+            self.z1 = 0.0;
+        }
+        if self.z2.abs() < 1e-20 {
+            self.z2 = 0.0;
+        }
+    }
+
     pub fn process_block(&mut self, buf: &mut [f32]) {
         let c = self.c;
         let (mut z1, mut z2) = (self.z1, self.z2);
@@ -122,13 +137,42 @@ impl Biquad {
             z2 = c.b2 * *x - c.a2 * y;
             *x = y;
         }
-        // flush denormals
-        self.z1 = if z1.abs() < 1e-20 { 0.0 } else { z1 };
-        self.z2 = if z2.abs() < 1e-20 { 0.0 } else { z2 };
+        self.z1 = z1;
+        self.z2 = z2;
+        self.flush_denormals();
     }
 
     pub fn reset(&mut self) {
         self.z1 = 0.0;
         self.z2 = 0.0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Per-sample processing of silence after a signal: without a flush the
+    /// state of a low-corner filter settles in the subnormal range.
+    #[test]
+    fn flush_denormals_clears_decayed_state() {
+        let mut bq = Biquad::new(Coeffs::low_pass(800.0, std::f32::consts::FRAC_1_SQRT_2, 48000.0));
+        for i in 0..1000 {
+            bq.process((i as f32 * 0.1).sin());
+        }
+        let mut unflushed = bq;
+        let mut subnormal = 0;
+        for k in 0..48000 {
+            let y = unflushed.process(0.0);
+            subnormal += (y != 0.0 && !y.is_normal()) as usize;
+            bq.process(0.0);
+            if k % 64 == 63 {
+                bq.flush_denormals();
+            }
+        }
+        println!("per-sample biquad, 1 s of silence: {subnormal} subnormal outputs without flush");
+        assert!(subnormal > 1000, "expected the unflushed filter to go subnormal");
+        assert_eq!((bq.z1, bq.z2), (0.0, 0.0));
+        assert_eq!(bq.process(0.0), 0.0);
     }
 }

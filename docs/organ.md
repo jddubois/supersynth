@@ -5,6 +5,16 @@
 Pipes keep their own tuning and voicing, stops keep their natural balance, and the pipes carry
 the church acoustic they were recorded in.
 
+Each organ's models are an npm package of their own (only the VCSL organ ships with supersynth):
+
+```bash
+npm install @supersynth/organ-burea        # the Bureå organ (71 MB)
+npm install @supersynth/organ-friesach     # one of Piotr Grabowski's organs
+npm install @supersynth/organs             # every organ (about 550 MB)
+```
+
+Adding an organ whose package is missing throws a `SupersynthError` naming the package to install.
+
 ```ts
 const organ = synth.add('burea', { preset: 'plenum' });
 
@@ -32,7 +42,7 @@ Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
 
 | Division | |
 |---|---|
-| `play`, `sequence`, `noteOn`, `noteOff`, `allNotesOff` | playing (organs are not velocity sensitive) |
+| `play`, `sequence`, `noteOn`, `noteOff`, `allNotesOff` | playing (organs are not velocity sensitive; a velocity is clamped to 1–127, so 0 is not a key release) |
 | `expression(0–1)` | swell pedal (shutters on the swell, volume elsewhere) |
 | `pull(stop \| stops)`, `push(stop \| stops)` | draw, retire |
 | `couple(coupler \| couplers)`, `uncouple(coupler \| couplers)` | couplers to this keyboard: a division (`'swell'`), or `{ division, octave: 1 \| -1 }` for 4' and 16' couplers |
@@ -49,6 +59,7 @@ Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
 | `tremulants()`, `noisesOn()` | the tremulants and whether each is on; which noises are on (`{ blower, ambient, action }`) |
 | `midi(channels, { presets })` | play it from MIDI keyboards |
 | `allNotesOff()`, `stops()`, `definition` | |
+| `ready` | a promise: every model the organ loads in the background is loaded (see [Loading](#loading)) |
 
 Every change takes `{ at }` or `{ delay }` last, like a note, so registration changes can be
 scheduled with the music: `organ.preset('full', { at: 30 })`, `organ.swell.pull("Schalmei 8'", { at: 12.5 })`.
@@ -64,6 +75,45 @@ organ make them), so unison stops beat and blend instead of starting in lockstep
 set recorded a pipe's release after short key presses too (most of Piotr Grabowski's do, after
 0.1–0.6 s), a staccato note ends with that release: the room has not filled yet and the pipe
 had not reached full speech.
+
+## Loading
+
+An organ's stops are hundreds of megabytes of models once decoded, so `synth.add()` loads only
+what its starting preset needs before it returns (in parallel, on several cores): that preset
+sounds at once. Every other stop's model (and the Forte and noise models) then loads in the
+background, off the JavaScript thread, so drawing stops and changing presets later is instant
+and never stalls a key or a MIDI clock:
+
+```ts
+const organ = synth.add('friesach', { preset: 'plenum' });   // ~0.1 s; the plenum plays now
+organ.great.play('C4');
+await organ.ready;               // optional: every stop is loaded (~0.5 s on a desktop)
+```
+
+A stop drawn before its model has loaded never holds up playing. With real-time output running
+the call returns at once and the stop sounds as soon as its model has loaded (it is moved to the
+front: a few tens of milliseconds on a desktop); `drawn()` lists it meanwhile, and retiring it
+first means it never sounds. Offline, the call waits for that one model only (loaded on the spot
+if no background thread has started it), and `render()` waits for any stop drawn in real time
+that is still loading, so a render always contains exactly what was drawn.
+
+The `preload` option of `synth.add()` chooses what loads in the background:
+
+| `preload` | |
+|---|---|
+| `'all'` | every model of the organ (the default when the organ's models take at most a quarter of the machine's memory decoded) |
+| `'preset'` | only the starting preset's; another stop's model loads when the stop is first drawn, so memory grows only with the stops used (the default on smaller machines) |
+| `false` | nothing in the background: each model, the preset's too, loads on the JavaScript thread when first needed |
+
+Decoded, the largest organs take about 325 MB (Friesach, 44 stops), 265 MB (Bureå, 40) and
+253 MB (Cracow, 40), roughly four times the size of their package; `npm run load-test` measures
+it. A model that fails to load in the background (a damaged file) rejects `organ.ready` with a
+`SupersynthError`, is emitted as the synth's `'error'` event when it has listeners, and drawing
+that stop throws the same error; the other stops play. Removing the organ (or `synth.close()`)
+stops its loading. Unloaded models are freed on a background thread once the engine has let
+go of them, never inside a render or the audio callback. The background threads are the CPU's cores less two (1–6), at a low
+priority so that they yield to the audio and JavaScript threads; `$SUPERSYNTH_LOAD_THREADS` sets
+their number.
 
 ## Noises
 
@@ -130,8 +180,10 @@ organ.midi({ great: 1, swell: 2, pedal: 3 }, { presets: ['flutes', 'principal-ch
 Each division plays its MIDI channel straight in the engine (no JavaScript in the note path),
 couplers included; CC 11 on a division's channel is its swell pedal. Program change *n* on any of
 the organ's channels selects the *n*-th preset of `presets` (default: all presets, in the order
-of `organ.presets()`; `false` ignores program changes). Calling `midi()` again replaces the
-organ's channels. MIDI files play an organ with
+of `organ.presets()`; `false` ignores program changes). The preset names are checked when
+`midi()` is called; a preset that cannot be applied when its program change arrives is emitted
+as the synth's `'error'` event if it has listeners, and ignored otherwise (it never throws out of
+the MIDI callback). Calling `midi()` again replaces the organ's channels. MIDI files play an organ with
 `synth.renderMidi(file, { channels: { 1: organ.great, 2: organ.pedal } })`.
 
 ## A second organ: the VCSL church organ
@@ -174,8 +226,9 @@ Melcer Chamber Music Hall (Walcker 1993), Saint-Jean-de-Luz (Gonzalez 1931), Lę
 Positiv and a two-manual Harmonium (Emil Müller). They keep their own pitch (Azzio sounds at
 a ≈ 420 Hz, the Green Positiv a semitone low), their borrowed and extended ranks, and the
 balance between their stops, their releases after short key presses, their swell boxes and
-tremulants as defined for GrandOrgue, and their recorded machinery noises. Stops, presets and
-ids of every organ:
+tremulants as defined for GrandOrgue, and their recorded machinery noises. Each one's models are
+the package `@supersynth/organ-<id>` (`npm install @supersynth/organ-friesach`). Stops, presets,
+ids and package sizes of every organ:
 [piotr-organs.md](piotr-organs.md). These models are not covered by the MIT license — see
 NOTICE.md.
 
@@ -221,12 +274,15 @@ const box: OrganDefinition = {
 
 A stop plays the model `organ/<id>` (or its `model`), transposed by `transpose` semitones from
 the key, on the keys `keys: [low, high]` (default: all; e.g. a treble Cornet), and with the
-division's Forte on its `forte` model. A division's `swellBox` is `true` or
-`{ closed: -6, shelf: -9 }` (level and treble damping in dB with the shutters closed; the
-default box closes to −9 dB and −14 dB above ~700 Hz). `tremulant` is one tremulant or a list,
-each on a division or several (`{ division: ['great', 'pedal'], depth, pitch, rate }`).
-Optional fields default to `CHURCH_DIVISIONS` (great centre, swell right in its swell box,
-positive left, pedal centre), `SWELL_TREMULANT` and `ORGAN_DEFAULTS`. The rest of this page
+division's Forte on its `forte` model. A model `<name>` is the file `<name>.ssm`, looked up in the
+Synth's `modelsDirectory` (and `$SUPERSYNTH_MODELS_DIR`) first, then in supersynth's `models/`,
+then in the organ's package (`organ/friesach/…` in `@supersynth/organ-friesach`, `organ/…` in
+`@supersynth/organ-burea`); the same goes for the `forte` and noise models. A division's
+`swellBox` is `true` or `{ closed: -6, shelf: -9 }` (level and treble damping in dB with the
+shutters closed; the default box closes to −9 dB and −14 dB above ~700 Hz). `tremulant` is one
+tremulant or a list, each on a division or several (`{ division: ['great', 'pedal'], depth,
+pitch, rate }`). Optional fields default to `CHURCH_DIVISIONS` (great centre, swell right in its
+swell box, positive left, pedal centre), `SWELL_TREMULANT` and `ORGAN_DEFAULTS`. The rest of this page
 describes the Bureå organ.
 
 ## Stops

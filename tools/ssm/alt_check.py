@@ -37,10 +37,14 @@ def real(p, hold: float) -> tuple[np.ndarray, int]:
         y = np.concatenate([att[:n], att[cue:]]) if cue else att
         up = n
     else:
-        r, _ = _read(rel or p.release)
+        r, sr2 = _read(rel or p.release)
         rc = wav_cue(rel or p.release)
         if rc is not None and 0 < rc < len(r) // 2:
             r = r[rc:]
+        if sr2 != sr:
+            # a release recorded at another rate: at the attack's, like the sampler plays it
+            from scipy import signal
+            r = signal.resample_poly(r, sr, sr2, axis=0)
         a = att[:cue] if (p.release is None and cue) else att
         y, up = splice_release(a, r, sr, int(hold * sr), f0, p.crossfade_ms)
     return retune(y * p.amplitude * 10 ** (p.gain_db / 20), p.tuning_cents), up

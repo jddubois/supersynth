@@ -18,3 +18,11 @@ export class MidiError extends SupersynthError {
     this.name = 'MidiError';
   }
 }
+
+/** {@link Synth.playMidi} stopped by its `signal`. */
+export class AbortError extends SupersynthError {
+  constructor(message = 'MIDI playback was aborted') {
+    super(message);
+    this.name = 'AbortError';
+  }
+}

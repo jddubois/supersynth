@@ -1,8 +1,72 @@
-"""Where the (large, git-ignored) recordings and evaluation outputs live.
+"""Where the (large, git-ignored) recordings and evaluation outputs live, and where each
+committed model is stored.
 
-Set SUPERSYNTH_DATA_ROOT to override; defaults to <repo>/data.
+Set SUPERSYNTH_DATA_ROOT to override the data root; defaults to <repo>/data.
 """
+from __future__ import annotations
+
+import glob
 import os
 
-DATA_ROOT = os.environ.get('SUPERSYNTH_DATA_ROOT',
-                           os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'data')))
+REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+DATA_ROOT = os.environ.get('SUPERSYNTH_DATA_ROOT', os.path.join(REPO, 'data'))
+
+# committed models: organs live in their own npm workspace packages, everything else in models/
+MODELS_DIR = os.path.join(REPO, 'models')
+PACKAGES_DIR = os.path.join(REPO, 'packages')
+BUREA_PACKAGE = 'organ-burea'
+
+
+def model_package(name: str) -> str | None:
+    """The workspace package (directory name under packages/) holding the committed model
+    `name`, or None for a model of the root package (models/).
+
+      organ/<stop>            → organ-burea         (the Bureå organ)
+      organ/<organ>/<stop>    → organ-<organ>       (Piotr Grabowski's organs)
+    """
+    parts = name.split('/')
+    if parts[0] != 'organ' or len(parts) < 2:
+        return None
+    return BUREA_PACKAGE if len(parts) == 2 else f'organ-{parts[1]}'
+
+
+def model_path(name: str, out_dir: str | None = None) -> str:
+    """The .ssm file of model `name` (e.g. 'piano', 'organ/great-principal-8',
+    'organ/friesach/great-principal-8').
+
+    With `out_dir` (a scratch build, SSM_OUT_DIR): <out_dir>/<name>.ssm, the flat layout a
+    `modelsDirectory` override of the engine reads. Without it: the committed location —
+    packages/<package>/models/<name>.ssm for organs, models/<name>.ssm for everything else.
+    """
+    if out_dir:
+        return os.path.join(out_dir, f'{name}.ssm')
+    pkg = model_package(name)
+    root = MODELS_DIR if pkg is None else os.path.join(PACKAGES_DIR, pkg, 'models')
+    return os.path.join(root, f'{name}.ssm')
+
+
+def existing_model_path(name: str, out_dir: str | None = None) -> str:
+    """model_path for reading: falls back to the pre-package location (models/<name>.ssm) while
+    a checkout still has organ models there. Returns model_path when neither exists."""
+    p = model_path(name, out_dir)
+    if not out_dir and not os.path.exists(p):
+        legacy = os.path.join(MODELS_DIR, f'{name}.ssm')
+        if os.path.exists(legacy):
+            return legacy
+    return p
+
+
+def committed_models() -> list[str]:
+    """Every committed .ssm file (root package and workspace packages)."""
+    files = glob.glob(os.path.join(MODELS_DIR, '**', '*.ssm'), recursive=True)
+    files += glob.glob(os.path.join(PACKAGES_DIR, '*', 'models', '**', '*.ssm'), recursive=True)
+    return sorted(set(files))
+
+
+def is_committed_location(path: str) -> bool:
+    """Whether `path` lies in a directory that holds committed models."""
+    p = os.path.realpath(path)
+    roots = [os.path.realpath(MODELS_DIR)]
+    roots += [os.path.realpath(d) for d in glob.glob(os.path.join(PACKAGES_DIR, '*', 'models'))]
+    roots.append(os.path.realpath(PACKAGES_DIR))
+    return any(p == r or p.startswith(r + os.sep) for r in roots)

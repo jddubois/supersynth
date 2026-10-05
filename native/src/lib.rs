@@ -3,10 +3,10 @@
 //! Node.js bindings for supersynth-core.
 
 mod audio;
+mod loader;
 mod midi;
 
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
 use napi::bindgen_prelude::*;
@@ -14,14 +14,19 @@ use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFun
 use napi_derive::napi;
 
 use audio::backend::{list_available_backends, BackendKind};
-use audio::output::{default_output_rate, AudioOutput};
+use audio::output::{default_output_rate, render_guarded, AudioOutput, Fault};
+use loader::ModelStore;
 use midi::input::{connect_midi_device, list_midi_devices, MidiInputHandle};
 use midi::message::{MidiMessage, MidiMessageKind};
 
 /// A MIDI channel routed to no part: its messages only reach the JavaScript callback.
 const NO_ROUTE: u8 = 255;
 use supersynth_core::engine::params::{MasterParam, PartParam};
-use supersynth_core::engine::{Command, Controller, Couplers, Engine, EngineConfig, InstLayer, Instrument, Route, Status as EngineStatus, MAX_PARTS, MAX_ROUTES};
+use supersynth_core::engine::pool::MAX_THREADS;
+use supersynth_core::engine::{
+    default_threads, Command, Controller, Couplers, Engine, EngineConfig, InstLayer, Instrument, Route, Status as EngineStatus, DEFAULT_MAX_VOICES, MAX_PARTS,
+    MAX_ROUTES,
+};
 use supersynth_core::fx::reverb::ReverbParams;
 use supersynth_core::model::{Kind, Model, ReleaseMode};
 
@@ -32,12 +37,15 @@ pub struct JsEngineOptions {
     /// Sample rate in Hz. Default: the output device's rate (or 48000 without a device).
     pub sample_rate: Option<u32>,
     pub backend: Option<String>,
-    /// Maximum simultaneously sounding voices (default 192).
+    /// Maximum simultaneously sounding voices (default 1024).
     pub max_voices: Option<u32>,
     /// Reverb preset name (default "hall").
     pub reverb: Option<String>,
     /// Audio buffer size in frames (default: device default).
     pub buffer_size: Option<u32>,
+    /// Threads rendering audio, the audio thread included (default 0 = one per core but one,
+    /// at most 8). The output is the same for any number.
+    pub threads: Option<u32>,
 }
 
 #[napi(object)]
@@ -65,22 +73,6 @@ pub struct JsCoupler {
     pub shift: Option<i32>,
 }
 
-fn inst_layer(model: &Arc<Model>, l: &JsLayer) -> InstLayer {
-    InstLayer {
-        model: Arc::clone(model),
-        transpose: l.transpose.unwrap_or(0.0) as f32,
-        gain_db: l.gain_db.unwrap_or(0.0) as f32,
-        pan: l.pan.unwrap_or(0.0) as f32,
-        key_lo: l.key_lo.unwrap_or(0).min(127) as u8,
-        key_hi: l.key_hi.unwrap_or(127).min(127) as u8,
-        enabled: l.enabled.unwrap_or(true),
-        detune_cents: l.detune_cents.unwrap_or(0.0) as f32,
-        on_release: l.on_release.unwrap_or(false),
-        speech_ms: l.speech_ms.unwrap_or(0.0).clamp(0.0, 200.0) as f32,
-        direct_only: l.direct_only.unwrap_or(false),
-    }
-}
-
 // ── engine handle ────────────────────────────────────────────────────────────
 
 struct Shared {
@@ -90,14 +82,34 @@ struct Shared {
     /// Part each MIDI channel (1–16) plays when MIDI input is routed (`NO_ROUTE`: none)
     /// until changed.
     midi_routes: [AtomicU8; 16],
+    /// Real-time output is running. MIDI input is routed into the engine only then: nothing
+    /// would consume it otherwise, and the backlog would all sound at once on `start()`.
+    running: AtomicBool,
 }
 
 impl Shared {
     fn send(&self, time: Option<f64>, cmd: Command) -> Result<()> {
-        let frame = time.map(|t| (t.max(0.0) * self.sample_rate as f64).round() as u64).unwrap_or(0);
+        let frame = match time {
+            Some(t) => (finite(t, "time")?.max(0.0) * self.sample_rate as f64).round() as u64,
+            None => 0,
+        };
         let mut c = self.ctl.lock().map_err(|_| Error::new(Status::GenericFailure, "controller lock poisoned"))?;
         c.send(frame, cmd).map_err(|e| Error::new(Status::GenericFailure, e))
     }
+}
+
+/// `v` if it is a finite number: NaN or an infinity reaching the engine would corrupt its
+/// state, so they are rejected here with an error naming the argument.
+fn finite(v: f64, what: &str) -> Result<f64> {
+    if v.is_finite() {
+        Ok(v)
+    } else {
+        Err(Error::new(Status::InvalidArg, format!("{what} must be a finite number, got {v}")))
+    }
+}
+
+fn finite_or(v: Option<f64>, default: f64, what: &str) -> Result<f32> {
+    v.map(|x| finite(x, what)).transpose().map(|x| x.unwrap_or(default) as f32)
 }
 
 #[napi]
@@ -106,11 +118,13 @@ pub struct SynthEngine {
     shared: Arc<Shared>,
     output: Option<AudioOutput>,
     midi: Option<MidiInputHandle>,
-    models: HashMap<u32, Arc<Model>>,
-    next_model: u32,
+    models: ModelStore,
     sample_rate: u32,
     backend: BackendKind,
     buffer_size: Option<u32>,
+    /// Set when rendering panicked (see `faulted`).
+    fault: Arc<Fault>,
+    threads: u32,
 }
 
 fn err(msg: impl Into<String>) -> Error {
@@ -127,6 +141,7 @@ impl SynthEngine {
             max_voices: None,
             reverb: None,
             buffer_size: None,
+            threads: None,
         });
         let backend = BackendKind::parse(o.backend.as_deref().unwrap_or(""));
         let sample_rate = o.sample_rate.unwrap_or_else(|| default_output_rate(&backend).unwrap_or(48000));
@@ -137,10 +152,15 @@ impl SynthEngine {
         let reverb = ReverbParams::preset(&reverb_name).ok_or_else(|| err(format!("unknown reverb preset '{reverb_name}'")))?;
         let (engine, ctl) = Engine::new(EngineConfig {
             sample_rate: sample_rate as f32,
-            max_voices: o.max_voices.unwrap_or(192).clamp(8, 2048) as usize,
+            max_voices: o.max_voices.map(|v| v as usize).unwrap_or(DEFAULT_MAX_VOICES).clamp(8, 4096),
             reverb,
+            threads: match o.threads {
+                None | Some(0) => default_threads(),
+                Some(t) => (t as usize).clamp(1, MAX_THREADS),
+            },
         });
         let status = Arc::clone(&ctl.status);
+        let threads = engine.threads() as u32;
         Ok(Self {
             engine: Arc::new(Mutex::new(engine)),
             shared: Arc::new(Shared {
@@ -148,15 +168,31 @@ impl SynthEngine {
                 status,
                 sample_rate: sample_rate as f32,
                 midi_routes: std::array::from_fn(|_| AtomicU8::new(NO_ROUTE)),
+                running: AtomicBool::new(false),
             }),
             output: None,
             midi: None,
-            models: HashMap::new(),
-            next_model: 1,
+            models: ModelStore::default(),
             sample_rate,
             backend,
             buffer_size: o.buffer_size,
+            fault: Arc::new(Fault::default()),
+            threads,
         })
+    }
+
+    /// True once rendering has failed (an internal error in the engine). The engine is then
+    /// stopped for good: real-time output plays silence and `render()` throws. Create a new
+    /// engine to continue.
+    #[napi(getter)]
+    pub fn faulted(&self) -> bool {
+        self.fault.is_set()
+    }
+
+    /// What made the engine fail (see `faulted`), or null.
+    #[napi(getter)]
+    pub fn error(&self) -> Option<String> {
+        self.fault.message()
     }
 
     #[napi(getter)]
@@ -181,6 +217,12 @@ impl SynthEngine {
         self.shared.status.load_permille.load(Ordering::Relaxed) as f64 / 1000.0
     }
 
+    /// Threads rendering audio (the audio thread included).
+    #[napi(getter)]
+    pub fn threads(&self) -> u32 {
+        self.threads
+    }
+
     #[napi(getter)]
     pub fn is_running(&self) -> bool {
         self.output.is_some()
@@ -191,23 +233,69 @@ impl SynthEngine {
     /// Parse a spectral model (.ssm bytes). Returns a model id.
     #[napi]
     pub fn load_model(&mut self, bytes: Buffer) -> Result<u32> {
-        let m = Model::from_bytes(bytes.as_ref()).map_err(err)?;
-        let id = self.next_model;
-        self.next_model += 1;
-        self.models.insert(id, Arc::new(m));
-        Ok(id)
+        // untrusted input: a parser panic becomes a JavaScript error, not an abort
+        let data: &[u8] = bytes.as_ref();
+        let m = std::panic::catch_unwind(|| Model::from_bytes(data))
+            .map_err(|_| err("invalid supersynth model (the parser failed)"))?
+            .map_err(err)?;
+        Ok(self.models.insert(m))
+    }
+
+    /// Load a model file (.ssm) in the background, on a pool of worker threads. Returns its id
+    /// at once: the model can be used right away, and whatever uses it before it has loaded
+    /// waits for just that model (loading it itself if no worker has started it yet). A file
+    /// that fails to load fails each use with its error.
+    #[napi]
+    pub fn queue_model_file(&mut self, path: String) -> u32 {
+        self.models.queue(path.into())
+    }
+
+    /// Call `callback` once all these models have loaded (or been unloaded): with null, or with
+    /// the first loading error. The wait does not keep Node.js running.
+    #[napi(ts_args_type = "ids: number[], callback: (error: string | null) => void")]
+    pub fn watch_models(&self, env: Env, ids: Vec<u32>, callback: JsFunction) -> Result<()> {
+        let mut tsfn: ThreadsafeFunction<Option<String>, ErrorStrategy::Fatal> =
+            callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+        tsfn.unref(&env)?;
+        self.models.when_loaded(
+            &ids,
+            Box::new(move |error| {
+                tsfn.call(error, ThreadsafeFunctionCallMode::NonBlocking);
+            }),
+        );
+        Ok(())
+    }
+
+    /// Load these models next, before the other models queued (those not started yet).
+    #[napi]
+    pub fn hurry_models(&self, ids: Vec<u32>) {
+        for id in ids {
+            self.models.hurry(id);
+        }
+    }
+
+    /// Whether a model is still loading in the background (a use would wait for it).
+    #[napi]
+    pub fn model_loading(&self, id: u32) -> bool {
+        self.models.loading(id)
+    }
+
+    /// Decoded size of a model in bytes, or null while it is still loading.
+    #[napi]
+    pub fn model_bytes(&self, id: u32) -> Option<f64> {
+        self.models.bytes(id).map(|b| b as f64)
     }
 
     /// Release a model (instruments already using it keep their reference).
     #[napi]
     pub fn unload_model(&mut self, id: u32) {
-        self.models.remove(&id);
+        self.models.remove(id);
     }
 
     /// Model metadata as JSON.
     #[napi]
     pub fn model_info(&self, id: u32) -> Result<String> {
-        let m = self.models.get(&id).ok_or_else(|| err(format!("unknown model {id}")))?;
+        let m = self.models.get(id).map_err(err)?;
         let p = &m.params;
         let info = serde_json::json!({
             "name": m.name,
@@ -233,10 +321,27 @@ impl SynthEngine {
     pub fn set_instrument(&self, part: u32, layers: Vec<JsLayer>, time: Option<f64>) -> Result<()> {
         let mut inst = Instrument::default();
         for l in layers {
-            let model = self.models.get(&l.model).ok_or_else(|| err(format!("unknown model {}", l.model)))?;
-            inst.layers.push(inst_layer(model, &l));
+            inst.layers.push(self.inst_layer(l)?);
         }
-        self.shared.send(time, Command::SetInstrument { part: part as u16, instrument: Box::new(inst) })
+        self.shared.send(time, Command::set_instrument(part as u16, inst))
+    }
+
+    fn inst_layer(&self, l: JsLayer) -> Result<InstLayer> {
+        // (waits for a model still loading in the background)
+        let model = self.models.get(l.model).map_err(err)?;
+        Ok(InstLayer {
+            model,
+            transpose: finite_or(l.transpose, 0.0, "transpose")?,
+            gain_db: finite_or(l.gain_db, 0.0, "gainDb")?,
+            pan: finite_or(l.pan, 0.0, "pan")?,
+            key_lo: l.key_lo.unwrap_or(0).min(127) as u8,
+            key_hi: l.key_hi.unwrap_or(127).min(127) as u8,
+            enabled: l.enabled.unwrap_or(true),
+            detune_cents: finite_or(l.detune_cents, 0.0, "detuneCents")?,
+            on_release: l.on_release.unwrap_or(false),
+            speech_ms: finite_or(l.speech_ms, 0.0, "speechMs")?.clamp(0.0, 200.0),
+            direct_only: l.direct_only.unwrap_or(false),
+        })
     }
 
     #[napi]
@@ -266,19 +371,19 @@ impl SynthEngine {
     /// Pitch bend in -1..1.
     #[napi]
     pub fn pitch_bend(&self, part: u32, value: f64, time: Option<f64>) -> Result<()> {
-        self.shared.send(time, Command::PitchBend { part: part as u16, value: value as f32 })
+        self.shared.send(time, Command::PitchBend { part: part as u16, value: finite(value, "pitch bend")? as f32 })
     }
 
     #[napi]
     pub fn set_param(&self, part: u32, name: String, value: f64, time: Option<f64>) -> Result<()> {
         let p = PartParam::parse(&name).ok_or_else(|| err(format!("unknown parameter '{name}'")))?;
-        self.shared.send(time, Command::SetPartParam { part: part as u16, param: p, value: value as f32 })
+        self.shared.send(time, Command::SetPartParam { part: part as u16, param: p, value: finite(value, &name)? as f32 })
     }
 
     #[napi]
     pub fn set_master_param(&self, name: String, value: f64, time: Option<f64>) -> Result<()> {
         let p = MasterParam::parse(&name).ok_or_else(|| err(format!("unknown master parameter '{name}'")))?;
-        self.shared.send(time, Command::SetMasterParam { param: p, value: value as f32 })
+        self.shared.send(time, Command::SetMasterParam { param: p, value: finite(value, &name)? as f32 })
     }
 
     /// Switch all reverb parameters to a named preset.
@@ -308,9 +413,8 @@ impl SynthEngine {
     /// Returns nothing; the layer index is the number of layers added before it.
     #[napi]
     pub fn add_layer(&self, part: u32, layer: JsLayer, time: Option<f64>) -> Result<()> {
-        let model = self.models.get(&layer.model).ok_or_else(|| err(format!("unknown model {}", layer.model)))?;
-        let l = inst_layer(model, &layer);
-        self.shared.send(time, Command::AddLayer { part: part as u16, layer: Box::new(l) })
+        let l = self.inst_layer(layer)?;
+        self.shared.send(time, Command::add_layer(part as u16, l))
     }
 
     #[napi]
@@ -320,7 +424,7 @@ impl SynthEngine {
 
     #[napi]
     pub fn set_layer_gain(&self, part: u32, layer: u32, gain_db: f64, time: Option<f64>) -> Result<()> {
-        self.shared.send(time, Command::SetLayerGain { part: part as u16, layer: layer as u16, gain_db: gain_db as f32 })
+        self.shared.send(time, Command::SetLayerGain { part: part as u16, layer: layer as u16, gain_db: finite(gain_db, "gainDb")? as f32 })
     }
 
     /// Organ couplers: keys pressed on `part` (from any source: API, MIDI input, MIDI files)
@@ -373,14 +477,23 @@ impl SynthEngine {
         if self.output.is_some() {
             return Ok(());
         }
-        let out = AudioOutput::start(Arc::clone(&self.engine), &self.backend, self.sample_rate, self.buffer_size).map_err(err)?;
+        let out = AudioOutput::start(Arc::clone(&self.engine), Arc::clone(&self.fault), &self.backend, self.sample_rate, self.buffer_size).map_err(err)?;
         self.output = Some(out);
+        // the render workers follow the audio thread's priority where the system allows it
+        if let Ok(e) = self.engine.lock() {
+            e.set_realtime(true);
+        }
+        self.shared.running.store(true, Ordering::Release);
         Ok(())
     }
 
     #[napi]
     pub fn stop(&mut self) {
+        self.shared.running.store(false, Ordering::Release);
         self.output = None;
+        if let Ok(e) = self.engine.lock() {
+            e.set_realtime(false);
+        }
     }
 
     /// Render `frames` of audio offline. Returns interleaved stereo (L, R, L, R…).
@@ -390,9 +503,10 @@ impl SynthEngine {
         if self.output.is_some() {
             return Err(err("render() is unavailable while real-time output is running; call stop() first"));
         }
-        let mut eng = self.engine.lock().map_err(|_| err("engine lock poisoned"))?;
         let mut buf = vec![0.0f32; frames as usize * 2];
-        eng.process_interleaved(&mut buf, 2);
+        if !render_guarded(&self.engine, &self.fault, &mut buf, 2) {
+            return Err(err(self.fault.message().unwrap_or_else(|| "the audio engine failed".into())));
+        }
         if let Ok(mut c) = self.shared.ctl.lock() {
             c.collect_garbage();
         }
@@ -412,8 +526,8 @@ impl SynthEngine {
     }
 
     /// Connect a MIDI input. Messages are applied to the engine immediately (to the part each
-    /// channel is given with `set_midi_route`, when `route` is true) and forwarded to
-    /// `callback` as raw bytes.
+    /// channel is given with `set_midi_route`, when `route` is true, and only while real-time
+    /// output is running) and forwarded to `callback` as raw bytes.
     #[napi]
     pub fn enable_midi(&mut self, device_name: Option<String>, route: bool, callback: JsFunction) -> Result<()> {
         let tsfn: ThreadsafeFunction<Vec<u8>, ErrorStrategy::Fatal> =
@@ -422,7 +536,7 @@ impl SynthEngine {
         let handle = connect_midi_device(
             device_name.as_deref(),
             Box::new(move |bytes| {
-                if route {
+                if route && shared.running.load(Ordering::Acquire) {
                     if let Some(msg) = MidiMessage::parse(&bytes) {
                         let ch = (msg.channel.clamp(1, 16) - 1) as usize;
                         let part = shared.midi_routes[ch].load(Ordering::Relaxed);
@@ -444,6 +558,7 @@ impl SynthEngine {
                             _ => None,
                         };
                         if let Some(c) = cmd {
+                            // (a full queue drops the message: there is no caller to tell)
                             let _ = shared.send(None, c);
                         }
                     }
@@ -459,6 +574,22 @@ impl SynthEngine {
     #[napi]
     pub fn disable_midi(&mut self) {
         self.midi = None;
+    }
+
+    /// Stop output and MIDI and let go of everything the engine holds: its instruments and their
+    /// models (freed on the loader's reclaim thread), voices and buffers, now rather than when
+    /// the JavaScript object is garbage-collected. The engine stays usable but empty.
+    #[napi]
+    pub fn release_resources(&mut self) {
+        self.shared.running.store(false, Ordering::Release);
+        self.output = None;
+        self.midi = None;
+        let (engine, ctl) = Engine::new(EngineConfig { sample_rate: self.sample_rate as f32, max_voices: 8, ..EngineConfig::default() });
+        let old = self.engine.lock().map(|mut e| std::mem::replace(&mut *e, engine));
+        if let Ok(mut c) = self.shared.ctl.lock() {
+            *c = ctl;
+        }
+        drop(old);
     }
 }
 

@@ -106,7 +106,9 @@ impl NoiseBank {
                 while b + 1 < nb && band_center[b + 1] < f {
                     b += 1;
                 }
-                let w = (f / band_center[b]).ln() / (band_center[b + 1] / band_center[b]).ln();
+                // coincident centres (bands squeezed against 1 Hz or Nyquist): no interpolation
+                let span = (band_center[b + 1] / band_center[b]).ln();
+                let w = if span > 0.0 { (f / band_center[b]).ln() / span } else { 0.0 };
                 bin_lo[k] = b as u16;
                 bin_w[k] = w.clamp(0.0, 1.0);
             }
@@ -181,6 +183,23 @@ impl NoiseBank {
     pub fn clear_powers(&mut self) {
         self.pow_l = [0.0; MAX_BANDS];
         self.pow_r = [0.0; MAX_BANDS];
+    }
+
+    /// Silence: clear the band powers, overlap-add buffers and filter states.
+    pub fn reset(&mut self) {
+        self.clear_powers();
+        for c in self.ch.iter_mut() {
+            c.ola.fill(0.0);
+        }
+        self.ready = 0;
+        self.read = 0;
+        self.active = false;
+        for band in self.iir.iter_mut().flatten() {
+            for f in band.filt.iter_mut().flatten() {
+                f.reset();
+            }
+            band.gain = [0.0; 2];
+        }
     }
 
     /// Render the accumulated band powers, adding into `out_l`/`out_r`.

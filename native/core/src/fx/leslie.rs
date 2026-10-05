@@ -22,7 +22,7 @@
 //! computed every 16 samples and ramped linearly in between.
 
 use super::chorus::DelayBuf;
-use super::StereoEffect;
+use super::{ParamRamp, StereoEffect, PARAM_RAMP_S};
 use crate::dsp::biquad::{Biquad, Coeffs};
 use std::f32::consts::{PI, TAU};
 
@@ -163,8 +163,7 @@ pub struct Leslie {
     horn_lp: [f32; 2],
     lp_open: f32,
     lp_closed: f32,
-    mix: f32,
-    mix_target: f32,
+    mix: ParamRamp,
     sub_left: usize,
 }
 
@@ -195,8 +194,7 @@ impl Leslie {
             horn_lp: [0.0; 2],
             lp_open: onepole(HORN_LP_OPEN_HZ),
             lp_closed: onepole(HORN_LP_CLOSED_HZ),
-            mix: 1.0,
-            mix_target: 1.0,
+            mix: ParamRamp::with_time(1.0, PARAM_RAMP_S, sr),
             sub_left: 0,
         };
         l.control(0.0);
@@ -212,7 +210,7 @@ impl Leslie {
 
     /// Dry/wet mix (0 = dry, 1 = fully through the cabinet). Smoothed.
     pub fn set_mix(&mut self, mix: f32) {
-        self.mix_target = if mix.is_finite() { mix.clamp(0.0, 1.0) } else { 1.0 };
+        self.mix.set(if mix.is_finite() { mix.clamp(0.0, 1.0) } else { 1.0 });
     }
 
     /// Current (horn, drum) rotation rates in Hz.
@@ -264,8 +262,6 @@ impl StereoEffect for Leslie {
         if n == 0 {
             return;
         }
-        let dmix = (self.mix_target - self.mix) / n as f32;
-        let mut mix = self.mix;
         let dt = SUB as f64 / self.sr as f64;
         let mut i = 0;
         while i < n {
@@ -296,14 +292,18 @@ impl StereoEffect for Leslie {
                             + refl * self.refl_g[m].tick()
                             + drum * self.drum_g[m].tick());
                 }
-                mix += dmix;
+                let mix = self.mix.next();
                 left[j] = dl + mix * (out[0] - dl);
                 right[j] = dr + mix * (out[1] - dr);
             }
             self.sub_left -= k;
             i += k;
         }
-        self.mix = self.mix_target;
+        // The crossover runs per sample (`Biquad::process` never flushes):
+        // without this its state settles at ~1e-44 after the input stops.
+        for b in self.xo_lp.iter_mut().chain(self.xo_hp.iter_mut()) {
+            b.flush_denormals();
+        }
         for s in self.horn_lp.iter_mut() {
             if s.abs() < 1e-20 {
                 *s = 0.0;
@@ -381,14 +381,85 @@ mod tests {
     fn zero_mix_is_dry() {
         let mut les = Leslie::new(SR);
         les.set_mix(0.0);
-        let mut a = vec![0.1; 64];
-        let mut b = vec![0.1; 64];
+        let mut a = vec![0.1; 2048];
+        let mut b = vec![0.1; 2048];
         les.process(&mut a, &mut b);
         let x: Vec<f32> = (0..300).map(|i| (i as f32 * 0.1).sin()).collect();
         let (mut l, mut r) = (x.clone(), x.clone());
         les.process(&mut l, &mut r);
         assert_eq!(l, x);
         assert_eq!(r, x);
+    }
+
+    /// After the input stops, the output must decay to exact zeros, not to a
+    /// subnormal limit cycle (very slow on x86 without FTZ/DAZ).
+    #[test]
+    fn silence_after_signal_reaches_exact_zero() {
+        let mut les = Leslie::new(SR);
+        les.set_speed(LeslieSpeed::Fast);
+        run(&mut les, 0.5, 440.0);
+        let mut subnormal = 0;
+        let mut nonzero_tail = 0;
+        for b in 0..(2.0 * SR) as usize / 128 {
+            let mut l = vec![0.0f32; 128];
+            let mut r = vec![0.0f32; 128];
+            les.process(&mut l, &mut r);
+            for v in l.iter().chain(&r) {
+                subnormal += (*v != 0.0 && !v.is_normal()) as usize;
+                nonzero_tail += (b * 128 > SR as usize && *v != 0.0) as usize;
+            }
+        }
+        println!("leslie, 2 s of silence: {subnormal} subnormal outputs, {nonzero_tail} non-zero after 1 s");
+        assert_eq!(subnormal, 0);
+        assert_eq!(nonzero_tail, 0);
+    }
+
+    /// CPU cost of silence after a note (shows the subnormal penalty). Run
+    /// with `cargo test --release leslie -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bench_silence() {
+        let mut les = Leslie::new(SR);
+        les.set_speed(LeslieSpeed::Fast);
+        run(&mut les, 0.5, 440.0);
+        let (mut l, mut r) = (vec![0.0f32; 128], vec![0.0f32; 128]);
+        for _ in 0..1000 {
+            les.process(&mut l, &mut r);
+        }
+        let t0 = std::time::Instant::now();
+        for _ in 0..(10.0 * SR) as usize / 128 {
+            l.fill(0.0);
+            r.fill(0.0);
+            les.process(&mut l, &mut r);
+        }
+        let dt = t0.elapsed().as_secs_f64();
+        println!("leslie, 10 s of silence after a note: {:.1} ms ({:.3} % of one core)", dt * 1e3, dt * 10.0);
+    }
+
+    /// A mix change right before a 1-frame block (the engine splits blocks
+    /// at events) must still be ramped, not applied as a step.
+    #[test]
+    fn mix_change_in_one_frame_block_is_smooth() {
+        let mut les = Leslie::new(SR);
+        les.set_speed(LeslieSpeed::Fast);
+        les.set_mix(0.0);
+        run(&mut les, 0.5, 300.0);
+        let x: Vec<f32> = (0..9600).map(|i| (TAU * 300.0 * i as f32 / SR).sin() * 0.5).collect();
+        let (mut l, mut r) = (x.clone(), x.clone());
+        les.process(&mut l[..1000], &mut r[..1000]);
+        les.set_mix(1.0);
+        les.process(&mut l[1000..1001], &mut r[1000..1001]);
+        for (a, b) in l[1001..].chunks_mut(64).zip(r[1001..].chunks_mut(64)) {
+            les.process(a, b);
+        }
+        let reference = max_step(&l[5000..]).max(max_step(&x));
+        let step = max_step(&l[990..1100]);
+        println!("leslie mix 0 -> 1 in a 1-frame block: max step {step:.4} (steady {reference:.4})");
+        assert!(step < 1.5 * reference, "step {step} vs {reference}");
+    }
+
+    fn max_step(v: &[f32]) -> f32 {
+        v.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max)
     }
 
     #[test]

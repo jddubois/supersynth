@@ -4,32 +4,43 @@
 //! [`Command`]s through a lock-free SPSC ring buffer. The [`Engine`] (owned by
 //! the audio callback, or driven directly for offline rendering) drains the
 //! queue at the start of every buffer, orders events by time, and renders in
-//! sub-blocks split exactly at event times. Objects that need deallocation
-//! (replaced instruments) are sent back through a second ring buffer so the
+//! sub-blocks split exactly at event times (pipes the engine itself schedules, after
+//! their speech delay, start at their sample inside a block instead). Objects that need
+//! deallocation (replaced instruments) are sent back through a second ring buffer so the
 //! audio thread never frees memory.
+//!
+//! Each block is rendered by a [`pool`] of threads: first the voices (each into its own
+//! buffer, set-up of new notes included), then the parts (their voices summed in slot
+//! order, pooled noise, insert effects); the rendering thread then mixes the parts in order
+//! and runs the reverb and limiter. Nothing depends on which thread did what, so the
+//! output is the same for any number of threads.
 
 pub mod params;
+pub mod pool;
 
 use std::collections::BinaryHeap;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use crate::dsp::denormal::FlushDenormals;
 use crate::dsp::noise::Rng;
 use crate::dsp::{db_to_amp, BLOCK};
 use crate::fx::chorus::{Chorus, ChorusParams};
 use crate::fx::drive::Drive;
 use crate::fx::eq::{Eq as Equalizer, EqParams};
 use crate::fx::leslie::{Leslie, LeslieSpeed};
-use crate::fx::limiter::{soft_clip, Limiter};
+use crate::fx::limiter::{safety_clip, Limiter};
 use crate::fx::reverb::{Reverb, ReverbParams};
 use crate::fx::StereoEffect;
 use crate::model::Model;
 use crate::voice::noisebank::NoiseBank;
-use crate::voice::spectral::{BlockMod, NoteOn, SpectralParams, SpectralVoice, MAX_BANDS};
+use crate::voice::spectral::{BlockMod, NoteOn, SpectralParams, SpectralVoice, VoiceScratch, MAX_BANDS};
 use params::{MasterParam, PartParam};
+use pool::Pool;
 
 pub const MAX_PARTS: usize = 32;
-const QUEUE_CAPACITY: usize = 1 << 15;
+/// Most events waiting to be applied at once.
+pub const QUEUE_CAPACITY: usize = 1 << 15;
 
 // ── instruments ───────────────────────────────────────────────────────────────
 
@@ -116,6 +127,21 @@ impl Couplers {
     }
 }
 
+impl InstLayer {
+    /// Replace non-finite placement values by defaults and clamp them to sane ranges.
+    fn sanitize(&mut self) {
+        let fin = |x: f32, lo: f32, hi: f32| if x.is_finite() { x.clamp(lo, hi) } else { 0.0 };
+        self.transpose = fin(self.transpose, -96.0, 96.0);
+        self.gain_db = fin(self.gain_db, -120.0, 48.0);
+        self.pan = fin(self.pan, -1.0, 1.0);
+        self.detune_cents = fin(self.detune_cents, -1200.0, 1200.0);
+        self.speech_ms = fin(self.speech_ms, 0.0, 200.0);
+    }
+}
+
+/// Most layers one part's instrument can hold (layers added beyond it are ignored).
+pub const MAX_LAYERS: usize = 256;
+
 #[derive(Clone)]
 pub struct Instrument {
     pub layers: Vec<InstLayer>,
@@ -145,9 +171,13 @@ pub enum Command {
     PitchBend { part: u16, value: f32 },
     SetPartParam { part: u16, param: PartParam, value: f32 },
     SetMasterParam { param: MasterParam, value: f32 },
-    SetInstrument { part: u16, instrument: Box<Instrument> },
-    /// Append a layer to a part's instrument without interrupting sounding notes.
-    AddLayer { part: u16, layer: Box<InstLayer> },
+    /// Replace a part's instrument. `noise` is the part's noise bank for the instrument's band
+    /// layout, built by [`Controller::send`] off the audio thread (use [`Command::set_instrument`]).
+    SetInstrument { part: u16, instrument: Box<Instrument>, noise: Option<Box<NoiseBank>> },
+    /// Append a layer to a part's instrument without interrupting sounding notes. `spare` (an
+    /// empty instrument with room for [`MAX_LAYERS`] layers) and `noise` are built by
+    /// [`Controller::send`] so that the audio thread never allocates (use [`Command::add_layer`]).
+    AddLayer { part: u16, layer: Box<InstLayer>, spare: Option<Box<Instrument>>, noise: Option<Box<NoiseBank>> },
     SetLayerEnabled { part: u16, layer: u16, enabled: bool },
     SetLayerGain { part: u16, layer: u16, gain_db: f32 },
     /// Organ couplers: keys pressed on `part` also play the parts its routes name (octave
@@ -161,6 +191,27 @@ pub enum Command {
     AllSoundOff,
 }
 
+impl Command {
+    pub fn set_instrument(part: u16, instrument: Instrument) -> Command {
+        Command::SetInstrument { part, instrument: Box::new(instrument), noise: None }
+    }
+
+    pub fn add_layer(part: u16, layer: InstLayer) -> Command {
+        Command::AddLayer { part, layer: Box::new(layer), spare: None, noise: None }
+    }
+}
+
+/// No NaN or infinity in `x` (one multiply-add per sample; vectorises).
+#[inline]
+fn all_finite(x: &[f32]) -> bool {
+    x.iter().fold(0.0f32, |a, &v| a + v * 0.0) == 0.0
+}
+
+/// Seed of a part's noise bank.
+fn noise_seed(part: u16) -> u64 {
+    0xB00 + part as u64
+}
+
 pub struct Event {
     /// Absolute engine frame; 0 (or any past time) = as soon as possible.
     pub time: u64,
@@ -171,7 +222,12 @@ struct Pending {
     time: u64,
     seq: u64,
     cmd: Command,
+    /// scheduled by the engine itself (speech delays), not sent by the controller
+    internal: bool,
 }
+
+/// Room in the event heap for the engine's own scheduled events, beyond the controller's.
+const INTERNAL_CAPACITY: usize = 4096;
 
 impl PartialEq for Pending {
     fn eq(&self, o: &Self) -> bool {
@@ -192,9 +248,21 @@ impl Ord for Pending {
 }
 
 /// Things the audio thread hands back for deallocation on the API thread.
+#[allow(dead_code)] // only ever dropped
 pub enum Garbage {
-    Instrument(#[allow(dead_code)] Box<Instrument>),
-    Layer(#[allow(dead_code)] Box<InstLayer>),
+    Instrument(Box<Instrument>),
+    Layer(Box<InstLayer>),
+    /// A voice's model reference: possibly the last one of a replaced or unloaded model.
+    Model(Arc<Model>),
+    Noise(Box<NoiseBank>),
+}
+
+const GARBAGE_CAPACITY: usize = 4096;
+
+/// Hand `g` to the API thread for deallocation. Only if the ring is full (nothing collected
+/// it for thousands of items) is it dropped here.
+fn trash(q: &mut rtrb::Producer<Garbage>, g: Garbage) {
+    let _ = q.push(g);
 }
 
 /// Shared, lock-free status published by the engine.
@@ -204,6 +272,8 @@ pub struct Status {
     pub active_voices: AtomicU32,
     pub peak_milli: AtomicU32,
     pub load_permille: AtomicU32,
+    /// Events sent but not yet applied (queued or waiting for their time).
+    pub pending_events: AtomicUsize,
 }
 
 // ── controller (API side) ────────────────────────────────────────────────────
@@ -213,12 +283,58 @@ pub struct Controller {
     garbage: rtrb::Consumer<Garbage>,
     pub status: Arc<Status>,
     pub sample_rate: f32,
+    /// Parts (bit mask) a noise bank has been sent to.
+    noise_sent: u32,
 }
 
 impl Controller {
-    pub fn send(&mut self, time: u64, cmd: Command) -> Result<(), String> {
+    /// Queue `cmd` for engine frame `time` (0 or a past frame: as soon as possible). Fails,
+    /// without queueing, when QUEUE_CAPACITY events are already waiting: an event is never
+    /// applied before its time.
+    pub fn send(&mut self, time: u64, mut cmd: Command) -> Result<(), String> {
         self.collect_garbage();
-        self.tx.push(Event { time, cmd }).map_err(|_| "supersynth command queue is full".to_string())
+        if self.queue_free() == 0 {
+            return Err(format!("supersynth command queue is full ({QUEUE_CAPACITY} events waiting)"));
+        }
+        self.prepare(&mut cmd);
+        let bank_for = match &cmd {
+            Command::SetInstrument { part, noise: Some(_), .. } | Command::AddLayer { part, noise: Some(_), .. } => Some(*part),
+            _ => None,
+        };
+        // counted before it is pushed, so the engine never decrements below zero
+        self.status.pending_events.fetch_add(1, Ordering::AcqRel);
+        if self.tx.push(Event { time, cmd }).is_err() {
+            self.status.pending_events.fetch_sub(1, Ordering::AcqRel);
+            return Err("supersynth command queue is full".to_string());
+        }
+        if let Some(p) = bank_for.filter(|&p| (p as usize) < MAX_PARTS) {
+            self.noise_sent |= 1 << p;
+        }
+        Ok(())
+    }
+
+    /// Build what a command needs on the audio thread (noise banks, room for layers) here, on
+    /// the calling thread: the audio thread must not allocate.
+    fn prepare(&self, cmd: &mut Command) {
+        let sr = self.sample_rate;
+        let bank = |edges: &[f32], part: u16| (edges.len() >= 2).then(|| Box::new(NoiseBank::new(sr, edges, noise_seed(part))));
+        match cmd {
+            Command::SetInstrument { part, instrument, noise } if noise.is_none() => {
+                *noise = instrument.layers.first().and_then(|l| bank(&l.model.noise_edges, *part));
+            }
+            Command::AddLayer { part, layer, spare, noise } => {
+                if spare.is_none() {
+                    *spare = Some(Box::new(Instrument { layers: Vec::with_capacity(MAX_LAYERS) }));
+                }
+                // a part keeps the noise bank it has, so only its first one is ever used
+                // (building one takes about a millisecond)
+                let has_bank = (*part as usize) < MAX_PARTS && self.noise_sent & (1 << *part) != 0;
+                if noise.is_none() && !has_bank {
+                    *noise = bank(&layer.model.noise_edges, *part);
+                }
+            }
+            _ => {}
+        }
     }
 
     pub fn collect_garbage(&mut self) {
@@ -231,8 +347,9 @@ impl Controller {
         self.status.frames.load(Ordering::Relaxed)
     }
 
+    /// Events that can still be sent (sent events count until they have been applied).
     pub fn queue_free(&self) -> usize {
-        self.tx.slots()
+        QUEUE_CAPACITY.saturating_sub(self.status.pending_events.load(Ordering::Acquire))
     }
 }
 
@@ -280,7 +397,7 @@ struct Part {
     drive_on: bool,
     leslie: Leslie,
     leslie_on: bool,
-    noise: Option<NoiseBank>,
+    noise: Option<Box<NoiseBank>>,
     mono: bool,
     legato: bool,
     glide: f32,
@@ -296,6 +413,8 @@ struct Part {
     wind_p: f32,
     wind_v: f32,
     gain_smoothed: f32,
+    /// reverb send level reached at the end of the last block (ramped like the gain)
+    send_smoothed: f32,
 }
 
 impl Part {
@@ -349,7 +468,30 @@ impl Part {
             wind_p: 0.0,
             wind_v: 0.0,
             gain_smoothed: 1.0,
+            send_smoothed: 0.0,
         }
+    }
+
+    /// Clear every signal state of the part (effects, noise, smoothers) after a non-finite
+    /// output; its settings stay.
+    fn reset_state(&mut self) {
+        self.eq.reset();
+        self.chorus.reset();
+        self.drive.reset();
+        self.leslie.reset();
+        for f in self.swell_shelf.iter_mut() {
+            f.reset();
+        }
+        if let Some(nb) = self.noise.as_mut() {
+            nb.reset();
+        }
+        self.expression_smoothed = self.expression;
+        self.gain_smoothed = db_to_amp(self.volume_db);
+        self.send_smoothed = self.reverb_send();
+        self.trem_phase = 0.0;
+        self.wind_avg = 0.0;
+        self.wind_p = 0.0;
+        self.wind_v = 0.0;
     }
 
     fn reverb_send(&self) -> f32 {
@@ -370,16 +512,30 @@ pub struct EngineConfig {
     pub sample_rate: f32,
     pub max_voices: usize,
     pub reverb: ReverbParams,
+    /// Threads rendering (the rendering thread included): 1 renders on the calling thread
+    /// alone. The output is identical for any number.
+    pub threads: usize,
 }
+
+/// Default for [`EngineConfig::max_voices`].
+pub const DEFAULT_MAX_VOICES: usize = 1024;
 
 impl Default for EngineConfig {
     fn default() -> Self {
         Self {
             sample_rate: 48000.0,
-            max_voices: 192,
+            max_voices: DEFAULT_MAX_VOICES,
             reverb: ReverbParams::preset("hall").expect("hall preset"),
+            threads: 1,
         }
     }
+}
+
+/// Threads to render with by default: one per core but one (left to the system and the
+/// application), at least 1 and at most 8.
+pub fn default_threads() -> usize {
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    cores.saturating_sub(1).clamp(1, 8)
 }
 
 pub struct Engine {
@@ -388,11 +544,19 @@ pub struct Engine {
     garbage: rtrb::Producer<Garbage>,
     status: Arc<Status>,
     heap: BinaryHeap<Pending>,
+    /// engine-scheduled events in `heap`
+    internal_pending: usize,
     seq: u64,
     now: u64,
     parts: Vec<Part>,
     voices: Vec<SpectralVoice>,
     max_voices: usize,
+    /// voices restarted in place because every slot was busy (and how many of them were still
+    /// sounding rather than fading out)
+    hard_steals: u64,
+    hard_steals_sounding: u64,
+    /// times a non-finite signal was silenced and its source reset
+    recoveries: u64,
     age: u64,
     rng: Rng,
     reverb: Reverb,
@@ -400,30 +564,74 @@ pub struct Engine {
     limiter: Limiter,
     master_db: f32,
     master_gain_smoothed: f32,
+    /// reverb return gain reached at the end of the last block
+    return_smoothed: f32,
     peak: f32,
     // scratch
-    part_l: Box<[f32; BLOCK]>,
-    part_r: Box<[f32; BLOCK]>,
     send_l: Box<[f32; BLOCK]>,
     send_r: Box<[f32; BLOCK]>,
     mix_l: Box<[f32; BLOCK]>,
     mix_r: Box<[f32; BLOCK]>,
+    /// the rendering threads, and each one's voice scratch memory
+    pool: Pool,
+    scratch: Vec<Box<VoiceScratch>>,
+    /// per voice slot: its output in the current block, and where in the block it starts
+    /// (a pipe whose speech delay ends inside the block)
+    vbuf: Vec<[[f32; BLOCK]; 2]>,
+    voff: Vec<u8>,
+    /// per voice slot: its recorded attack transient in the current block, if it played (kept
+    /// apart so that the part adds transient and partials in the same order as one voice
+    /// rendering into the part directly)
+    vtr: Vec<[[f32; BLOCK]; 2]>,
+    vtr_on: Vec<bool>,
+    /// offset given to voices started now (see `render_planar`)
+    start_offset: usize,
+    /// Opt-in release culling (see [`MasterParam::ReleaseFloor`]): absolute floor (dBFS, −200
+    /// = off), distance below the part's and the master output level (dB, 0 = off), how those
+    /// levels are followed (0 smoothed, 1 peak hold), the levels (dBFS; master last) with
+    /// their hold timers (s), and voices retired so far.
+    release_floor_db: f32,
+    below_mix_db: f32,
+    release_hold: bool,
+    level_db: [f32; MAX_PARTS + 1],
+    level_pow: [f32; MAX_PARTS + 1],
+    level_held_s: [f32; MAX_PARTS + 1],
+    pub culled: u64,
+    /// free voice slots, highest first (rebuilt after every block: voices end while rendering)
+    free: Vec<u32>,
+    /// split blocks at engine-scheduled starts too, as earlier versions did (for comparisons:
+    /// `SUPERSYNTH_SPLIT_STARTS=1`)
+    split_starts: bool,
+    /// active voices grouped by part, and each part's range of them (see `collect_voices`)
+    order: Vec<u32>,
+    part_range: [(u32, u32); MAX_PARTS],
+    /// parts rendering this block, their block parameters, output (left, right, send left,
+    /// send right) and non-finite flag
+    active_parts: Vec<u8>,
+    part_sp: [SpectralParams; MAX_PARTS],
+    part_md: [BlockMod; MAX_PARTS],
+    pout: Vec<[[f32; BLOCK]; 4]>,
+    recover: Vec<bool>,
 }
 
 impl Engine {
     pub fn new(cfg: EngineConfig) -> (Engine, Controller) {
         let (tx, rx) = rtrb::RingBuffer::new(QUEUE_CAPACITY);
-        let (gtx, grx) = rtrb::RingBuffer::new(1024);
+        let (gtx, grx) = rtrb::RingBuffer::new(GARBAGE_CAPACITY);
         let status = Arc::new(Status::default());
         let sr = cfg.sample_rate;
         let mut parts = Vec::with_capacity(MAX_PARTS);
         for _ in 0..MAX_PARTS {
             parts.push(Part::new(sr));
         }
-        let mut voices = Vec::with_capacity(cfg.max_voices + 32);
-        for _ in 0..cfg.max_voices + 32 {
+        crate::dsp::simd::init();
+        let slots = cfg.max_voices + 32;
+        let mut voices = Vec::with_capacity(slots);
+        for _ in 0..slots {
             voices.push(SpectralVoice::default());
         }
+        let pool = Pool::new(cfg.threads);
+        let scratch = (0..pool.threads()).map(|_| VoiceScratch::boxed()).collect();
         let mut limiter = Limiter::new(sr);
         limiter.set_ceiling_db(-0.3);
         let engine = Engine {
@@ -431,12 +639,16 @@ impl Engine {
             rx,
             garbage: gtx,
             status: Arc::clone(&status),
-            heap: BinaryHeap::with_capacity(QUEUE_CAPACITY),
+            heap: BinaryHeap::with_capacity(QUEUE_CAPACITY + INTERNAL_CAPACITY),
+            internal_pending: 0,
             seq: 0,
             now: 0,
             parts,
             voices,
             max_voices: cfg.max_voices,
+            hard_steals: 0,
+            hard_steals_sounding: 0,
+            recoveries: 0,
             age: 0,
             rng: Rng::new(0x5EED_CAFE),
             reverb: Reverb::new(sr, cfg.reverb),
@@ -444,20 +656,53 @@ impl Engine {
             limiter,
             master_db: -6.0,
             master_gain_smoothed: db_to_amp(-6.0),
+            return_smoothed: 1.0,
             peak: 0.0,
-            part_l: Box::new([0.0; BLOCK]),
-            part_r: Box::new([0.0; BLOCK]),
             send_l: Box::new([0.0; BLOCK]),
             send_r: Box::new([0.0; BLOCK]),
             mix_l: Box::new([0.0; BLOCK]),
             mix_r: Box::new([0.0; BLOCK]),
+            pool,
+            scratch,
+            vbuf: vec![[[0.0; BLOCK]; 2]; slots],
+            voff: vec![0; slots],
+            vtr: vec![[[0.0; BLOCK]; 2]; slots],
+            vtr_on: vec![false; slots],
+            start_offset: 0,
+            release_floor_db: -200.0,
+            below_mix_db: 0.0,
+            release_hold: false,
+            level_db: [-200.0; MAX_PARTS + 1],
+            level_pow: [0.0; MAX_PARTS + 1],
+            level_held_s: [0.0; MAX_PARTS + 1],
+            culled: 0,
+            free: (0..slots as u32).rev().collect(),
+            split_starts: std::env::var_os("SUPERSYNTH_SPLIT_STARTS").is_some_and(|v| v == "1"),
+            order: Vec::with_capacity(slots),
+            part_range: [(0, 0); MAX_PARTS],
+            active_parts: Vec::with_capacity(MAX_PARTS),
+            part_sp: [SpectralParams::default(); MAX_PARTS],
+            part_md: [BlockMod::default(); MAX_PARTS],
+            pout: vec![[[0.0; BLOCK]; 4]; MAX_PARTS],
+            recover: vec![false; MAX_PARTS],
         };
-        let ctl = Controller { tx, garbage: grx, status, sample_rate: sr };
+        let ctl = Controller { tx, garbage: grx, status, sample_rate: sr, noise_sent: 0 };
         (engine, ctl)
     }
 
     pub fn sample_rate(&self) -> f32 {
         self.sr
+    }
+
+    /// Threads rendering (the rendering thread included).
+    pub fn threads(&self) -> usize {
+        self.pool.threads()
+    }
+
+    /// Real-time scheduling for the worker threads (while playing to an audio device), if the
+    /// system allows it.
+    pub fn set_realtime(&self, on: bool) {
+        self.pool.set_realtime(on);
     }
 
     pub fn now(&self) -> u64 {
@@ -472,6 +717,7 @@ impl Engine {
 
     /// Fill an interleaved buffer with `channels` channels (1 = mono downmix).
     pub fn process_interleaved(&mut self, out: &mut [f32], channels: usize) {
+        let _ftz = FlushDenormals::new();
         let channels = channels.max(1);
         let frames = out.len() / channels;
         let mut done = 0;
@@ -479,7 +725,7 @@ impl Engine {
         let mut r = [0.0f32; BLOCK];
         while done < frames {
             let n = (frames - done).min(BLOCK);
-            self.process_planar(&mut l[..n], &mut r[..n]);
+            self.render_planar(&mut l[..n], &mut r[..n]);
             for i in 0..n {
                 let o = &mut out[(done + i) * channels..(done + i + 1) * channels];
                 match channels {
@@ -497,9 +743,17 @@ impl Engine {
         }
     }
 
-    /// Render planar stereo (any length), splitting at event boundaries.
+    /// Render planar stereo (any length), splitting at event boundaries. Denormals are flushed
+    /// to zero while rendering; the calling thread's floating-point mode is restored after.
     pub fn process_planar(&mut self, left: &mut [f32], right: &mut [f32]) {
+        let _ftz = FlushDenormals::new();
+        self.render_planar(left, right);
+    }
+
+    /// `process_planar` without switching the denormal mode (the caller has).
+    fn render_planar(&mut self, left: &mut [f32], right: &mut [f32]) {
         let start = std::time::Instant::now();
+        self.pool.set_hot(true);
         self.drain_queue();
         let frames = left.len();
         let mut i = 0;
@@ -508,20 +762,42 @@ impl Engine {
             while let Some(top) = self.heap.peek() {
                 if top.time <= self.now {
                     let ev = self.heap.pop().unwrap();
+                    if ev.internal {
+                        self.internal_pending -= 1;
+                    } else {
+                        self.status.pending_events.fetch_sub(1, Ordering::AcqRel);
+                    }
                     self.apply(ev.cmd);
                 } else {
                     break;
                 }
             }
             let mut n = (frames - i).min(BLOCK);
-            if let Some(top) = self.heap.peek() {
+            // The block ends at the next event, except for pipes the engine itself scheduled
+            // (speech delays): those start inside the block, at their exact sample, and the
+            // block goes on for every other voice. (Ending the block there would split it for
+            // every sounding voice: one organ chord starts hundreds of pipes within ~10 ms.)
+            while let Some(top) = self.heap.peek() {
                 let until = (top.time - self.now) as usize;
-                n = n.min(until.max(1));
+                if until >= n {
+                    break;
+                }
+                if !top.internal || self.split_starts {
+                    n = until.max(1);
+                    break;
+                }
+                let ev = self.heap.pop().unwrap();
+                self.internal_pending -= 1;
+                self.start_offset = until;
+                self.apply(ev.cmd);
+                self.start_offset = 0;
             }
             self.render_block(&mut left[i..i + n], &mut right[i..i + n]);
             self.now += n as u64;
             i += n;
         }
+        self.pool.set_hot(false);
+        self.reclaim_models();
         self.publish(start.elapsed().as_secs_f32(), frames);
     }
 
@@ -538,14 +814,14 @@ impl Engine {
     }
 
     fn drain_queue(&mut self) {
-        while let Ok(ev) = self.rx.pop() {
+        // The controller admits at most QUEUE_CAPACITY unapplied events and the engine schedules
+        // at most INTERNAL_CAPACITY of its own, so the heap (with room for both reserved) never
+        // grows here; should it be full, events wait in the ring rather than being applied
+        // before their time.
+        while self.heap.len() < QUEUE_CAPACITY + INTERNAL_CAPACITY {
+            let Ok(ev) = self.rx.pop() else { break };
             self.seq += 1;
-            if self.heap.len() >= QUEUE_CAPACITY {
-                // never reallocate on the audio thread: apply immediately
-                self.apply(ev.cmd);
-                continue;
-            }
-            self.heap.push(Pending { time: ev.time, seq: self.seq, cmd: ev.cmd });
+            self.heap.push(Pending { time: ev.time, seq: self.seq, cmd: ev.cmd, internal: false });
         }
     }
 
@@ -574,15 +850,22 @@ impl Engine {
             Command::ControlChange { part, controller, value } => self.cc(part as usize, controller, value),
             Command::PitchBend { part, value } => {
                 if let Some(p) = self.parts.get_mut(part as usize) {
-                    p.bend = value.clamp(-1.0, 1.0);
+                    // (`clamp` passes NaN through, which would silence the part's voices)
+                    if value.is_finite() {
+                        p.bend = value.clamp(-1.0, 1.0);
+                    }
                 }
             }
             Command::SetPartParam { part, param, value } => self.set_part_param(part as usize, param, value),
             Command::SetMasterParam { param, value } => self.set_master_param(param, value),
-            Command::SetInstrument { part, instrument } => {
+            Command::SetInstrument { part, mut instrument, noise } => {
                 let pi = part as usize;
+                let q = &mut self.garbage;
                 if pi >= self.parts.len() {
-                    let _ = self.garbage.push(Garbage::Instrument(instrument));
+                    trash(q, Garbage::Instrument(instrument));
+                    if let Some(nb) = noise {
+                        trash(q, Garbage::Noise(nb));
+                    }
                     return;
                 }
                 for v in self.voices.iter_mut() {
@@ -590,40 +873,89 @@ impl Engine {
                         v.kill();
                     }
                 }
-                let edges: Option<Vec<f32>> = instrument.layers.first().map(|l| l.model.noise_edges.clone());
-                let p = &mut self.parts[pi];
-                if let Some(old) = p.inst.replace(instrument) {
-                    let _ = self.garbage.push(Garbage::Instrument(old));
+                for l in instrument.layers.iter_mut() {
+                    l.sanitize();
                 }
-                // Noise bank: rebuild only if band layout changed. Building it allocates,
-                // which is acceptable on instrument change (rare, not per note).
-                if let Some(e) = edges {
-                    let rebuild = p.noise.as_ref().map(|nb| nb.edges() != e.as_slice()).unwrap_or(true);
-                    if rebuild && e.len() >= 2 {
-                        p.noise = Some(NoiseBank::new(self.sr, &e, 0xB00 + pi as u64));
+                let p = &mut self.parts[pi];
+                // Noise bank: keep the current one if the band layout is unchanged (its noise
+                // continues), else switch to the one built with the command.
+                if let Some(nb) = noise {
+                    let same = match (&p.noise, instrument.layers.first()) {
+                        (Some(cur), Some(l)) => cur.edges() == l.model.noise_edges.as_slice(),
+                        _ => false,
+                    };
+                    if same {
+                        trash(q, Garbage::Noise(nb));
+                    } else if let Some(old) = p.noise.replace(nb) {
+                        trash(q, Garbage::Noise(old));
                     }
                 }
+                if let Some(old) = p.inst.replace(instrument) {
+                    trash(q, Garbage::Instrument(old));
+                }
             }
-            Command::AddLayer { part, layer } => {
+            Command::AddLayer { part, layer, spare, noise } => {
                 let pi = part as usize;
-                if pi >= self.parts.len() {
-                    let _ = self.garbage.push(Garbage::Layer(layer));
+                let q = &mut self.garbage;
+                let Some(p) = self.parts.get_mut(pi) else {
+                    trash(q, Garbage::Layer(layer));
+                    if let Some(s) = spare {
+                        trash(q, Garbage::Instrument(s));
+                    }
+                    if let Some(nb) = noise {
+                        trash(q, Garbage::Noise(nb));
+                    }
                     return;
-                }
+                };
                 let enabled = layer.enabled;
-                let edges = layer.model.noise_edges.clone();
-                let p = &mut self.parts[pi];
-                let inst = p.inst.get_or_insert_with(|| Box::new(Instrument::default()));
-                // Vec growth may allocate; layers are added rarely (stop changes), and
-                // `Instrument` reserves capacity up front so this normally does not.
-                let mut l = *layer;
+                // the layer is copied in (cloning bumps the model's reference count) and its
+                // box freed on the API thread
+                let mut l = InstLayer::clone(&layer);
+                trash(q, Garbage::Layer(layer));
+                l.sanitize();
                 l.enabled = false;
-                inst.layers.push(l);
-                let li = inst.layers.len() - 1;
-                if p.noise.is_none() && edges.len() >= 2 {
-                    p.noise = Some(NoiseBank::new(self.sr, &edges, 0xB00 + pi as u64));
+                let mut spare = spare;
+                let added = match p.inst.as_mut() {
+                    Some(inst) if inst.layers.len() < inst.layers.capacity() => {
+                        inst.layers.push(l);
+                        true
+                    }
+                    // full: move the layers into the spare instrument (preallocated by the
+                    // controller), so that pushing never reallocates here
+                    Some(inst) => match spare.take() {
+                        Some(mut s) if s.layers.is_empty() && s.layers.capacity() > inst.layers.len() => {
+                            s.layers.append(&mut inst.layers);
+                            s.layers.push(l);
+                            trash(q, Garbage::Instrument(std::mem::replace(inst, s)));
+                            true
+                        }
+                        other => {
+                            spare = other;
+                            false
+                        }
+                    },
+                    None => match spare.take() {
+                        Some(mut s) if s.layers.is_empty() && s.layers.capacity() > 0 => {
+                            s.layers.push(l);
+                            p.inst = Some(s);
+                            true
+                        }
+                        other => {
+                            spare = other;
+                            false
+                        }
+                    },
+                };
+                if let Some(s) = spare {
+                    trash(q, Garbage::Instrument(s));
                 }
-                if enabled {
+                match noise {
+                    Some(nb) if added && p.noise.is_none() => p.noise = Some(nb),
+                    Some(nb) => trash(q, Garbage::Noise(nb)),
+                    None => {}
+                }
+                if added && enabled {
+                    let li = p.inst.as_ref().map(|i| i.layers.len() - 1).unwrap_or(0);
                     self.set_layer_enabled(pi, li, true);
                 }
             }
@@ -631,7 +963,9 @@ impl Engine {
             Command::SetLayerGain { part, layer, gain_db } => {
                 if let Some(inst) = self.parts.get_mut(part as usize).and_then(|p| p.inst.as_mut()) {
                     if let Some(l) = inst.layers.get_mut(layer as usize) {
-                        l.gain_db = gain_db;
+                        if gain_db.is_finite() {
+                            l.gain_db = gain_db.clamp(-120.0, 48.0);
+                        }
                     }
                 }
             }
@@ -710,8 +1044,8 @@ impl Engine {
     /// Every pipe of part `t` held down by some key (velocity, 0 = none).
     fn reached_all(&self, t: usize, held: &[bool; MAX_PARTS]) -> [u8; 128] {
         let mut out = [0u8; 128];
-        for u in 0..self.parts.len() {
-            if !held[u] {
+        for (u, &h) in held.iter().enumerate().take(self.parts.len()) {
+            if !h {
                 continue;
             }
             let (r, nr) = self.reach(u);
@@ -893,13 +1227,15 @@ impl Engine {
             }
             layer.speech_ms
         };
-        if speech > 0.0 && !release_trigger && self.heap.len() < QUEUE_CAPACITY {
+        // (with no room left for delayed starts, the pipe speaks at once)
+        if speech > 0.0 && !release_trigger && self.internal_pending < INTERNAL_CAPACITY {
             let d = (self.rng.uniform() * speech * 1e-3 * self.sr) as u64;
             if d > 0 {
                 self.seq += 1;
+                self.internal_pending += 1;
                 let press = self.parts[pi].press[note as usize];
                 let cmd = Command::StartVoice { part: pi as u16, layer: li as u16, note, velocity, press };
-                self.heap.push(Pending { time: self.now + d, seq: self.seq, cmd });
+                self.heap.push(Pending { time: self.now + d, seq: self.seq, cmd, internal: true });
                 return;
             }
         }
@@ -924,12 +1260,19 @@ impl Engine {
         self.age += 1;
         let age = self.age;
         let sr = self.sr;
+        self.retire_model(slot, &model);
         let v = &mut self.voices[slot];
-        v.start(NoteOn { model: &model, note, velocity, pitch, pan, params: &sp, sample_rate: sr, rng: &mut self.rng });
+        // (set up by the thread that renders the voice first)
+        v.start_deferred(NoteOn { model: &model, note, velocity, pitch, pan, params: &sp, sample_rate: sr, rng: &mut self.rng });
+        if !v.is_active() {
+            // (nothing to play: the slot stays free)
+            self.free.push(slot as u32);
+        }
         v.part = pi;
         v.layer_id = li as u32;
         v.age = age;
         v.one_shot = one_shot;
+        self.voff[slot] = self.start_offset.min(BLOCK - 1) as u8;
     }
 
     fn retarget_layer_voice(&mut self, slot: usize, pi: usize, li: usize, note: u8, velocity: u8) {
@@ -943,20 +1286,55 @@ impl Engine {
             (Arc::clone(&layer.model), pitch, (p.pan + layer.pan).clamp(-1.0, 1.0), sp, p.glide)
         };
         let sr = self.sr;
+        self.retire_model(slot, &model);
         let v = &mut self.voices[slot];
         v.legato(NoteOn { model: &model, note, velocity, pitch, pan, params: &sp, sample_rate: sr, rng: &mut self.rng }, glide);
         v.part = pi;
         v.layer_id = li as u32;
     }
 
+    /// Before voice `slot` starts playing `next`: hand its previous model reference (if it is
+    /// another model, possibly its last reference) to the API thread for dropping.
+    fn retire_model(&mut self, slot: usize, next: &Arc<Model>) {
+        if let Some(old) = self.voices[slot].take_model() {
+            if Arc::ptr_eq(&old, next) {
+                // `next` still holds the model: this only decrements the count
+                drop(old);
+            } else {
+                trash(&mut self.garbage, Garbage::Model(old));
+            }
+        }
+    }
+
+    /// Finished voices give up their model references (through the garbage ring, as long as
+    /// it has room; otherwise they keep them until a later block).
+    fn reclaim_models(&mut self) {
+        for v in self.voices.iter_mut() {
+            if !v.is_active() && v.has_model() && self.garbage.slots() > 0 {
+                if let Some(m) = v.take_model() {
+                    trash(&mut self.garbage, Garbage::Model(m));
+                }
+            }
+        }
+    }
+
+    /// A free voice slot. Beyond `max_voices` sounding voices, the least important one is
+    /// stolen: it fades out (~25 ms) in one of the spare slots while the new note starts.
     fn alloc_voice(&mut self) -> usize {
-        let active = self.voices.iter().filter(|v| v.is_active()).count();
-        if active >= self.max_voices {
-            // steal: prefer released voices, then the quietest, then the oldest
+        // voices already fading out after a steal no longer count, and are not stolen again:
+        // every voice needed beyond the limit takes its own victim (counted only near the
+        // limit: the slots not in the free list bound the sounding voices)
+        let live = if self.voices.len() - self.free.len() < self.max_voices {
+            0
+        } else {
+            self.voices.iter().filter(|v| v.is_active() && !v.is_killing()).count()
+        };
+        if live >= self.max_voices {
+            // prefer released voices, then the quietest, then the oldest
             let mut best = None;
             let mut best_score = f32::INFINITY;
             for (i, v) in self.voices.iter().enumerate() {
-                if !v.is_active() {
+                if !v.is_active() || v.is_killing() {
                     continue;
                 }
                 let score = v.level_db() - if v.is_released() { 60.0 } else { 0.0 } - (self.age - v.age) as f32 * 1e-3;
@@ -969,11 +1347,31 @@ impl Engine {
                 self.voices[i].kill();
             }
         }
+        // the lowest free slot
+        while let Some(i) = self.free.pop() {
+            if !self.voices[i as usize].is_active() {
+                return i as usize;
+            }
+        }
         if let Some(i) = self.voices.iter().position(|v| !v.is_active()) {
             return i;
         }
-        // all slots busy (including spares): hard-steal the oldest
-        let i = (0..self.voices.len()).min_by_key(|&i| self.voices[i].age).unwrap_or(0);
+        // Every slot busy, the spares with voices still fading out (more notes started within
+        // one fade than there are spares): cut short the least audible of those. Sounding
+        // voices never number more than `max_voices`, so there always is one.
+        let audible = |v: &SpectralVoice| {
+            let db = v.level_db() + 20.0 * v.kill_gain().max(1e-9).log10();
+            if v.is_killing() {
+                db
+            } else {
+                db + 1000.0
+            }
+        };
+        let i = (0..self.voices.len()).min_by(|&a, &b| audible(&self.voices[a]).total_cmp(&audible(&self.voices[b]))).unwrap_or(0);
+        self.hard_steals += 1;
+        if !self.voices[i].is_killing() {
+            self.hard_steals_sounding += 1;
+        }
         i
     }
 
@@ -1047,12 +1445,12 @@ impl Engine {
         layer.enabled = enabled;
         if enabled {
             // start this layer for notes currently sounding (held or held by pedal)
-            let sounding: Vec<(u8, u8)> = (0..128u8)
-                .filter(|&n| p.held[n as usize] || p.pedal_hold[n as usize])
-                .map(|n| (n, p.last_velocity[n as usize].max(1)))
-                .collect();
-            for (n, vel) in sounding {
-                self.start_layer_voice(pi, li, n, vel);
+            for n in 0..128u8 {
+                let p = &self.parts[pi];
+                if p.held[n as usize] || p.pedal_hold[n as usize] {
+                    let vel = p.last_velocity[n as usize].max(1);
+                    self.start_layer_voice(pi, li, n, vel);
+                }
             }
         } else {
             for v in self.voices.iter_mut() {
@@ -1065,30 +1463,32 @@ impl Engine {
 
     fn set_part_param(&mut self, pi: usize, param: PartParam, v: f32) {
         let Some(p) = self.parts.get_mut(pi) else { return };
+        // NaN or infinite values are ignored (one would silence the part, or the whole engine)
+        let Some(v) = param.sanitize(v) else { return };
         use PartParam::*;
         match param {
             Volume => p.volume_db = v,
-            Pan => p.pan = v.clamp(-1.0, 1.0),
+            Pan => p.pan = v,
             ReverbSend => p.reverb_send = v,
             Brightness => p.sp.brightness = v,
             EvenDb => p.sp.even_db = v,
             NoiseDb => p.sp.noise_db = v,
-            AttackScale => p.sp.attack_scale = v.max(0.05),
-            DecayScale => p.sp.decay_scale = v.max(0.05),
-            ReleaseScale => p.sp.release_scale = v.max(0.01),
-            VibratoCents => p.sp.vibrato_cents = v.max(0.0),
-            VibratoRate => p.sp.vibrato_rate = v.max(0.0),
-            VibratoDelay => p.sp.vibrato_delay = v.max(0.0),
-            Expression => p.sp.expression = v.clamp(0.0, 2.0),
+            AttackScale => p.sp.attack_scale = v,
+            DecayScale => p.sp.decay_scale = v,
+            ReleaseScale => p.sp.release_scale = v,
+            VibratoCents => p.sp.vibrato_cents = v,
+            VibratoRate => p.sp.vibrato_rate = v,
+            VibratoDelay => p.sp.vibrato_delay = v,
+            Expression => p.sp.expression = v,
             Formant => p.sp.formant = v,
-            Inharmonicity => p.sp.inharmonicity = v.max(0.0),
+            Inharmonicity => p.sp.inharmonicity = v,
             Spread => p.sp.spread = v,
-            Humanize => p.sp.humanize_cents = v.max(0.0),
-            VelocitySens => p.sp.velocity_sens = v.clamp(0.0, 1.0),
-            MaxPartials => p.sp.max_partials = (v.max(1.0) as usize).min(crate::model::MAX_PARTIALS),
+            Humanize => p.sp.humanize_cents = v,
+            VelocitySens => p.sp.velocity_sens = v,
+            MaxPartials => p.sp.max_partials = v as usize,
             GainDb => p.sp.gain_db = v,
-            Jitter => p.sp.jitter = v.max(0.0),
-            Shimmer => p.sp.shimmer = v.max(0.0),
+            Jitter => p.sp.jitter = v,
+            Shimmer => p.sp.shimmer = v,
             Transpose => p.transpose = v,
             Tune => p.tune_cents = v,
             BendRange => p.bend_range = v,
@@ -1100,10 +1500,10 @@ impl Engine {
                     p.mono = true;
                 }
             }
-            Glide => p.glide = v.max(0.0),
-            TremDepth => p.trem_db = v.max(0.0),
-            TremPitch => p.trem_cents = v.max(0.0),
-            TremRate => p.trem_rate = v.max(0.0),
+            Glide => p.glide = v,
+            TremDepth => p.trem_db = v,
+            TremPitch => p.trem_cents = v,
+            TremRate => p.trem_rate = v,
             EqLowDb => p.eq_params.low_gain_db = v,
             EqLowHz => p.eq_params.low_freq = v,
             EqMidDb => p.eq_params.mid_gain_db = v,
@@ -1114,21 +1514,21 @@ impl Engine {
             LowCut => p.eq_params.low_cut_hz = v,
             HighCut => p.eq_params.high_cut_hz = v,
             ChorusMix => {
-                p.chorus_params.mix = v.clamp(0.0, 1.0);
+                p.chorus_params.mix = v;
                 p.chorus_on = v > 0.0;
             }
             ChorusRate => p.chorus_params.rate_hz = v,
             ChorusDepth => p.chorus_params.depth_ms = v,
             DriveAmount => {
-                p.drive_params.0 = v.max(1.0);
+                p.drive_params.0 = v;
                 p.drive_on = v > 1.0;
             }
             DriveTone => p.drive_params.2 = v,
             DriveLevel => p.drive_params.3 = v,
             SwellBox => p.swell_box = v >= 0.5,
-            SwellClosed => p.swell_closed_db = v.clamp(-60.0, 0.0),
-            SwellShelf => p.swell_shelf_max_db = v.clamp(-40.0, 0.0),
-            Wind => p.wind = v.clamp(0.0, 4.0),
+            SwellClosed => p.swell_closed_db = v,
+            SwellShelf => p.swell_shelf_max_db = v,
+            Wind => p.wind = v,
             Leslie => {
                 p.leslie_on = v >= 1.0;
                 p.leslie.set_speed(match v as i32 {
@@ -1153,6 +1553,7 @@ impl Engine {
 
     fn set_master_param(&mut self, param: MasterParam, v: f32) {
         use MasterParam::*;
+        let Some(v) = param.sanitize(v) else { return };
         let mut rp = self.reverb.params();
         match param {
             Volume => self.master_db = v,
@@ -1169,8 +1570,11 @@ impl Engine {
             ReverbLowCut => rp.low_cut_hz = v,
             ReverbHighCut => rp.high_cut_hz = v,
             ReverbModulation => rp.modulation = v,
+            ReleaseFloor => self.release_floor_db = v,
+            ReleaseBelowMix => self.below_mix_db = v,
+            ReleaseHold => self.release_hold = v >= 0.5,
         }
-        if !matches!(param, Volume | Ceiling | ReverbReturn) {
+        if !matches!(param, Volume | Ceiling | ReverbReturn | ReleaseFloor | ReleaseBelowMix | ReleaseHold) {
             self.reverb.set_params(rp);
         }
     }
@@ -1182,28 +1586,56 @@ impl Engine {
 
     // ── rendering ───────────────────────────────────────────────────────────
 
+    /// Active voices grouped by part (`order`, slot order within a part; part `p` owns
+    /// `order[range[p].0..range[p].1]`).
+    fn collect_voices(&mut self) {
+        let mut count = [0u32; MAX_PARTS];
+        for v in self.voices.iter() {
+            if v.is_active() {
+                count[v.part] += 1;
+            }
+        }
+        let mut at = [0u32; MAX_PARTS];
+        let mut sum = 0u32;
+        for p in 0..MAX_PARTS {
+            self.part_range[p] = (sum, sum + count[p]);
+            at[p] = sum;
+            sum += count[p];
+        }
+        self.order.clear();
+        self.order.resize(sum as usize, 0);
+        for (i, v) in self.voices.iter().enumerate() {
+            if v.is_active() {
+                self.order[at[v.part] as usize] = i as u32;
+                at[v.part] += 1;
+            }
+        }
+    }
+
     fn render_block(&mut self, out_l: &mut [f32], out_r: &mut [f32]) {
         let n = out_l.len();
-        self.mix_l[..n].fill(0.0);
-        self.mix_r[..n].fill(0.0);
-        self.send_l[..n].fill(0.0);
-        self.send_r[..n].fill(0.0);
+        self.collect_voices();
 
+        // ── parts at control rate: expression, tremulant, wind ──────────────
+        self.active_parts.clear();
         for pi in 0..self.parts.len() {
-            let any = self.voices.iter().any(|v| v.is_active() && v.part == pi);
+            let (a, b) = self.part_range[pi];
             let p = &mut self.parts[pi];
-            if !any && !p.leslie_on && !p.chorus_on {
+            if a == b && !p.leslie_on && !p.chorus_on {
                 if let Some(nb) = p.noise.as_mut() {
                     nb.clear_powers();
                 }
                 continue;
             }
-            self.part_l[..n].fill(0.0);
-            self.part_r[..n].fill(0.0);
+            self.active_parts.push(pi as u8);
 
             // smoothed expression (CC11)
-            let a = 1.0 - (-(n as f32) / (0.02 * self.sr)).exp();
-            p.expression_smoothed += (p.expression - p.expression_smoothed) * a;
+            let a_exp = 1.0 - (-(n as f32) / (0.02 * self.sr)).exp();
+            p.expression_smoothed += (p.expression - p.expression_smoothed) * a_exp;
+            if (p.expression - p.expression_smoothed).abs() < 1e-6 {
+                // settle exactly (CC11 = 0 would otherwise decay into denormals)
+                p.expression_smoothed = p.expression;
+            }
             // tremulant: one wind-pressure wobble shared by every pipe of the division
             let (mut trem_c, mut trem_g) = (0.0f32, 1.0f32);
             if p.trem_db > 0.0 || p.trem_cents > 0.0 {
@@ -1217,13 +1649,7 @@ impl Engine {
             // little in pitch and loudness together
             let (mut wind_c, mut wind_g) = (0.0f32, 1.0f32);
             if p.wind > 0.0 {
-                let demand: f32 = self
-                    .voices
-                    .iter()
-                    .filter(|v| v.is_active() && v.part == pi)
-                    .map(|v| v.level())
-                    .sum::<f32>()
-                    / 0.1;
+                let demand: f32 = self.order[a as usize..b as usize].iter().map(|&vi| self.voices[vi as usize].level()).sum::<f32>() / 0.1;
                 let dt = n as f32 / self.sr;
                 p.wind_avg += (demand - p.wind_avg) * (1.0 - (-dt / 0.25).exp());
                 let drive = -(demand - p.wind_avg) * 0.004 * p.wind;
@@ -1235,7 +1661,7 @@ impl Engine {
                 wind_c = 30.0 * p.wind_p;
                 wind_g = db_to_amp(8.0 * p.wind_p);
             }
-            let md = BlockMod {
+            self.part_md[pi] = BlockMod {
                 cents: p.bend * p.bend_range * 100.0 + trem_c + wind_c,
                 mod_vibrato: p.mod_wheel * p.mod_depth_cents,
                 expression_gain: if p.swell_box {
@@ -1245,142 +1671,415 @@ impl Engine {
                     p.expression_smoothed * trem_g * wind_g
                 },
             };
-            let sp = p.sp;
-            if let Some(nb) = p.noise.as_mut() {
-                nb.clear_powers();
-            }
-            // pitch-synchronous noise: Σ p_v·g_v(t) over voices with an envelope (p_v = the
-            // voice's noise power), applied to the part's pooled noise as G = (Σ p_v g_v + rest) / Σ p
-            let mut pulse_acc = [0.0f32; BLOCK];
-            let (mut p_pulse, mut p_all) = (0.0f32, 0.0f32);
-            for v in self.voices.iter_mut() {
-                if !v.is_active() || v.part != pi {
-                    continue;
-                }
-                v.render(&mut self.part_l[..n], &mut self.part_r[..n], &sp, &md);
-                if let Some(nb) = p.noise.as_mut() {
-                    let (gl, gr) = v.noise_pan();
-                    let (gl2, gr2) = (gl * gl, gr * gr);
-                    let bands = v.noise_bands().min(MAX_BANDS);
-                    let mut pv = 0.0;
-                    for b in 0..bands {
-                        let pw = v.noise_pow[b];
-                        if pw > 0.0 {
-                            nb.pow_l[b] += pw * gl2;
-                            nb.pow_r[b] += pw * gr2;
-                            pv += pw;
-                        }
-                    }
-                    p_all += pv;
-                    if v.pulse_on && pv > 0.0 {
-                        p_pulse += pv;
-                        for (a, &g) in pulse_acc[..n].iter_mut().zip(v.pulse_buf[..n].iter()) {
-                            *a += pv * g;
-                        }
-                    }
-                }
-            }
-            if let Some(nb) = p.noise.as_mut() {
-                if p_pulse > 0.0 && p_all > 0.0 {
-                    let mut nl = [0.0f32; BLOCK];
-                    let mut nr = [0.0f32; BLOCK];
-                    nb.render(&mut nl[..n], &mut nr[..n]);
-                    let rest = p_all - p_pulse;
-                    let inv = 1.0 / p_all;
-                    for s in 0..n {
-                        let g = (pulse_acc[s] + rest) * inv;
-                        self.part_l[s] += nl[s] * g;
-                        self.part_r[s] += nr[s] * g;
-                    }
-                } else {
-                    nb.render(&mut self.part_l[..n], &mut self.part_r[..n]);
-                }
-            }
+            self.part_sp[pi] = p.sp;
+        }
 
-            // insert effects
-            if p.drive_on {
-                p.drive.process(&mut self.part_l[..n], &mut self.part_r[..n]);
-            }
-            if !p.eq.is_flat() {
-                p.eq.process(&mut self.part_l[..n], &mut self.part_r[..n]);
-            }
-            if p.chorus_on {
-                p.chorus.process(&mut self.part_l[..n], &mut self.part_r[..n]);
-            }
-            if p.leslie_on {
-                p.leslie.process(&mut self.part_l[..n], &mut self.part_r[..n]);
-            }
-            if p.swell_box {
-                // shutters absorb treble far more than bass: up to −14 dB above ~700 Hz
-                let target = p.swell_shelf_max_db * (1.0 - p.expression_smoothed);
-                if (target - p.swell_shelf_db).abs() > 0.05 {
-                    p.swell_shelf_db = target;
-                    let c = crate::dsp::biquad::Coeffs::high_shelf(700.0, target, self.sr);
-                    for f in p.swell_shelf.iter_mut() {
-                        f.c = c;
-                    }
+        // ── voices: each into its own buffer, on every rendering thread ─────
+        {
+            let order = &self.order[..];
+            let voices = Raw(self.voices.as_mut_ptr());
+            let vbuf = Raw(self.vbuf.as_mut_ptr());
+            let voff = Raw(self.voff.as_mut_ptr());
+            let vtr = Raw(self.vtr.as_mut_ptr());
+            let vtr_on = Raw(self.vtr_on.as_mut_ptr());
+            let scratch = Raw(self.scratch.as_mut_ptr());
+            let (sp, md) = (&self.part_sp, &self.part_md);
+            let nv = order.len();
+            let threads = if nv >= PARALLEL_VOICES { self.pool.threads() } else { 1 };
+            // a few items per thread: whoever is free takes the next (voice starts and voices
+            // with many partials cost far more than others)
+            let items = if threads > 1 { (threads * 8).min(nv) } else { 1 };
+            let job = |item: usize, t: usize| {
+                let (a, b) = (item * nv / items, (item + 1) * nv / items);
+                // SAFETY: each voice index appears once in `order` and each item covers its own
+                // range of it, so no two threads touch the same voice, buffer or offset; each
+                // thread has its own scratch
+                let s = unsafe { &mut **scratch.at(t) };
+                for &vi in &order[a..b] {
+                    let vi = vi as usize;
+                    let (v, buf, off, tb, ton) = unsafe { (&mut *voices.at(vi), &mut *vbuf.at(vi), &mut *voff.at(vi), &mut *vtr.at(vi), &mut *vtr_on.at(vi)) };
+                    let o = (*off as usize).min(n);
+                    *off = 0;
+                    let [bl, br] = buf;
+                    bl[..n].fill(0.0);
+                    br[..n].fill(0.0);
+                    let tr = if v.plays_transient() {
+                        let [tl, tr] = tb;
+                        tl[..n].fill(0.0);
+                        tr[..n].fill(0.0);
+                        Some((&mut tl[o..n], &mut tr[o..n]))
+                    } else {
+                        None
+                    };
+                    *ton = v.render_split(s, &mut bl[o..n], &mut br[o..n], tr, &sp[v.part], &md[v.part]);
                 }
-                if p.swell_shelf_db < -0.05 {
-                    p.swell_shelf[0].process_block(&mut self.part_l[..n]);
-                    p.swell_shelf[1].process_block(&mut self.part_r[..n]);
-                }
+            };
+            if threads > 1 {
+                self.pool.run(items, &job);
+            } else {
+                job(0, 0);
             }
+        }
 
-            // volume (smoothed) and sends
-            let target = db_to_amp(p.volume_db);
-            let g0 = p.gain_smoothed;
-            let dg = (target - g0) / n as f32;
-            let send = p.reverb_send();
-            let mut g = g0;
+        // ── parts: their voices summed, pooled noise, insert effects, level ──
+        {
+            let list = &self.active_parts[..];
+            let parts = Raw(self.parts.as_mut_ptr());
+            let pout = Raw(self.pout.as_mut_ptr());
+            let recover = Raw(self.recover.as_mut_ptr());
+            let (order, range, voices) = (&self.order[..], &self.part_range, &self.voices[..]);
+            let vb = VoiceOut { buf: &self.vbuf, tr: &self.vtr, tr_on: &self.vtr_on };
+            let sr = self.sr;
+            let job = |item: usize, _t: usize| {
+                let pi = list[item] as usize;
+                let (a, b) = range[pi];
+                // SAFETY: each item is one part: its state, output and flag are its own
+                let (p, out, rec) = unsafe { (&mut *parts.at(pi), &mut *pout.at(pi), &mut *recover.at(pi)) };
+                *rec = part_block(p, &order[a as usize..b as usize], voices, &vb, out, n, sr);
+            };
+            let threads = if list.len() > 1 && order.len() >= PARALLEL_VOICES { self.pool.threads() } else { 1 };
+            if threads > 1 {
+                self.pool.run(list.len(), &job);
+            } else {
+                for i in 0..list.len() {
+                    job(i, 0);
+                }
+            }
+        }
+
+        if self.release_floor_db > -199.0 || self.below_mix_db > 0.0 {
+            self.cull_releases();
+        }
+
+        // ── mix, in part order ───────────────────────────────────────────────
+        self.mix_l[..n].fill(0.0);
+        self.mix_r[..n].fill(0.0);
+        self.send_l[..n].fill(0.0);
+        self.send_r[..n].fill(0.0);
+        let culling = self.below_mix_db > 0.0;
+        if culling {
+            // parts without output this block fall silent
+            let mut sounding = [false; MAX_PARTS];
+            for &pi in &self.active_parts {
+                sounding[pi as usize] = true;
+            }
+            for (pi, &on) in sounding.iter().enumerate() {
+                if !on {
+                    self.follow_level(pi, 0.0, n);
+                }
+            }
+        }
+        for k in 0..self.active_parts.len() {
+            let pi = self.active_parts[k] as usize;
+            if culling {
+                let [pl, pr, _, _] = &self.pout[pi];
+                let p = pl[..n].iter().chain(&pr[..n]).map(|x| x * x).sum::<f32>() / (2 * n) as f32;
+                self.follow_level(pi, p, n);
+            }
+            let [pl, pr, sl, sr] = &self.pout[pi];
             for i in 0..n {
-                g += dg;
-                let l = self.part_l[i] * g;
-                let r = self.part_r[i] * g;
-                self.mix_l[i] += l;
-                self.mix_r[i] += r;
-                self.send_l[i] += l * send;
-                self.send_r[i] += r * send;
+                self.mix_l[i] += pl[i];
+                self.mix_r[i] += pr[i];
+                self.send_l[i] += sl[i];
+                self.send_r[i] += sr[i];
             }
-            p.gain_smoothed = target;
+            if self.recover[pi] {
+                // A non-finite sample (an extreme model or state) would have poisoned the mix,
+                // the reverb and the limiter for good: the part was silenced, and its voices
+                // restart from a clean state.
+                self.recover[pi] = false;
+                for v in self.voices.iter_mut().filter(|v| v.part == pi) {
+                    v.reset();
+                }
+                self.recoveries += 1;
+            }
         }
 
         // reverb send/return
         self.reverb.process(&mut self.send_l[..n], &mut self.send_r[..n]);
-        let ret = db_to_amp(self.reverb_return_db);
+        if !all_finite(&self.send_l[..n]) || !all_finite(&self.send_r[..n]) {
+            self.send_l[..n].fill(0.0);
+            self.send_r[..n].fill(0.0);
+            self.reverb.reset();
+            self.recoveries += 1;
+        }
+        let ret_target = db_to_amp(self.reverb_return_db);
+        let dr = (ret_target - self.return_smoothed) / n as f32;
         let target = db_to_amp(self.master_db);
         let g0 = self.master_gain_smoothed;
         let dg = (target - g0) / n as f32;
-        let mut g = g0;
+        let (mut g, mut ret) = (g0, self.return_smoothed);
         for i in 0..n {
             g += dg;
+            ret += dr;
             out_l[i] = (self.mix_l[i] + self.send_l[i] * ret) * g;
             out_r[i] = (self.mix_r[i] + self.send_r[i] * ret) * g;
         }
         self.master_gain_smoothed = target;
+        self.return_smoothed = ret_target;
+        if !all_finite(out_l) || !all_finite(out_r) {
+            out_l.fill(0.0);
+            out_r.fill(0.0);
+            self.reverb.reset();
+            self.limiter.reset();
+            self.recoveries += 1;
+        }
         self.limiter.process(out_l, out_r);
         let mut pk = self.peak;
+        // Last-resort safety only: identity up to the limiter's ceiling.
+        let knee = self.limiter.output_ceiling();
         for i in 0..n {
-            out_l[i] = soft_clip(out_l[i]);
-            out_r[i] = soft_clip(out_r[i]);
+            out_l[i] = safety_clip(out_l[i], knee);
+            out_r[i] = safety_clip(out_r[i], knee);
             pk = pk.max(out_l[i].abs()).max(out_r[i].abs());
         }
         self.peak = pk;
+        if self.below_mix_db > 0.0 {
+            let p = out_l.iter().chain(out_r.iter()).map(|x| x * x).sum::<f32>() / (2 * n).max(1) as f32;
+            self.follow_level(MAX_PARTS, p, n);
+        }
+        self.collect_free();
     }
+
+    /// Follow output level `i` (a part, or the master at `MAX_PARTS`) given this block's mean
+    /// power `p`: smoothed over ~300 ms, or held for 1 s and then falling 40 dB/s.
+    fn follow_level(&mut self, i: usize, p: f32, n: usize) {
+        let dt = n as f32 / self.sr;
+        if self.release_hold {
+            let db = 10.0 * p.max(1e-20).log10();
+            if db >= self.level_db[i] {
+                self.level_db[i] = db;
+                self.level_held_s[i] = 0.0;
+            } else {
+                self.level_held_s[i] += dt;
+                if self.level_held_s[i] > 1.0 {
+                    self.level_db[i] = (self.level_db[i] - 40.0 * dt).max(db);
+                }
+            }
+        } else {
+            let a = 1.0 - (-dt / 0.3).exp();
+            self.level_pow[i] += (p - self.level_pow[i]) * a;
+            self.level_db[i] = 10.0 * self.level_pow[i].max(1e-20).log10();
+        }
+    }
+
+    /// Opt-in: retire (with the 4 ms steal fade) released voices whose output is below the
+    /// release floor, or far below both their part's output and the master output.
+    fn cull_releases(&mut self) {
+        let master = self.master_db;
+        for &vi in &self.order {
+            let v = &mut self.voices[vi as usize];
+            if !v.is_active() || !v.is_released() || v.is_killing() {
+                continue;
+            }
+            // (an upper bound: the voice's partials' amplitudes summed)
+            let part = v.output_level_db() + self.parts[v.part].volume_db;
+            let level = part + master;
+            let below_floor = level < self.release_floor_db;
+            let x = self.below_mix_db;
+            let masked = x > 0.0 && part < self.level_db[v.part] - x && level < self.level_db[MAX_PARTS] - x;
+            if below_floor || masked {
+                v.kill();
+                self.culled += 1;
+            }
+        }
+    }
+
+    fn collect_free(&mut self) {
+        self.free.clear();
+        for (i, v) in self.voices.iter().enumerate().rev() {
+            if !v.is_active() {
+                self.free.push(i as u32);
+            }
+        }
+    }
+}
+
+/// Fewest sounding voices worth rendering on several threads (below, waking the workers costs
+/// more than it saves).
+const PARALLEL_VOICES: usize = 12;
+
+/// A pointer into engine-owned memory handed to the rendering threads: every job item works
+/// on elements no other item touches.
+struct Raw<T>(*mut T);
+impl<T> Clone for Raw<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Copy for Raw<T> {}
+// SAFETY: see the jobs in `render_block`: items never share an element
+unsafe impl<T> Send for Raw<T> {}
+unsafe impl<T> Sync for Raw<T> {}
+
+impl<T> Raw<T> {
+    /// Element `i` (callers guarantee exclusive use).
+    #[inline]
+    fn at(self, i: usize) -> *mut T {
+        // SAFETY: callers index within the array the pointer was taken from
+        unsafe { self.0.add(i) }
+    }
+}
+
+/// The voices' outputs of the current block (see `Engine::vbuf`, `Engine::vtr`).
+struct VoiceOut<'a> {
+    buf: &'a [[[f32; BLOCK]; 2]],
+    tr: &'a [[[f32; BLOCK]; 2]],
+    tr_on: &'a [bool],
+}
+
+/// One part's block after its voices rendered: their sum (in slot order), the part's pooled
+/// noise, its insert effects and level. Writes the part's output and reverb send, already
+/// scaled (`out` = [left, right, send left, send right]). Returns true when the part produced a
+/// non-finite signal: it is then silenced and its state cleared (its voices are reset by the
+/// caller).
+#[allow(clippy::needless_range_loop)]
+fn part_block(p: &mut Part, ids: &[u32], voices: &[SpectralVoice], vo: &VoiceOut, out: &mut [[f32; BLOCK]; 4], n: usize, sr: f32) -> bool {
+    let [part_l, part_r, send_l, send_r] = out;
+    part_l[..n].fill(0.0);
+    part_r[..n].fill(0.0);
+    for &vi in ids {
+        let vi = vi as usize;
+        if vo.tr_on[vi] {
+            let [tl, tr] = &vo.tr[vi];
+            for s in 0..n {
+                part_l[s] += tl[s];
+                part_r[s] += tr[s];
+            }
+        }
+        let [bl, br] = &vo.buf[vi];
+        for s in 0..n {
+            part_l[s] += bl[s];
+            part_r[s] += br[s];
+        }
+    }
+    if let Some(nb) = p.noise.as_mut() {
+        nb.clear_powers();
+        // pitch-synchronous noise: Σ p_v·g_v(t) over voices with an envelope (p_v = the
+        // voice's noise power), applied to the part's pooled noise as G = (Σ p_v g_v + rest) / Σ p
+        let mut pulse_acc = [0.0f32; BLOCK];
+        let (mut p_pulse, mut p_all) = (0.0f32, 0.0f32);
+        for &vi in ids {
+            let v = &voices[vi as usize];
+            let (gl, gr) = v.noise_pan();
+            let (gl2, gr2) = (gl * gl, gr * gr);
+            let bands = v.noise_bands().min(MAX_BANDS);
+            let mut pv = 0.0;
+            for b in 0..bands {
+                let pw = v.noise_pow[b];
+                if pw > 0.0 {
+                    nb.pow_l[b] += pw * gl2;
+                    nb.pow_r[b] += pw * gr2;
+                    pv += pw;
+                }
+            }
+            p_all += pv;
+            if v.pulse_on && pv > 0.0 {
+                p_pulse += pv;
+                // (a voice that started inside this block filled the end of its buffer)
+                let len = v.pulse_len().min(n);
+                let o = n - len;
+                for s in 0..n {
+                    let g = v.pulse_buf[s.saturating_sub(o)];
+                    pulse_acc[s] += pv * g;
+                }
+            }
+        }
+        if p_pulse > 0.0 && p_all > 0.0 {
+            let mut nl = [0.0f32; BLOCK];
+            let mut nr = [0.0f32; BLOCK];
+            nb.render(&mut nl[..n], &mut nr[..n]);
+            let rest = p_all - p_pulse;
+            let inv = 1.0 / p_all;
+            for s in 0..n {
+                let g = (pulse_acc[s] + rest) * inv;
+                part_l[s] += nl[s] * g;
+                part_r[s] += nr[s] * g;
+            }
+        } else {
+            nb.render(&mut part_l[..n], &mut part_r[..n]);
+        }
+    }
+
+    // insert effects
+    if p.drive_on {
+        p.drive.process(&mut part_l[..n], &mut part_r[..n]);
+    }
+    if !p.eq.is_flat() {
+        p.eq.process(&mut part_l[..n], &mut part_r[..n]);
+    }
+    if p.chorus_on {
+        p.chorus.process(&mut part_l[..n], &mut part_r[..n]);
+    }
+    if p.leslie_on {
+        p.leslie.process(&mut part_l[..n], &mut part_r[..n]);
+    }
+    if p.swell_box {
+        // shutters absorb treble far more than bass: up to −14 dB above ~700 Hz
+        let target = p.swell_shelf_max_db * (1.0 - p.expression_smoothed);
+        if (target - p.swell_shelf_db).abs() > 0.05 {
+            p.swell_shelf_db = target;
+            let c = crate::dsp::biquad::Coeffs::high_shelf(700.0, target, sr);
+            for f in p.swell_shelf.iter_mut() {
+                f.c = c;
+            }
+        }
+        if p.swell_shelf_db < -0.05 {
+            p.swell_shelf[0].process_block(&mut part_l[..n]);
+            p.swell_shelf[1].process_block(&mut part_r[..n]);
+        }
+    }
+
+    // A non-finite sample (an extreme model or state) would poison the mix, the reverb and
+    // the limiter for good: silence this part and restart it from a clean state.
+    let mut recover = false;
+    if !all_finite(&part_l[..n]) || !all_finite(&part_r[..n]) {
+        part_l[..n].fill(0.0);
+        part_r[..n].fill(0.0);
+        p.reset_state();
+        recover = true;
+    }
+
+    // volume (smoothed) and sends
+    let target = db_to_amp(p.volume_db);
+    let g0 = p.gain_smoothed;
+    let dg = (target - g0) / n as f32;
+    let send_target = p.reverb_send();
+    let ds = (send_target - p.send_smoothed) / n as f32;
+    let (mut g, mut send) = (g0, p.send_smoothed);
+    for i in 0..n {
+        g += dg;
+        send += ds;
+        let l = part_l[i] * g;
+        let r = part_r[i] * g;
+        part_l[i] = l;
+        part_r[i] = r;
+        send_l[i] = l * send;
+        send_r[i] = r * send;
+    }
+    p.gain_smoothed = target;
+    p.send_smoothed = send_target;
+    recover
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::testing;
 
+    /// A model of the repository (the organ ones live in the Burea organ's package).
     fn model(name: &str) -> Option<Arc<Model>> {
-        let path = format!("{}/../../models/{name}.ssm", env!("CARGO_MANIFEST_DIR"));
-        std::fs::read(path).ok().map(|b| Arc::new(Model::from_bytes(&b).expect("model parses")))
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+        ["models", "packages/organ-burea/models"]
+            .iter()
+            .find_map(|dir| std::fs::read(format!("{root}/{dir}/{name}.ssm")).ok())
+            .map(|b| Arc::new(Model::from_bytes(&b).expect("model parses")))
     }
 
     fn engine_with(name: &str) -> Option<(Engine, Controller)> {
         let m = model(name)?;
         let (eng, mut ctl) = Engine::new(EngineConfig::default());
-        ctl.send(0, Command::SetInstrument { part: 0, instrument: Box::new(Instrument::single(m)) }).unwrap();
+        ctl.send(0, Command::set_instrument(0, Instrument::single(m))).unwrap();
         Some((eng, ctl))
     }
 
@@ -1440,11 +2139,11 @@ mod tests {
     fn layers_can_be_added_while_notes_sound() {
         let (Some(a), Some(b)) = (model("organ/great-principal-8"), model("organ/great-octave-4")) else { return };
         let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
-        ctl.send(0, Command::SetInstrument { part: 0, instrument: Box::new(Instrument::single(a)) }).unwrap();
+        ctl.send(0, Command::set_instrument(0, Instrument::single(a))).unwrap();
         ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
         render(&mut eng, 24000);
         let layer = InstLayer { transpose: 12.0, ..InstLayer::new(b) };
-        ctl.send(0, Command::AddLayer { part: 0, layer: Box::new(layer) }).unwrap();
+        ctl.send(0, Command::add_layer(0, layer)).unwrap();
         render(&mut eng, 4800);
         assert_eq!(eng.active_voices(), 2);
     }
@@ -1473,8 +2172,8 @@ mod tests {
     fn two_divisions() -> Option<(Engine, Controller)> {
         let (a, b) = (model("organ/great-principal-8")?, model("organ/swell-rohrflute-8")?);
         let (eng, mut ctl) = Engine::new(EngineConfig::default());
-        ctl.send(0, Command::SetInstrument { part: 0, instrument: Box::new(Instrument::single(a)) }).unwrap();
-        ctl.send(0, Command::SetInstrument { part: 1, instrument: Box::new(Instrument::single(b)) }).unwrap();
+        ctl.send(0, Command::set_instrument(0, Instrument::single(a))).unwrap();
+        ctl.send(0, Command::set_instrument(1, Instrument::single(b))).unwrap();
         Some((eng, ctl))
     }
 
@@ -1522,6 +2221,198 @@ mod tests {
         ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::default() }).unwrap();
         render(&mut eng, 4800);
         assert_eq!((speaking(&eng, 0), speaking(&eng, 1)), (2, 0));
+    }
+
+    fn test_layer(model: Arc<Model>) -> InstLayer {
+        InstLayer::new(model)
+    }
+
+    #[test]
+    fn replaced_models_are_freed_by_the_api_thread() {
+        let m = testing::model();
+        let weak = Arc::downgrade(&m);
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(m))).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!(eng.active_voices(), 1);
+        ctl.send(0, Command::set_instrument(0, Instrument::default())).unwrap();
+        // the old instrument and, once its fade ends, the voice's reference wait in the ring
+        render(&mut eng, 4800);
+        assert_eq!(eng.active_voices(), 0);
+        assert!(weak.upgrade().is_some(), "the audio thread must not drop the last reference");
+        ctl.collect_garbage();
+        assert!(weak.upgrade().is_none(), "the model is freed once the API thread collects");
+    }
+
+    #[test]
+    fn a_big_organ_chord_at_the_voice_limit_never_cuts_a_sounding_voice() {
+        let m = testing::model();
+        let (mut eng, mut ctl) = Engine::new(EngineConfig { max_voices: 16, ..EngineConfig::default() });
+        let mut inst = Instrument::default();
+        for t in 0..8 {
+            inst.layers.push(InstLayer { transpose: (t % 3) as f32 * 12.0, ..test_layer(m.clone()) });
+        }
+        ctl.send(0, Command::set_instrument(0, inst)).unwrap();
+        render(&mut eng, 480);
+        // 12 keys × 8 stops = 96 voices wanted at once, 16 allowed (+32 spare slots for fades)
+        for n in 48..60 {
+            ctl.send(0, Command::NoteOn { part: 0, note: n, velocity: 100 }).unwrap();
+        }
+        let (l, r) = render(&mut eng, 4800);
+        assert!(l.iter().chain(&r).all(|v| v.is_finite()));
+        assert!(eng.hard_steals > 0, "the chord must overrun the spare slots");
+        assert_eq!(eng.hard_steals_sounding, 0, "only voices already fading out may be cut");
+        let sounding = eng.voices.iter().filter(|v| v.is_active() && !v.is_killing()).count();
+        assert_eq!(sounding, 16);
+        // the newest notes are the ones left sounding
+        assert!(eng.voices.iter().filter(|v| v.is_active() && !v.is_killing()).all(|v| v.note >= 58));
+        render(&mut eng, 4800);
+        assert_eq!(eng.active_voices(), 16, "stolen voices finish their fade");
+    }
+
+    fn finite_and_audible(l: &[f32], r: &[f32]) -> bool {
+        l.iter().chain(r).all(|v| v.is_finite()) && rms(l) > 1e-4 && rms(r) > 1e-4
+    }
+
+    #[test]
+    fn non_finite_parameters_are_ignored() {
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(testing::model()))).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        // (a NaN pitch bend used to silence the whole engine for good)
+        ctl.send(0, Command::PitchBend { part: 0, value: f32::NAN }).unwrap();
+        let (l, r) = render(&mut eng, 4800);
+        assert!(finite_and_audible(&l, &r));
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            for &(_, param) in PartParam::ALL {
+                ctl.send(0, Command::SetPartParam { part: 0, param, value: bad }).unwrap();
+            }
+            for &(_, param) in MasterParam::ALL {
+                ctl.send(0, Command::SetMasterParam { param, value: bad }).unwrap();
+            }
+            ctl.send(0, Command::SetLayerGain { part: 0, layer: 0, gain_db: bad }).unwrap();
+            let (l, r) = render(&mut eng, 4800);
+            assert!(finite_and_audible(&l, &r), "after {bad} parameters");
+        }
+        // huge finite values are clamped to something playable
+        for &(_, param) in PartParam::ALL {
+            ctl.send(0, Command::SetPartParam { part: 0, param, value: 1e30 }).unwrap();
+            ctl.send(0, Command::SetPartParam { part: 0, param, value: -1e30 }).unwrap();
+        }
+        ctl.send(0, Command::NoteOn { part: 0, note: 64, velocity: 100 }).unwrap();
+        let (l, r) = render(&mut eng, 9600);
+        assert!(l.iter().chain(&r).all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn the_engine_recovers_from_a_non_finite_voice_or_reverb() {
+        let good = testing::model();
+        let mut bad = Model::clone(&good);
+        bad.zones[0].ratios[0] = f32::NAN; // something a voice turns into NaN samples
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(good.clone()))).unwrap();
+        ctl.send(0, Command::set_instrument(1, Instrument::single(Arc::new(bad)))).unwrap();
+        ctl.send(0, Command::SetPartParam { part: 0, param: PartParam::ReverbSend, value: 0.5 }).unwrap();
+        ctl.send(0, Command::SetPartParam { part: 1, param: PartParam::ReverbSend, value: 0.5 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 1, note: 67, velocity: 100 }).unwrap();
+        let (l, r) = render(&mut eng, 4800);
+        assert!(finite_and_audible(&l, &r), "the poisoned part is silenced, the others play on");
+        assert!(eng.recoveries > 0);
+        assert!(!eng.voices.iter().any(|v| v.is_active() && v.part == 1));
+        // the part plays again with a sound instrument
+        ctl.send(0, Command::set_instrument(1, Instrument::single(good))).unwrap();
+        ctl.send(0, Command::NoteOff { part: 0, note: 60 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 1, note: 67, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        assert!(eng.voices.iter().any(|v| v.is_active() && v.part == 1 && !v.is_released()));
+        // a reverb whose state went non-finite is cleared, and its tail comes back
+        let (mut nl, mut nr) = ([f32::NAN; 64], [f32::INFINITY; 64]);
+        eng.reverb.process(&mut nl, &mut nr);
+        let (l, r) = render(&mut eng, 9600);
+        assert!(l.iter().chain(&r).all(|v| v.is_finite()));
+        assert!(rms(&l[4800..]) > 1e-4 && rms(&r[4800..]) > 1e-4);
+    }
+
+    #[test]
+    fn reverb_return_changes_are_ramped() {
+        // three identical engines: return at 0 dB, switched off at frame T, and off throughout;
+        // the reverb's share of the output follows the return level sample by sample
+        const T: u64 = 9600;
+        let run = |ret0: f32, ret1: Option<f32>| {
+            let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+            ctl.send(0, Command::set_instrument(0, Instrument::single(testing::model()))).unwrap();
+            ctl.send(0, Command::SetPartParam { part: 0, param: PartParam::ReverbSend, value: 1.0 }).unwrap();
+            ctl.send(0, Command::SetMasterParam { param: MasterParam::ReverbReturn, value: ret0 }).unwrap();
+            ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+            if let Some(r) = ret1 {
+                ctl.send(T, Command::SetMasterParam { param: MasterParam::ReverbReturn, value: r }).unwrap();
+            }
+            let la = eng.limiter.latency();
+            (render(&mut eng, T as usize + 1024).0, la)
+        };
+        let ((a, la), (b, _), (c, _)) = (run(0.0, None), run(0.0, Some(-120.0)), run(-120.0, None));
+        let t0 = T as usize + la;
+        for k in [0usize, 16, 32, 48] {
+            let t = t0 + k;
+            let ratio = (b[t] - c[t]) / (a[t] - c[t]);
+            let want = 1.0 - (k + 1) as f32 / 64.0;
+            assert!((ratio - want).abs() < 0.02, "return at {k} samples into the change: {ratio:.3}, want {want:.3}");
+        }
+        assert!(b[t0 + 100..].iter().zip(&c[t0 + 100..]).all(|(x, y)| (x - y).abs() < 1e-5));
+    }
+
+    #[test]
+    fn a_full_queue_refuses_events_instead_of_playing_them_early() {
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(testing::model()))).unwrap();
+        render(&mut eng, 64);
+        assert_eq!(ctl.queue_free(), QUEUE_CAPACITY);
+        for i in 0..QUEUE_CAPACITY as u64 {
+            let cmd = if i % 2 == 0 { Command::NoteOn { part: 0, note: 60, velocity: 90 } } else { Command::NoteOff { part: 0, note: 60 } };
+            ctl.send(48_000 + i, cmd).unwrap();
+        }
+        assert_eq!(ctl.queue_free(), 0);
+        assert!(ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 90 }).is_err());
+        // the engine takes them all in, but nothing sounds before its time
+        render(&mut eng, 24_000);
+        assert_eq!(eng.active_voices(), 0);
+        assert!(ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 90 }).is_err(), "still waiting");
+        render(&mut eng, 24_000 + 100);
+        assert_eq!(ctl.queue_free(), 64 + 24_000 + 24_100 - 48_000, "applied events free their places");
+        ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 90 }).unwrap();
+    }
+
+    #[test]
+    fn rendering_restores_the_callers_denormal_mode() {
+        let denormal = || std::hint::black_box(1e-30f32) * std::hint::black_box(1e-10f32);
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(testing::model()))).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        // CC11 = 0: the expression smoother settles at exactly zero rather than in denormals
+        ctl.send(0, Command::ControlChange { part: 0, controller: 11, value: 0 }).unwrap();
+        render(&mut eng, 48_000);
+        let mut buf = vec![0.0f32; 960];
+        eng.process_interleaved(&mut buf, 2);
+        assert!(denormal() > 0.0, "offline rendering runs on the caller's thread");
+        assert_eq!(eng.parts[0].expression_smoothed, 0.0);
+    }
+
+    #[test]
+    fn layers_beyond_the_reserved_room_are_added() {
+        let m = testing::model();
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        for _ in 0..100 {
+            ctl.send(0, Command::add_layer(3, InstLayer { enabled: false, ..test_layer(m.clone()) })).unwrap();
+        }
+        ctl.send(0, Command::SetLayerEnabled { part: 3, layer: 99, enabled: true }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 3, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 480);
+        assert_eq!(eng.parts[3].inst.as_ref().map(|i| i.layers.len()), Some(100));
+        assert_eq!(eng.active_voices(), 1);
+        assert!(eng.parts[3].noise.is_some());
     }
 
     fn notes(eng: &Engine, part: usize) -> Vec<u8> {
@@ -1575,7 +2466,7 @@ mod tests {
         let layer = InstLayer { speech_ms: 20.0, ..InstLayer::new(a) };
         let mut inst = Instrument::default();
         inst.layers.push(layer);
-        ctl.send(0, Command::SetInstrument { part: 0, instrument: Box::new(inst) }).unwrap();
+        ctl.send(0, Command::set_instrument(0, inst)).unwrap();
         let mut started = Vec::new();
         for _ in 0..40 {
             let t0 = eng.now();
@@ -1610,7 +2501,7 @@ mod tests {
         let Some((mut eng, mut ctl)) = two_divisions() else { return };
         let Some(noise) = model("organ/great-principal-8") else { return };
         let layer = InstLayer { direct_only: true, ..InstLayer::new(noise) };
-        ctl.send(0, Command::AddLayer { part: 1, layer: Box::new(layer) }).unwrap();
+        ctl.send(0, Command::add_layer(1, layer)).unwrap();
         ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::to_parts(1 << 1) }).unwrap();
         ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
         render(&mut eng, 480);
@@ -1625,6 +2516,73 @@ mod tests {
         assert_eq!(noise_on, 1, "the key noise plays on after the key is up");
     }
 
+    /// A two-division organ (great with 8 stops, swell with 4, coupled), a piano and
+    /// strings-like violin, played for `seconds` with `threads` rendering threads.
+    fn ensemble(threads: usize, seconds: f32) -> Option<(Vec<f32>, Vec<f32>, usize)> {
+        let great = ["great-principal-8", "great-octave-4", "great-octave-2", "great-mixture", "great-gedackt-8", "great-trumpet-8", "great-sesquialtera", "great-rohrflute-4"];
+        let swell = ["swell-rohrflute-8", "swell-principal-4", "swell-scharf", "swell-schalmei-8"];
+        let mut g = Instrument::default();
+        for (i, name) in great.iter().enumerate() {
+            let m = model(&format!("organ/{name}"))?;
+            g.layers.push(InstLayer { speech_ms: 10.0, detune_cents: i as f32 * 0.3 - 1.0, ..InstLayer::new(m) });
+        }
+        let mut sw = Instrument::default();
+        for name in swell {
+            sw.layers.push(InstLayer { speech_ms: 10.0, ..InstLayer::new(model(&format!("organ/{name}"))?) });
+        }
+        let (piano, violin) = (model("grand-piano")?, model("violin")?);
+        let (mut eng, mut ctl) = Engine::new(EngineConfig { threads, max_voices: 160, ..EngineConfig::default() });
+        ctl.send(0, Command::set_instrument(0, g)).unwrap();
+        ctl.send(0, Command::set_instrument(1, sw)).unwrap();
+        ctl.send(0, Command::set_instrument(2, Instrument::single(piano))).unwrap();
+        ctl.send(0, Command::set_instrument(3, Instrument::single(violin))).unwrap();
+        ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::to_parts(1 << 1) }).unwrap();
+        ctl.send(0, Command::SetPartParam { part: 0, param: PartParam::Wind, value: 0.5 }).unwrap();
+        ctl.send(0, Command::SetPartParam { part: 1, param: PartParam::TremDepth, value: 1.0 }).unwrap();
+        ctl.send(0, Command::SetPartParam { part: 3, param: PartParam::ChorusMix, value: 0.3 }).unwrap();
+        let sr = 48000.0;
+        let mut t = 0.05f32;
+        let mut k = 0u8;
+        while t < seconds - 0.5 {
+            let at = (t * sr) as u64;
+            for n in [48u8, 55, 60, 64, 67].iter().map(|n| n + k % 5) {
+                ctl.send(at, Command::NoteOn { part: 0, note: n, velocity: 100 }).unwrap();
+                ctl.send(at + 9000, Command::NoteOff { part: 0, note: n }).unwrap();
+            }
+            ctl.send(at + 1000, Command::NoteOn { part: 2, note: 40 + k, velocity: 90 }).unwrap();
+            ctl.send(at + 1000, Command::NoteOn { part: 3, note: 62 + k % 7, velocity: 90 }).unwrap();
+            ctl.send(at + 15000, Command::NoteOff { part: 3, note: 62 + k % 7 }).unwrap();
+            t += 0.23;
+            k = k.wrapping_add(1);
+        }
+        let n = (seconds * sr) as usize;
+        let (mut l, mut r) = (vec![0.0; n], vec![0.0; n]);
+        let mut most = 0;
+        // buffers of varying size, as audio callbacks deliver them
+        let mut i = 0;
+        let mut b = 0;
+        while i < n {
+            let len = [128usize, 64, 441, 37, 256][b % 5].min(n - i);
+            eng.process_planar(&mut l[i..i + len], &mut r[i..i + len]);
+            most = most.max(eng.active_voices());
+            i += len;
+            b += 1;
+        }
+        Some((l, r, most))
+    }
+
+    #[test]
+    fn the_output_is_the_same_for_any_number_of_threads() {
+        let Some((l1, r1, voices)) = ensemble(1, 4.0) else { return };
+        assert!(voices > PARALLEL_VOICES * 3, "a load worth sharing out: {voices} voices");
+        assert!(rms(&l1) > 1e-3);
+        for threads in [2, 3, 4] {
+            let (l, r, _) = ensemble(threads, 4.0).unwrap();
+            let same = l.iter().zip(&l1).chain(r.iter().zip(&r1)).all(|(a, b)| a.to_bits() == b.to_bits());
+            assert!(same, "{threads} threads render differently from one");
+        }
+    }
+
     #[test]
     fn a_stop_drawn_on_a_held_note_speaks_after_its_delay() {
         let Some((mut eng, mut ctl)) = two_divisions() else { return };
@@ -1632,7 +2590,7 @@ mod tests {
         ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
         render(&mut eng, 4800);
         let layer = InstLayer { speech_ms: 12.0, enabled: false, ..InstLayer::new(b) };
-        ctl.send(eng.now(), Command::AddLayer { part: 0, layer: Box::new(layer) }).unwrap();
+        ctl.send(eng.now(), Command::add_layer(0, layer)).unwrap();
         ctl.send(eng.now(), Command::SetLayerEnabled { part: 0, layer: 1, enabled: true }).unwrap();
         render(&mut eng, 4800);
         assert_eq!(speaking(&eng, 0), 2);
