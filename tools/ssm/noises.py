@@ -69,7 +69,8 @@ def sources(odf: ODF, cat: dict) -> dict:
         if m:
             p = _pipe_from(odf, sec, 1, 60)
             if p is not None:
-                (on if m.group(1).lower() == 'attack' else off)[_norm(m.group(2))] = p
+                # the same noise once per microphone perspective: they sound together
+                (on if m.group(1).lower() == 'attack' else off).setdefault(_norm(m.group(2)), []).append(p)
     raw = {st['id']: _norm(odf.get(st['section'], 'Name', '') or '') for st in cat['stops']}
     for sid, rn in raw.items():
         if rn in on or rn in off:
@@ -178,6 +179,8 @@ def hw_sources(hw: HauptwerkODF, cat: dict) -> dict:
                 pair[0 if m.group(1).lower() == 'attack' else 1].append(pp)
             continue
         if re.match(r'noises$', fam, re.I):
+            if re.search(r'trem', switch_name.get(pallet, ''), re.I):
+                continue                    # the tremulant's motor
             kind = 'blower' if re.search(r'blower|dmuch', switch_name.get(pallet, ''), re.I) else 'ambient'
             out[kind] = (out[kind] or []) + [pp]
     out['stops'] = {k: (v[0] or None, v[1] or None) for k, v in out['stops'].items()}
@@ -186,7 +189,7 @@ def hw_sources(hw: HauptwerkODF, cat: dict) -> dict:
 
 # ── analysis ───────────────────────────────────────────────────────────────────────────────
 def noise_zone(x: np.ndarray, sr: int, note: float, *, sustained: bool = False, cue: int | None = None,
-               source: str = '') -> Zone | None:
+               loop_at: tuple[int, int] | None = None, source: str = '') -> Zone | None:
     """One noise recording (stereo) as a zone: its noise-band envelope over time and, for a
     click, its first CLICK_S seconds as recorded. Sustained noises (blower, room) loop their
     steady part and keep the recording's own ending after the cue."""
@@ -227,23 +230,31 @@ def noise_zone(x: np.ndarray, sr: int, note: float, *, sustained: bool = False, 
     tot = 10 * np.log10(np.sum(noise, axis=1) + 1e-14)
     loop, rel_frame = None, None
     if sustained:
-        end_t = cue / sr if cue else dur
-        # loop the steady noise: from 1 s after the start (the blower has spun up) for up to
-        # 4 s, ending before the cue; the frames from the cue on are its ending
-        a = int(np.searchsorted(grid, min(1.0, 0.3 * end_t)))
-        b = int(np.searchsorted(grid, min(end_t - 0.2, grid[a] + 4.0)))
+        if loop_at is not None and 0 <= loop_at[0] < loop_at[1] <= len(x):
+            # the recording's own loop (in GrandOrgue): its sustain ends where the loop does
+            end_t = loop_at[1] / sr
+            a = int(np.searchsorted(grid, loop_at[0] / sr))
+            b = int(np.searchsorted(grid, min(end_t, grid[a] + 4.0))) - 1
+        else:
+            end_t = cue / sr if cue else dur
+            # loop the steady noise: from 1 s after the start (the blower has spun up) for up
+            # to 4 s, ending before the cue
+            a = int(np.searchsorted(grid, min(1.0, 0.3 * end_t)))
+            b = int(np.searchsorted(grid, min(end_t - 0.2, grid[a] + 4.0)))
+        cue = int(end_t * sr) if end_t < dur - 0.3 else None   # the frames after it are its ending
         if b - a < 8:
             return None
         loop = (a, b)
         keep = np.arange(b + 2)
         if cue:
-            r = int(np.searchsorted(grid, end_t - 0.02))
+            r = max(int(np.searchsorted(grid, end_t - 0.02)), b + 3)   # after the frames kept for the loop
             alive = np.where((np.arange(len(grid)) > r) & (tot < tot.max() - TAIL_DB))[0]
             end = int(alive[0]) + 1 if len(alive) else len(grid)
             if end - r >= 8:
                 keep = np.concatenate([np.arange(b + 3), np.arange(r, end)])
                 rel_frame = b + 3
         grid, noise_db = grid[keep], noise_db[keep]
+        assert np.all(np.diff(grid) > 0), 'noise zone frames out of order'
     else:
         alive = np.where(tot > tot.max() - TAIL_DB)[0]
         T = max(8, int(alive[-1]) + 2 if len(alive) else len(grid))
@@ -308,11 +319,42 @@ def _header(path: str) -> bytes:
     return raw[8:8 + n]
 
 
+def _hauptwerk_beside(organ: str) -> HauptwerkODF | None:
+    import glob
+    xml = glob.glob(os.path.join(piotr.SAMPLES, organ, 'OrganDefinitions', '*.Organ_Hauptwerk_xml'))
+    return HauptwerkODF(xml[0]) if xml else None
+
+
+def _hw_catalog(cat: dict, hw: HauptwerkODF) -> dict:
+    """The catalogue as the Hauptwerk definition numbers it: its divisions in order are the
+    GrandOrgue manuals in order; its stops are matched by division and name."""
+    hw_divs = sorted(int(d['DivisionID']) for d in hw.all('Division'))
+    go_mans = sorted({st['manual'] for st in cat['stops']})
+    to_hw = dict(zip(go_mans, hw_divs))
+    stops = []
+    for x in hw.all('Stop'):
+        div = int(x['DivisionID'])
+        name = piotr.clean_name(x.get('Name', ''), '')
+        st = next((st for st in cat['stops'] if to_hw.get(st['manual']) == div and st['name'].lower() == name.lower()), None)
+        if st:
+            stops.append({**st, 'section': f"hwstop{x['StopID']}", 'manual': div})
+    return {**cat, 'stops': stops}
+
+
 def build_noises(organ: str, workers: int = min(4, os.cpu_count() or 4)) -> dict:
     """Every noise model of an organ; returns the map the organ's config needs."""
     cat = piotr.load_catalog(organ)
     odf = piotr.load_odf(organ)
     src = hw_sources(odf, cat) if isinstance(odf, HauptwerkODF) else sources(odf, cat)
+    hw = _hauptwerk_beside(organ)
+    if hw is not None and not isinstance(odf, HauptwerkODF):
+        # a GrandOrgue definition made from a Hauptwerk set may leave its noises out: take
+        # what is missing from the Hauptwerk definition
+        extra = hw_sources(hw, _hw_catalog(cat, hw))
+        for k in ('keys', 'stops', 'tremulants', 'couplers'):
+            src[k] = src[k] or extra[k]
+        for k in ('blower', 'ambient'):
+            src[k] = src[k] or extra[k]
     base = f'organ/{organ}/noise'
     out = {'keys': {}, 'stops': {}, 'tremulants': {}, 'couplers': {}}
     with ProcessPoolExecutor(workers, initializer=build._worker_init) as ex:
@@ -355,7 +397,9 @@ def build_noises(organ: str, workers: int = min(4, os.cpu_count() or 4)) -> dict
             if p is None:
                 continue
             x, sr, cue = signal_of(p, 'on')
-            z = noise_zone(x, sr, 60, sustained=True, cue=cue, source=kind)
+            from grandorgue import wav_loops
+            loops = wav_loops((p[0] if isinstance(p, list) else p).attack)
+            z = noise_zone(x, sr, 60, sustained=True, cue=cue, loop_at=loops[0] if loops else None, source=kind)
             if z is not None:
                 write(f'{base}-{kind}', [z], cat, kind, 'natural')
                 out[kind] = f'{base}-{kind}'
