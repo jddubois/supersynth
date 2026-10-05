@@ -9,6 +9,7 @@ same fade-out. The answer key is written outside the pair directory.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -25,10 +26,31 @@ from instruments import INSTRUMENTS
 from paths import DATA_ROOT
 
 HOLD = os.path.join(DATA_ROOT, 'holdout')
+HERE = os.path.dirname(os.path.abspath(__file__))
+# the code a model's content depends on: a change to any of it rebuilds the cached hold-out models
+ANALYSIS_SOURCES = ('analysis.py', 'build.py', 'layer_levels.py')
+
+
+def holdout_hash(spec: dict) -> str:
+    """Hash of everything a hold-out model is built from: its spec (with the kept recordings),
+    the analysis source code, the experiment flags in effect and the numeric libraries' versions."""
+    import numba
+    import scipy
+    from build import experiment_flags
+    h = hashlib.sha256()
+    h.update(json.dumps(spec, sort_keys=True, default=str).encode())
+    for name in ANALYSIS_SOURCES:
+        with open(os.path.join(HERE, name), 'rb') as fh:
+            h.update(name.encode() + b'\0' + fh.read())
+    h.update(json.dumps(experiment_flags(), sort_keys=True).encode())
+    h.update(f'{np.__version__} {scipy.__version__} {numba.__version__} {sf.__version__}'.encode())
+    return h.hexdigest()
 
 
 def holdout_model(model_id: str) -> tuple[str, list[tuple[str, int, str]]]:
-    """Build (once) a model without every other pitch; return path and held-out items."""
+    """Build a model without every other pitch; return path and held-out items. The model is
+    cached in HOLD with the hash of its spec and the analysis code (<id>.json next to it) and
+    rebuilt when that changes."""
     os.makedirs(HOLD, exist_ok=True)
     safe = model_id.replace('/', '__')
     path = os.path.join(HOLD, f'{safe}.ssm')
@@ -43,12 +65,25 @@ def holdout_model(model_id: str) -> tuple[str, list[tuple[str, int, str]]]:
         lst.sort()
         for i, (n, f, ll) in enumerate(lst):
             (test if (i % 2 == 1 and 0 < i < len(lst) - 1) else keep).append((f, n, ll))
-    if not os.path.exists(path):
-        data = os.path.join(DATA_ROOT, 'samples')
-        spec['files'] = [os.path.relpath(f, data) for f, _, _ in keep]
+    data = os.path.join(DATA_ROOT, 'samples')
+    spec['files'] = [os.path.relpath(f, data) for f, _, _ in keep]
+    key = holdout_hash(spec)
+    cached = None
+    if os.path.exists(path) and os.path.exists(meta):
+        try:
+            with open(meta) as fh:
+                cached = json.load(fh).get('hash')
+        except (OSError, ValueError):
+            cached = None
+    if cached != key:
+        if os.path.exists(path):
+            print(f'  {model_id}: hold-out model out of date (spec or analysis code changed): rebuilding', flush=True)
+            os.remove(path)
+        if os.path.exists(meta):
+            os.remove(meta)
         build(safe, spec, out_dir=HOLD)
         with open(meta, 'w') as fh:
-            json.dump({'test': test}, fh)
+            json.dump({'test': test, 'hash': key}, fh)
     return path, test
 
 
