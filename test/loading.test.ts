@@ -72,6 +72,19 @@ describe('background model loading', () => {
     expect(late).toEqual(loaded);
   });
 
+  test('in real time too, the registration given to add() sounds as soon as add() returns', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    synth['emulateRealtime'] = true;
+    const organ = synth.add('burea', { preset: 'plenum', preload: 'all' });
+    for (const d of organ.divisions()) {
+      const layers = d['layers'] as Map<string, number>;
+      for (const name of d.drawn()) expect(layers.has(name)).toBe(true);
+    }
+    organ.great.play('C4', { duration: 0.3 });
+    expect(rms(synth._native().render(Math.round(22050 * 0.4)))).toBeGreaterThan(1e-4);
+    synth.close();
+  });
+
   test('in real time, a stop drawn while its model loads does not wait: it sounds once loaded', async () => {
     const synth = new Synth({ sampleRate: 22050, reverb: false });
     synth['emulateRealtime'] = true;
