@@ -2,7 +2,8 @@
  * Engine throughput: how many times faster than real time each scenario renders
  * (single core, offline). CPU % is the share of one core needed in real time.
  *
- *   npm run bench              (SUPERSYNTH_MODELS_DIR=<dir> to benchmark other models)
+ *   npm run bench              (SUPERSYNTH_MODELS_DIR=<dir> to benchmark other models: looked up
+ *                               there first, laid out like models/, e.g. <dir>/organ/<id>/<stop>.ssm)
  */
 import { Synth } from '../src/index.ts';
 

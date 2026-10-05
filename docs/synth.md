@@ -44,7 +44,7 @@ Six rules hold everywhere:
 | `quality` | `'high'` | partials per note: `'high'` 512, `'balanced'` 128, `'eco'` 32 (small boards such as a Raspberry Pi) |
 | `maxVoices` | `192` | quietest/oldest voices are stolen beyond this |
 | `bufferSize` | device default | frames per audio callback |
-| `modelsDirectory` | package `models/` | where `.ssm` models are loaded from |
+| `modelsDirectory` | none | a directory searched first for `.ssm` models, laid out like `models/` (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`); then supersynth's own models and the installed organ packages |
 
 | Method | |
 |---|---|
