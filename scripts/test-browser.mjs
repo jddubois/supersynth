@@ -8,7 +8,6 @@
 //
 // Chromium: playwright-core's (`npx playwright-core install chromium`), or $CHROMIUM_PATH.
 import assert from 'node:assert/strict';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,9 +49,9 @@ async function test(name, fn) {
 
 const CHORD = ['C4', 'E4', 'G4'];
 const PLENUM = ['C3', 'G3', 'C4', 'E4', 'G4', 'C5'];
-const cores = os.availableParallelism?.() ?? os.cpus().length;
-
 const { run, close } = await page();
+// the cores the page may use: several threads must be faster only where there are 4 or more
+const cores = await run('cores');
 
 await test('a piano renders offline', async () => {
   const r = await run('offline', { id: 'grand-piano', threads: 1, notes: CHORD });
@@ -72,11 +71,21 @@ await test('a piano plays in real time through the AudioWorklet', async () => {
 });
 
 await test('the render workers share out a full organ', async () => {
-  const one = await run('offline', { id: 'burea', preset: 'full', threads: 1, notes: PLENUM, seconds: 3 });
-  const many = await run('offline', { id: 'burea', preset: 'full', threads: Math.min(4, cores), notes: PLENUM, seconds: 3 });
-  console.log(`  Bureå full organ, offline: ${(100 * one.realTime).toFixed(0)} % of real time on 1 thread, ${(100 * many.realTime).toFixed(0)} % on ${many.threads}`);
+  // the fastest of three renders on each thread count (a shared CI machine has stalls of its own)
+  const best = async (threads) => {
+    let fastest;
+    for (let i = 0; i < 3; i++) {
+      const r = await run('offline', { id: 'burea', preset: 'full', threads, notes: PLENUM, seconds: 3 });
+      assert.equal(r.error, null);
+      if (!fastest || r.realTime < fastest.realTime) fastest = r;
+    }
+    return fastest;
+  };
+  const one = await best(1);
+  const many = await best(Math.min(4, cores));
+  console.log(`  Bureå full organ, offline (fastest of 3), ${cores} cores: ${(100 * one.realTime).toFixed(0)} % of real time on 1 thread, ${(100 * many.realTime).toFixed(0)} % on ${many.threads}`);
   assert.equal(many.peak, one.peak, 'the same sound on any number of threads');
-  if (cores >= 4) assert.ok(many.realTime < one.realTime * 0.6, 'faster on several threads');
+  if (cores >= 4) assert.ok(many.realTime < one.realTime * 0.6, `faster on ${many.threads} threads`);
 });
 
 await test('a full organ plays in real time on several threads', async () => {

@@ -10,11 +10,13 @@ const peak = (a) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Add `id`, play a chord, render offline: how long it took. */
+/** Add `id`, play a chord, render offline: how long it took. (Once an organ's other stops have
+ *  loaded: their loading workers would compete with the render workers for the cores.) */
 async function offline({ id, preset, threads, notes, seconds = 2 }) {
   const synth = await Synth.create({ threads });
   await synth.load(id);
   const it = synth.add(id, preset ? { preset } : {});
+  await synth.ready();
   const kb = it.great ?? it;
   kb.play(notes, { velocity: 90, duration: 1.5 });
   it.pedal?.play('C2', { velocity: 90, duration: 1.5 });
@@ -26,11 +28,13 @@ async function offline({ id, preset, threads, notes, seconds = 2 }) {
   return r;
 }
 
-/** Add `id`, start real-time output, play a chord for 2 s: how the engine kept up. */
+/** Add `id`, start real-time output, play a chord for 2 s: how the engine kept up (once an
+ *  organ's other stops have loaded, as offline). */
 async function live({ id, preset, threads, notes }) {
   const synth = await Synth.create({ threads });
   await synth.load(id);
   const it = synth.add(id, preset ? { preset } : {});
+  await synth.ready();
   await synth.start();
   const kb = it.great ?? it;
   const t0 = synth.currentTime;
@@ -83,6 +87,11 @@ async function loading({ id, preset }) {
   return r;
 }
 
+/** The cores the page may use (what the engine's default thread count follows). */
+async function cores() {
+  return navigator.hardwareConcurrency ?? 1;
+}
+
 /** What a page without the headers gets. */
 async function create() {
   try {
@@ -93,5 +102,5 @@ async function create() {
   }
 }
 
-window.cases = { offline, live, loading, create };
+window.cases = { offline, live, loading, cores, create };
 window.ready = true;
