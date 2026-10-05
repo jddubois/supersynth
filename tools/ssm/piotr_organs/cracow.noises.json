@@ -1,0 +1,221 @@
+{
+ "keys": {
+  "pedal": {
+   "down": "organ/cracow/noise-keys-pedal-down",
+   "up": "organ/cracow/noise-keys-pedal-up"
+  },
+  "great": {
+   "down": "organ/cracow/noise-keys-great-down",
+   "up": "organ/cracow/noise-keys-great-up"
+  },
+  "positive": {
+   "down": "organ/cracow/noise-keys-positive-down",
+   "up": "organ/cracow/noise-keys-positive-up"
+  },
+  "swell": {
+   "down": "organ/cracow/noise-keys-swell-down",
+   "up": "organ/cracow/noise-keys-swell-up"
+  }
+ },
+ "stops": {
+  "great-bourdon-16": [
+   3,
+   4
+  ],
+  "great-bourdon-8": [
+   5,
+   6
+  ],
+  "great-clairon-4": [
+   7,
+   8
+  ],
+  "great-cornet-5x": [
+   9,
+   10
+  ],
+  "great-doublette-2": [
+   11,
+   12
+  ],
+  "great-flute-douce-4": [
+   13,
+   14
+  ],
+  "great-flute-harmonique-8": [
+   15,
+   16
+  ],
+  "great-montre-8": [
+   17,
+   18
+  ],
+  "great-plein-jeu-5x": [
+   19,
+   20
+  ],
+  "great-prestant-4": [
+   21,
+   22
+  ],
+  "great-trompette-8": [
+   23,
+   24
+  ],
+  "great-viole-de-gambe-8": [
+   25,
+   26
+  ],
+  "pedal-bombarde-16": [
+   27,
+   28
+  ],
+  "pedal-contrebasse-16": [
+   29,
+   30
+  ],
+  "pedal-flute-4": [
+   31,
+   32
+  ],
+  "pedal-octave-8": [
+   33,
+   34
+  ],
+  "pedal-soubasse-16": [
+   35,
+   36
+  ],
+  "pedal-violoncelle-8": [
+   37,
+   38
+  ],
+  "positive-clarinette-8": [
+   39,
+   40
+  ],
+  "positive-cor-de-nuit-8": [
+   41,
+   42
+  ],
+  "positive-cromorne-8": [
+   43,
+   44
+  ],
+  "positive-dolce-4": [
+   45,
+   46
+  ],
+  "positive-nazard-2-2-3": [
+   47,
+   48
+  ],
+  "positive-octavin-2": [
+   49,
+   50
+  ],
+  "positive-prestant-4": [
+   51,
+   52
+  ],
+  "positive-salicional-8": [
+   53,
+   54
+  ],
+  "positive-tierce-1-3-5": [
+   55,
+   56
+  ],
+  "positive-unda-maris-8": [
+   57,
+   58
+  ],
+  "swell-aeoline-8": [
+   59,
+   60
+  ],
+  "swell-basson-16": [
+   61,
+   62
+  ],
+  "swell-bourdon-8": [
+   63,
+   64
+  ],
+  "swell-clairon-4": [
+   65,
+   66
+  ],
+  "swell-doublette-2": [
+   67,
+   68
+  ],
+  "swell-flute-octaviante-4": [
+   69,
+   70
+  ],
+  "swell-flute-traversiere-8": [
+   71,
+   72
+  ],
+  "swell-fugara-4": [
+   73,
+   74
+  ],
+  "swell-harmonia-aethera-4x": [
+   75,
+   76
+  ],
+  "swell-hautbois-8": [
+   77,
+   78
+  ],
+  "swell-trompette-harmonique-8": [
+   79,
+   80
+  ],
+  "swell-voix-celeste-8": [
+   81,
+   82
+  ]
+ },
+ "tremulants": {
+  "tremulant 2 man": [
+   83,
+   84
+  ],
+  "tremulant 3 man": [
+   85,
+   86
+  ]
+ },
+ "couplers": {
+  "coupler 1": [
+   87,
+   88
+  ],
+  "coupler 2": [
+   89,
+   90
+  ],
+  "coupler 3": [
+   91,
+   92
+  ],
+  "coupler 4": [
+   93,
+   94
+  ],
+  "coupler 5": [
+   95,
+   96
+  ],
+  "coupler 6": [
+   97,
+   98
+  ]
+ },
+ "stopsModel": "organ/cracow/noise-stops",
+ "blower": "organ/cracow/noise-blower",
+ "ambient": "organ/cracow/noise-ambient"
+}
