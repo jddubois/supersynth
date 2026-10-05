@@ -281,10 +281,38 @@ band levels per 100 ms, against the full tails):
 | `{ floorDb: -80 }` | 334 / 529 | up to 1.8 dB, and the end of the room tail is cut in pauses |
 
 Neither saves enough for fast pieces on the Friesach and Cracow plena to fit a Pi 5
-(about 4× its budget); on the Pi, play the large organs with lighter registrations, which fit.
+(about 4× its budget); on the Pi, play the large organs with lighter registrations, which fit —
+or let the overload guard trade tails for time when needed.
+
+**Overload guard** (`new Synth({ overloadGuard: true })`, opt-in, real-time output only). It
+watches how long each audio buffer takes to render (all threads, wall clock). When the load,
+smoothed over ~100 ms, passes 85 % of the buffer's duration (or a buffer is late on a busy
+engine), it ends the quietest notes in their release with a 10 ms fade, just as many as the
+measured cost per voice says are needed for the next buffers to fit in 70 %; only when no
+released note is left does it fade out upper partials of the quietest held notes (never below a
+quarter of them). Held notes and attacks are never cut. It lets go once the load has stayed below
+50 % for 0.5 s (at least 1 s after engaging), and partials fade back in. While nothing is
+overloaded it does nothing: the output is bit-for-bit the same as without it (tested on piano,
+strings and the Bureå plenum played live), and offline rendering is never guarded.
+`synth.guardActive` and `synth.guardStats` (`{ active, voicesShed, partialsReduced }`) report what
+it does. So a large organ on a Pi 5 degrades gracefully — shorter tails under load — instead of
+crackling. BWV 532 played live (`live-test --guard --repeat 3`, SSE4.1; dropouts = buffers past
+their deadline out of 16,875; band change = third-octave levels per 100 ms while the guard is
+active, against the full render, `bench/bands.ts`):
+
+| | Pi 5 estimate (3 threads, 1.7× slower) off → on | 1 thread on this VM off → on | voices (peak) off → on | band change, median / p90 / p99 |
+|---|---|---|---|---|
+| Bureå plenum | 2380 → 1 | 3430 → 0 | 113 → 54 | 0.09 / 0.98 / 5.5 dB |
+| Friesach plenum | 16209 → 0 | 16353 → 1 | 945 → 105 | 0.41 / 2.7 / 10.9 dB |
+| Cracow plein-jeu | 15817 → 0 | 16068 → 1 | 1029 → 119 | 0.40 / 2.9 / 18 dB |
+
+The large changes are in the quiet bands of the room between notes, where the shed releases
+were; the notes themselves are untouched. On a machine that keeps up, the guard never engages.
 
 Recommended on a Raspberry Pi 5: 64-bit OS, `threads: 'auto'` (or 4 if nothing else runs),
-`bufferSize: 256` (5.3 ms) for organs, and the defaults otherwise. Check with
+`bufferSize: 256` (5.3 ms) for organs, and the defaults otherwise; add `overloadGuard: true` to
+play the large organs (Friesach, Cracow, Szczecinek, Bureå at full registration) with shorter
+tails instead of dropouts. Check with
 `npm run live-test -- --repeat 3` and `npm run bench:organs` on the Pi itself; real-time output
 asks for real-time scheduling for the render threads (granted where the user's real-time
 priority limit allows it, as for JACK).
