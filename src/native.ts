@@ -34,6 +34,9 @@ export interface NativeEngine {
   readonly cpuLoad: number;
   readonly isRunning: boolean;
   readonly queueFree: number;
+  /** The audio thread hit an internal error and now outputs silence. */
+  readonly faulted: boolean;
+  readonly error: string | null;
   loadModel(bytes: Buffer): number;
   unloadModel(id: number): void;
   modelInfo(id: number): string;

@@ -165,6 +165,12 @@ export class Synth extends EventEmitter {
     return this.engine.isRunning;
   }
 
+  /** The engine's internal error, if it hit one: it then outputs silence until a new `Synth`
+   *  is created. `null` while all is well. */
+  get engineError(): string | null {
+    return this.engine.faulted ? (this.engine.error ?? 'engine fault') : null;
+  }
+
   // ── instruments ───────────────────────────────────────────────────────────
 
   /**

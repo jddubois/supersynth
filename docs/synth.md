@@ -63,6 +63,7 @@ Six rules hold everywhere:
 |---|---|
 | `currentTime` | engine clock, seconds — schedule with `{ at: synth.currentTime + x }` |
 | `sampleRate`, `activeVoices`, `cpuLoad`, `isRunning` | |
+| `engineError` | the engine's internal error, or `null`; after one the engine is silent until a new `Synth` is created |
 
 Events: `'midi'` (`MidiEvent`) for every message once hardware MIDI is enabled; `'error'` for an
 organ preset that fails on a MIDI program change (see [organ.md](organ.md#midi-keyboards)).

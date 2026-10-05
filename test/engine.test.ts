@@ -21,6 +21,7 @@ describe('Synth offline rendering', () => {
     expect(a.left.length).toBe(12000);
     expect(a.right.length).toBe(12000);
     expect(peak(a.left)).toBeLessThan(1e-9);
+    expect(synth.engineError).toBeNull();
   });
 
   test('a piano note sounds, stays finite and bounded, and ends after release', () => {
