@@ -106,7 +106,9 @@ impl NoiseBank {
                 while b + 1 < nb && band_center[b + 1] < f {
                     b += 1;
                 }
-                let w = (f / band_center[b]).ln() / (band_center[b + 1] / band_center[b]).ln();
+                // coincident centres (bands squeezed against 1 Hz or Nyquist): no interpolation
+                let span = (band_center[b + 1] / band_center[b]).ln();
+                let w = if span > 0.0 { (f / band_center[b]).ln() / span } else { 0.0 };
                 bin_lo[k] = b as u16;
                 bin_w[k] = w.clamp(0.0, 1.0);
             }

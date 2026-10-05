@@ -13,7 +13,7 @@ use crate::dsp::{db_to_amp, noise::Rng, pan_gains, BLOCK};
 use crate::model::{a16_to_db, Kind, Model, ReleaseMode, MAX_PARTIALS, PULSE_BINS};
 
 pub const MAX_ZONES: usize = 4;
-pub const MAX_BANDS: usize = 32;
+pub const MAX_BANDS: usize = crate::model::MAX_NOISE_BANDS;
 const LANES: usize = 8;
 const SILENT_DB: f32 = -110.0;
 
@@ -349,7 +349,16 @@ impl SpectralVoice {
     pub fn start(&mut self, on: NoteOn) {
         let m: &Model = on.model;
         let p = on.params;
-        self.model = Some(Arc::clone(on.model));
+        if m.zones.is_empty() || m.layers.is_empty() {
+            // nothing to play (`Model::from_bytes` rejects such models; hand-built ones may not)
+            self.state = State::Done;
+            return;
+        }
+        if !self.model.as_ref().is_some_and(|old| Arc::ptr_eq(old, on.model)) {
+            // the engine takes the previous model first (`take_model`) so that its last
+            // reference is never dropped here, on the audio thread
+            self.model = Some(Arc::clone(on.model));
+        }
         self.note = on.note;
         self.velocity = on.velocity;
         self.sr = on.sample_rate;
@@ -369,7 +378,7 @@ impl SpectralVoice {
         // ── zone selection: pitch × velocity ──────────────────────────────
         let pitch = on.pitch;
         let vel = on.velocity as f32;
-        let nl = m.layers.len().max(1);
+        let nl = m.layers.len();
         // velocity sensitivity: compress towards the loudest layer
         let top_v = m.layers.last().map(|l| l.velocity).unwrap_or(127.0);
         let v_eff = top_v + (vel - top_v) * p.velocity_sens;
@@ -377,9 +386,9 @@ impl SpectralVoice {
         let mut gain = m.params.gain_db + p.gain_db;
         // Loudness follows a fixed velocity curve anchored at the loudest layer; the
         // layers' own recorded level differences are compensated so they only carry timbre.
-        if nl > 0 {
-            let top_level = m.layers[nl - 1].level_db;
-            let rec = m.layers[la].level_db * (1.0 - lw) + m.layers[lb].level_db * lw;
+        if let (Some(top), Some(a), Some(b)) = (m.layers.last(), m.layers.get(la), m.layers.get(lb)) {
+            let top_level = top.level_db;
+            let rec = a.level_db * (1.0 - lw) + b.level_db * lw;
             let v_rel = v_eff.clamp(1.0, 127.0) / top_v.max(1.0);
             gain += m.params.velocity_db * 40.0 * v_rel.log10() - (rec - top_level);
         }
@@ -404,7 +413,7 @@ impl SpectralVoice {
             if lwt <= 1e-4 {
                 continue;
             }
-            let zs = &m.by_layer[layer.min(m.by_layer.len() - 1)];
+            let Some(zs) = m.by_layer.get(layer).or(m.by_layer.last()) else { continue };
             if zs.is_empty() {
                 continue;
             }
@@ -418,9 +427,7 @@ impl SpectralVoice {
         if self.nz == 0 {
             // layer without zones: fall back to nearest zone in the model
             let zi = (0..m.zones.len())
-                .min_by(|&a, &b| {
-                    (m.zones[a].note - pitch).abs().partial_cmp(&(m.zones[b].note - pitch).abs()).unwrap()
-                })
+                .min_by(|&a, &b| (m.zones[a].note - pitch).abs().total_cmp(&(m.zones[b].note - pitch).abs()))
                 .unwrap_or(0);
             self.zone[0] = zi;
             self.w[0] = 1.0;
@@ -430,7 +437,7 @@ impl SpectralVoice {
         for w in &mut self.w[..self.nz] {
             *w /= wsum;
         }
-        self.dominant = (0..self.nz).max_by(|&a, &b| self.w[a].partial_cmp(&self.w[b]).unwrap()).unwrap();
+        self.dominant = (0..self.nz).max_by(|&a, &b| self.w[a].total_cmp(&self.w[b])).unwrap_or(0);
         for j in 0..self.nz {
             self.pos[j] = 0.0;
             self.dir[j] = 1.0;

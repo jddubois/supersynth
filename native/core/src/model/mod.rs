@@ -52,6 +52,19 @@ pub const PULSE_MAX: f32 = 4.0;
 
 pub const MAX_PARTIALS: usize = 512;
 
+/// Most residual-noise bands a model may have (voices and the noise bank hold this many).
+pub const MAX_NOISE_BANDS: usize = 32;
+
+// Limits for untrusted model files (far above any real model): a corrupt or hostile file is
+// rejected with an error instead of exhausting memory or overflowing size computations.
+const MAX_MODEL_BYTES: usize = 256 << 20;
+const MAX_HEADER_BYTES: usize = 16 << 20;
+const MAX_MODEL_ZONES: usize = 4096;
+const MAX_LAYERS: usize = 128;
+const MAX_FRAMES: usize = 1 << 17;
+const MAX_STORED_PARTIALS: usize = 8192;
+const MAX_TRANSIENT_SAMPLES: usize = 1 << 22;
+
 /// In-memory partial amplitudes: u16 in 1/32 dB above −160 dB (0 = silent).
 pub const AMP_UNIT_DB: f32 = 1.0 / 32.0;
 pub const AMP_FLOOR_DB: f32 = -160.0;
@@ -398,8 +411,118 @@ struct Header {
     params: HParams,
 }
 
+impl Header {
+    /// Model-level sanity checks (counts, sizes, finite numbers).
+    fn validate(&self) -> Result<(), String> {
+        if self.layers.is_empty() || self.layers.len() > MAX_LAYERS {
+            return Err(format!("model must have 1–{MAX_LAYERS} layers (has {})", self.layers.len()));
+        }
+        if self.zones.is_empty() || self.zones.len() > MAX_MODEL_ZONES {
+            return Err(format!("model must have 1–{MAX_MODEL_ZONES} zones (has {})", self.zones.len()));
+        }
+        if self.noise_edges.len().saturating_sub(1) > MAX_NOISE_BANDS {
+            return Err(format!("model has more than {MAX_NOISE_BANDS} noise bands"));
+        }
+        if self.noise_edges.iter().any(|e| !e.is_finite() || *e < 0.0) || self.noise_edges.windows(2).any(|w| w[1] <= w[0]) {
+            return Err("model noise band edges must be increasing frequencies".into());
+        }
+        if self.grid.len() > MAX_FRAMES || self.grid.iter().any(|g| !g.is_finite()) {
+            return Err("model time grid out of range".into());
+        }
+        for l in &self.layers {
+            check_finite(l.velocity, "layer velocity")?;
+            check_opt(l.level, "layer level")?;
+        }
+        let p = &self.params;
+        for (v, what) in [
+            (p.gain_db, "gainDb"),
+            (p.formant, "formant"),
+            (p.undamped_from, "undampedFrom"),
+            (p.min_release_db_s, "minReleaseDbS"),
+            (p.spread, "spread"),
+            (p.key_pan, "keyPan"),
+            (p.reverb_send, "reverbSend"),
+            (p.pitch_jitter_cents, "pitchJitterCents"),
+            (p.velocity_brightness, "velocityBrightness"),
+            (p.velocity_db, "velocityDb"),
+        ] {
+            check_opt(v, what)?;
+        }
+        for &(n, r) in p.damper.iter().flatten() {
+            check_finite(n, "damper note")?;
+            check_finite(r, "damper rate")?;
+        }
+        Ok(())
+    }
+}
+
+impl HZone {
+    fn validate(&self, layers: usize) -> Result<(), String> {
+        if self.frames == 0 || self.frames > MAX_FRAMES {
+            return Err(format!("zone frame count {} out of range", self.frames));
+        }
+        if self.partials > MAX_STORED_PARTIALS {
+            return Err(format!("zone partial count {} out of range", self.partials));
+        }
+        if self.layer >= layers {
+            return Err(format!("zone layer {} out of range", self.layer));
+        }
+        check_finite(self.note, "zone note")?;
+        if !(self.f0.is_finite() && self.f0 > 0.0) {
+            return Err("zone f0 must be a positive frequency".into());
+        }
+        check_finite(self.release_noise, "zone releaseNoise")?;
+        check_finite(self.gain_db, "zone gainDb")?;
+        check_opt(self.jitter_tau, "zone jitterTau")?;
+        check_opt(self.shimmer_tau, "zone shimmerTau")?;
+        check_opt(self.o.amps_step, "zone ampsStep")?;
+        if let Some(t) = &self.transient {
+            if t.n > MAX_TRANSIENT_SAMPLES {
+                return Err("zone transient too long".into());
+            }
+            check_finite(t.scale, "transient scale")?;
+            check_finite(t.rate, "transient rate")?;
+            check_finite(t.fade.0, "transient fade")?;
+            check_finite(t.fade.1, "transient fade")?;
+            check_opt(t.scale_r, "transient scale")?;
+        }
+        if let Some(ik) = self.o.img_k {
+            // image rows belong to stored harmonics
+            let kmax = self.partials.min(MAX_PARTIALS);
+            if ik > kmax {
+                return Err("zone image row count out of range".into());
+            }
+            if let Some(idx) = &self.o.img_idx {
+                if idx.len() > kmax || idx.iter().any(|&h| h >= kmax) {
+                    return Err("zone image index out of range".into());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 fn slice<'a>(blob: &'a [u8], off: usize, len: usize, what: &str) -> Result<&'a [u8], String> {
-    blob.get(off..off + len).ok_or_else(|| format!("model blob truncated reading {what}"))
+    off.checked_add(len)
+        .and_then(|end| blob.get(off..end))
+        .ok_or_else(|| format!("model blob truncated reading {what}"))
+}
+
+/// Product of array dimensions, or an error when it overflows.
+fn dims(d: &[usize], what: &str) -> Result<usize, String> {
+    d.iter().try_fold(1usize, |a, &b| a.checked_mul(b)).ok_or_else(|| format!("model {what} size out of range"))
+}
+
+fn check_finite(x: f32, what: &str) -> Result<f32, String> {
+    if x.is_finite() {
+        Ok(x)
+    } else {
+        Err(format!("model {what} is not a finite number"))
+    }
+}
+
+fn check_opt(x: Option<f32>, what: &str) -> Result<(), String> {
+    x.map(|v| check_finite(v, what)).transpose().map(|_| ())
 }
 
 /// Decode partial-major, time-delta-coded u8 envelopes into frame-major values,
@@ -468,6 +591,17 @@ fn undelta_pm16(b: &[u8], t: usize, k: usize, keep: usize, step_db: f32) -> Vec<
     out
 }
 
+/// Decompress gzip data of at most `limit` bytes (a small file can inflate to any size).
+fn gunzip(bytes: &[u8], limit: usize) -> Result<Vec<u8>, String> {
+    let mut d = flate2::read::GzDecoder::new(bytes).take(limit as u64 + 1);
+    let mut v = Vec::new();
+    d.read_to_end(&mut v).map_err(|e| format!("gzip: {e}"))?;
+    if v.len() > limit {
+        return Err(format!("model larger than {} MiB uncompressed", limit >> 20));
+    }
+    Ok(v)
+}
+
 fn f32s(b: &[u8]) -> Vec<f32> {
     b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
 }
@@ -477,34 +611,39 @@ impl Model {
     pub fn from_bytes(bytes: &[u8]) -> Result<Model, String> {
         let raw: Vec<u8>;
         let data: &[u8] = if bytes.len() > 2 && bytes[0] == 0x1f && bytes[1] == 0x8b {
-            let mut d = flate2::read::GzDecoder::new(bytes);
-            let mut v = Vec::new();
-            d.read_to_end(&mut v).map_err(|e| format!("gzip: {e}"))?;
-            raw = v;
+            raw = gunzip(bytes, MAX_MODEL_BYTES)?;
             &raw
         } else {
             bytes
         };
+        if data.len() > MAX_MODEL_BYTES {
+            return Err(format!("model larger than {} MiB", MAX_MODEL_BYTES >> 20));
+        }
         if data.len() < 8 || &data[0..4] != b"SSM1" {
             return Err("not a supersynth model (bad magic)".into());
         }
         let hlen = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
+        if hlen > MAX_HEADER_BYTES {
+            return Err("model header too large".into());
+        }
         let hjson = data.get(8..8 + hlen).ok_or("truncated header")?;
         let h: Header = serde_json::from_slice(hjson).map_err(|e| format!("header: {e}"))?;
         if h.format != 1 {
             return Err(format!("unsupported model format {}", h.format));
         }
+        h.validate()?;
         let blob_start = (8 + hlen + 3) & !3;
         let blob = data.get(blob_start..).ok_or("missing blob")?;
         let nb = h.noise_edges.len().saturating_sub(1);
 
         let mut zones: Vec<Zone> = Vec::with_capacity(h.zones.len());
         for hz in &h.zones {
+            hz.validate(h.layers.len())?;
             let k = hz.partials.min(MAX_PARTIALS);
             let kk = hz.partials;
             let t = hz.frames;
             let zgrid = match hz.o.grid {
-                Some(o) => f32s(slice(blob, o, t * 4, "grid")?),
+                Some(o) => f32s(slice(blob, o, dims(&[t, 4], "grid")?, "grid")?),
                 None => {
                     if t > h.grid.len() {
                         return Err("zone frame count out of range".into());
@@ -512,21 +651,24 @@ impl Model {
                     h.grid[..t].to_vec()
                 }
             };
-            if t == 0 || zgrid.windows(2).any(|w| w[1] <= w[0]) {
-                return Err("zone frames out of range".into());
+            if zgrid.iter().any(|g| !g.is_finite()) || zgrid.windows(2).any(|w| w[1] <= w[0]) {
+                return Err("zone frame times out of range".into());
             }
-            let ratios_all = f32s(slice(blob, hz.o.ratios, kk * 4, "ratios")?);
+            let ratios_all = f32s(slice(blob, hz.o.ratios, dims(&[kk, 4], "ratios")?, "ratios")?);
+            if ratios_all.iter().any(|r| !r.is_finite()) {
+                return Err("model partial ratio is not a finite number".into());
+            }
             let phases_q = slice(blob, hz.o.phases, kk, "phases")?;
             let amps = match hz.o.amps16 {
-                Some(o) => undelta_pm16(slice(blob, o, t * kk * 2, "amps16")?, t, kk, k, hz.o.amps_step.unwrap_or(1.0 / 16.0)),
+                Some(o) => undelta_pm16(slice(blob, o, dims(&[t, kk, 2], "amps16")?, "amps16")?, t, kk, k, hz.o.amps_step.unwrap_or(1.0 / 16.0)),
                 None => {
                     // u8 0.5 dB codes → 1/32 dB units
-                    let a8 = undelta_pm(slice(blob, hz.o.amps, t * kk, "amps")?, t, kk, k);
+                    let a8 = undelta_pm(slice(blob, hz.o.amps, dims(&[t, kk], "amps")?, "amps")?, t, kk, k);
                     a8.iter().map(|&q| if q == 0 { 0 } else { ((q_to_db(q) - AMP_FLOOR_DB) / AMP_UNIT_DB).round().max(1.0) as u16 }).collect()
                 }
             };
-            let pitch_q = slice(blob, hz.o.pitch, t * 2, "pitch")?;
-            let noise = undelta_pm(slice(blob, hz.o.noise, t * nb, "noise")?, t, nb, nb);
+            let pitch_q = slice(blob, hz.o.pitch, dims(&[t, 2], "pitch")?, "pitch")?;
+            let noise = undelta_pm(slice(blob, hz.o.noise, dims(&[t, nb], "noise")?, "noise")?, t, nb, nb);
             let rel_q = slice(blob, hz.o.release, kk, "release")?;
             zones.push(Zone {
                 note: hz.note,
@@ -566,10 +708,10 @@ impl Model {
                             }
                             row
                         },
-                        ild: undelta_pm(slice(blob, a, t * ik, "ild")?, t, ik, ik),
-                        iph: undelta_pm(slice(blob, b, t * ik, "iph")?, t, ik, ik),
+                        ild: undelta_pm(slice(blob, a, dims(&[t, ik], "ild")?, "ild")?, t, ik, ik),
+                        iph: undelta_pm(slice(blob, b, dims(&[t, ik], "iph")?, "iph")?, t, ik, ik),
                         lph: match hz.o.lph {
-                            Some(o) => undelta_pm(slice(blob, o, t * ik, "lph")?, t, ik, ik),
+                            Some(o) => undelta_pm(slice(blob, o, dims(&[t, ik], "lph")?, "lph")?, t, ik, ik),
                             None => Vec::new(),
                         },
                     }),
@@ -591,7 +733,7 @@ impl Model {
                 transient: match &hz.transient {
                     Some(t) if t.n > 4 && t.rate > 0.0 => {
                         let decode = |o: usize, scale: f32| -> Result<Vec<f32>, String> {
-                            let b = slice(blob, o, t.n * 2, "transient")?;
+                            let b = slice(blob, o, dims(&[t.n, 2], "transient")?, "transient")?;
                             let k = scale / 32767.0;
                             let pcm: Vec<i16> = if t.enc.as_deref() == Some("dp16") {
                                 // first differences, low byte plane then high byte plane
@@ -637,7 +779,7 @@ impl Model {
             }
         }
         for v in &mut by_layer {
-            v.sort_by(|&a, &b| zones[a].note.partial_cmp(&zones[b].note).unwrap());
+            v.sort_by(|&a, &b| zones[a].note.total_cmp(&zones[b].note));
         }
         let lo = zones.iter().map(|z| z.note).fold(f32::INFINITY, f32::min);
         let hi = zones.iter().map(|z| z.note).fold(f32::NEG_INFINITY, f32::max);
@@ -713,4 +855,211 @@ pub fn interp_breakpoints(bp: &[(f32, f32)], x: f32) -> Option<f32> {
         }
     }
     Some(bp[bp.len() - 1].1)
+}
+
+/// Small synthetic models for tests.
+#[cfg(test)]
+pub(crate) mod testing {
+    use serde_json::{json, Value};
+
+    pub const FRAMES: usize = 40;
+    pub const PARTIALS: usize = 24;
+    pub const EDGES: [f32; 4] = [100.0, 1000.0, 4000.0, 12000.0];
+
+    /// A valid sustained model (one zone at middle C, looped) as `.ssm` bytes; `edit` may
+    /// change the header before it is serialised.
+    pub fn bytes_with(edit: impl FnOnce(&mut Value)) -> Vec<u8> {
+        let (t, k, nb) = (FRAMES, PARTIALS, EDGES.len() - 1);
+        let mut blob = Vec::new();
+        let mut put = |b: &[u8]| {
+            let o = blob.len();
+            blob.extend_from_slice(b);
+            o
+        };
+        let ratios: Vec<u8> = (0..k).flat_map(|i| ((i + 1) as f32).to_le_bytes()).collect();
+        let o_ratios = put(&ratios);
+        let o_phases = put(&vec![0u8; k]);
+        // partial-major, time-delta coded: the first frame carries the level, then no change
+        let mut amps = vec![0u8; t * k];
+        for c in 0..k {
+            amps[c * t] = 220 - 4 * c as u8;
+        }
+        let o_amps = put(&amps);
+        let o_pitch = put(&vec![0u8; t * 2]);
+        let mut noise = vec![0u8; t * nb];
+        for b in 0..nb {
+            noise[b * t] = 120;
+        }
+        let o_noise = put(&noise);
+        let o_release = put(&vec![20u8; k]);
+        let mut h = json!({
+            "format": 1,
+            "name": "test",
+            "kind": "sustained",
+            "grid": (0..t).map(|f| f as f32 * 0.05).collect::<Vec<_>>(),
+            "noiseEdges": EDGES,
+            "layers": [{"name": "f", "velocity": 100.0}],
+            "zones": [{
+                "note": 60.0, "f0": 261.63, "layer": 0, "partials": k, "frames": t, "loop": [4, t - 4],
+                "o": {"ratios": o_ratios, "phases": o_phases, "amps": o_amps, "pitch": o_pitch,
+                      "noise": o_noise, "release": o_release}
+            }],
+            "params": {"reverbSend": 0.2}
+        });
+        edit(&mut h);
+        let hj = serde_json::to_vec(&h).unwrap();
+        let mut out = b"SSM1".to_vec();
+        out.extend_from_slice(&(hj.len() as u32).to_le_bytes());
+        out.extend_from_slice(&hj);
+        while !out.len().is_multiple_of(4) {
+            out.push(b' ');
+        }
+        out.extend_from_slice(&blob);
+        out
+    }
+
+    pub fn bytes() -> Vec<u8> {
+        bytes_with(|_| {})
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::{bytes, bytes_with};
+    use super::*;
+    use crate::dsp::noise::Rng;
+    use crate::voice::spectral::{BlockMod, NoteOn, SpectralParams, SpectralVoice};
+    use serde_json::json;
+
+    /// A parsed model must be playable: start and render a few notes without panicking.
+    fn play(m: Model) {
+        let m = std::sync::Arc::new(m);
+        let mut rng = Rng::new(3);
+        let p = SpectralParams::default();
+        for note in [21u8, 60, 108] {
+            let mut v = SpectralVoice::default();
+            v.start(NoteOn { model: &m, note, velocity: 90, pitch: note as f32, pan: 0.0, params: &p, sample_rate: 48000.0, rng: &mut rng });
+            let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
+            for _ in 0..20 {
+                v.render(&mut l, &mut r, &p, &BlockMod::default());
+            }
+            v.release();
+            v.render(&mut l, &mut r, &p, &BlockMod::default());
+        }
+    }
+
+    #[test]
+    fn the_test_model_parses_and_plays() {
+        let m = Model::from_bytes(&bytes()).unwrap();
+        assert_eq!(m.zones.len(), 1);
+        assert_eq!(m.noise_bands(), 3);
+        play(m);
+    }
+
+    #[test]
+    fn degenerate_models_are_rejected() {
+        type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+        let cases: Vec<(&str, Edit)> = vec![
+            ("no layers", Box::new(|h| h["layers"] = json!([]))),
+            ("no zones", Box::new(|h| h["zones"] = json!([]))),
+            ("zone layer out of range", Box::new(|h| h["zones"][0]["layer"] = json!(3))),
+            ("no frames", Box::new(|h| h["zones"][0]["frames"] = json!(0))),
+            ("huge frames", Box::new(|h| h["zones"][0]["frames"] = json!(1u64 << 40))),
+            (
+                "frames × partials overflow",
+                Box::new(|h| {
+                    h["zones"][0]["frames"] = json!(100_000);
+                    h["zones"][0]["partials"] = json!(8000);
+                }),
+            ),
+            ("huge partials", Box::new(|h| h["zones"][0]["partials"] = json!(usize::MAX / 2))),
+            ("overflowing offset", Box::new(|h| h["zones"][0]["o"]["ratios"] = json!(usize::MAX - 2))),
+            ("zero f0", Box::new(|h| h["zones"][0]["f0"] = json!(0.0))),
+            ("infinite note", Box::new(|h| h["zones"][0]["note"] = json!(1e39))),
+            ("infinite gain", Box::new(|h| h["params"]["gainDb"] = json!(-1e39))),
+            (
+                "too many noise bands",
+                Box::new(|h| h["noiseEdges"] = json!((0..40).map(|i| 50.0 * (i + 1) as f32).collect::<Vec<_>>())),
+            ),
+            ("unsorted noise edges", Box::new(|h| h["noiseEdges"] = json!([100.0, 50.0, 4000.0]))),
+            (
+                "huge image index",
+                Box::new(|h| {
+                    h["zones"][0]["o"]["ild"] = json!(0);
+                    h["zones"][0]["o"]["iph"] = json!(0);
+                    h["zones"][0]["o"]["imgK"] = json!(1);
+                    h["zones"][0]["o"]["imgIdx"] = json!([1u64 << 40]);
+                }),
+            ),
+            (
+                "huge image rows",
+                Box::new(|h| {
+                    h["zones"][0]["o"]["ild"] = json!(0);
+                    h["zones"][0]["o"]["iph"] = json!(0);
+                    h["zones"][0]["o"]["imgK"] = json!(usize::MAX / 3);
+                }),
+            ),
+            (
+                "huge transient",
+                Box::new(|h| {
+                    h["zones"][0]["transient"] =
+                        json!({"o": 0, "n": usize::MAX / 2, "scale": 1.0, "rate": 48000.0, "fade": [0.01, 0.02]})
+                }),
+            ),
+        ];
+        for (what, edit) in cases {
+            let b = bytes_with(|h| edit(h));
+            assert!(Model::from_bytes(&b).is_err(), "{what} must be rejected");
+        }
+    }
+
+    #[test]
+    fn truncated_and_corrupted_files_are_errors_not_panics() {
+        let good = bytes();
+        for cut in 0..good.len() {
+            if let Ok(m) = Model::from_bytes(&good[..cut]) {
+                play(m);
+            }
+        }
+        let mut rng = Rng::new(99);
+        for _ in 0..3000 {
+            let mut b = good.clone();
+            for _ in 0..1 + rng.next_u32() % 6 {
+                let i = rng.next_u32() as usize % b.len();
+                b[i] = rng.next_u32() as u8;
+            }
+            if let Ok(m) = Model::from_bytes(&b) {
+                play(m);
+            }
+        }
+        // the header length itself
+        let mut b = good.clone();
+        b[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(Model::from_bytes(&b).is_err());
+    }
+
+    #[test]
+    fn decompression_is_bounded() {
+        use std::io::Write;
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        let zeros = vec![0u8; 1 << 16];
+        for _ in 0..64 {
+            enc.write_all(&zeros).unwrap();
+        }
+        let gz = enc.finish().unwrap();
+        assert!(gunzip(&gz, 1 << 20).is_err(), "4 MiB inflated past a 1 MiB limit");
+        assert_eq!(gunzip(&gz, 8 << 20).unwrap().len(), 4 << 20);
+        assert!(Model::from_bytes(&gz).is_err());
+    }
+
+    #[test]
+    fn a_hand_built_model_without_layers_does_not_panic_the_voice() {
+        let mut m = Model::from_bytes(&bytes()).unwrap();
+        m.layers.clear();
+        m.by_layer.clear();
+        play(m);
+        let mut m = Model::from_bytes(&bytes()).unwrap();
+        m.zones.clear();
+        play(m);
+    }
 }
