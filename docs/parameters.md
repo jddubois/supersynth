@@ -1,12 +1,13 @@
 # Parameters, reverb and effects
 
-`instrument.set({...})` changes any of these at any time, also while notes sound (changes are
-smoothed; `{ at }` schedules them). All are relative to the model as analysed: the defaults
-change nothing, and are exported as `PARAMETER_DEFAULTS` (`reverbSend`, `spread` and `formant`
-default to each instrument's own value). `instrument.get(name)` reads one value,
-`instrument.parameters()` the ones set by the definition, its preset or `set()`, and
-`instrument.preset('default')` restores the defaults. A value outside its range
-(`PARAMETER_RANGES`, below) throws a `SupersynthError` and changes nothing.
+`instrument.set({...})` changes any of these at any time, including while notes are sounding.
+Changes are smoothed, and `{ at }` schedules them. Every parameter is relative to the model as
+analysed, so the defaults leave the sound unchanged. They're exported as `PARAMETER_DEFAULTS`;
+`reverbSend`, `spread` and `formant` default to each instrument's own value.
+`instrument.get(name)` reads a single value, `instrument.parameters()` returns the ones set by
+the definition, its preset or `set()`, and `instrument.preset('default')` goes back to the
+defaults. A value outside its range (`PARAMETER_RANGES`, listed below) throws a
+`SupersynthError` and nothing is changed.
 
 | Parameter | Default | Range, unit | |
 |---|---|---|---|
@@ -48,17 +49,17 @@ default to each instrument's own value). `instrument.get(name)` reads one value,
 
 ## Velocity
 
-Velocity selects and morphs between the recorded dynamic layers (timbre) and sets the loudness
-through a per-instrument curve (pianos ≈ 20 dB between velocity 40 and 118; organs are not
-touch-sensitive).
+Velocity picks and blends between the recorded dynamic layers, which changes the timbre, and
+sets the loudness through a curve specific to each instrument. On the pianos, velocity 40 to
+118 spans about 20 dB. Organs aren't touch-sensitive.
 
 ## Reverb
 
-The room is chosen with `new Synth({ reverb })` and changed with `synth.set({ reverb })`. By default
-(`'auto'`) it is the suggested room of the first instrument or organ added, and follows that
-instrument's presets until the room is set by hand. A 16-line feedback-delay-network reverb with frequency-dependent decay, early reflections and
-modulation. Presets: `room`, `studio`, `chamber`, `hall`, `concert-hall`, `church`, `cathedral`,
-`plate`.
+Set the reverb with `new Synth({ reverb })` and change it with `synth.set({ reverb })`. The
+default, `'auto'`, uses the room suggested by the first instrument or organ you add, and follows
+that instrument's presets until you set the reverb yourself. It's a 16-line feedback delay
+network with frequency-dependent decay, early reflections and modulation. Presets: `room`,
+`studio`, `chamber`, `hall`, `concert-hall`, `church`, `cathedral`, `plate`.
 
 ```ts
 synth.set({ reverb: 'cathedral' });
@@ -72,6 +73,6 @@ synth.set({ reverb: false });
 | `lowDecay`, `highDecay` | RT60 multipliers below 250 Hz / above 4 kHz |
 | `size`, `predelay` (ms), `diffusion`, `early`, `width`, `modulation` | |
 | `lowCut`, `highCut` | Hz, on the reverb return |
-| `level` | return level, dB (0 at first). It stays as set when other fields or the preset change, and `reverb: false` then back on restores it |
+| `level` | return level in dB, 0 to start with. It keeps its value when other fields or the preset change, and survives turning the reverb off (`reverb: false`) and back on |
 
-The master bus ends with a transparent look-ahead limiter (ceiling −0.3 dBFS).
+The last stage of the master bus is a look-ahead limiter with a ceiling of −0.3 dBFS.

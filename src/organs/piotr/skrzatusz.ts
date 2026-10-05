@@ -52,7 +52,7 @@ const PRESETS: Record<string, OrganPreset> = {
     couple: { pedal: ['great', 'positive'] },
   },
   foundations: {
-    description: "The 8' stops of the great — Sauer's Romantic fonds",
+    description: "The 8' stops of the great, Sauer's Romantic fonds",
     great: ["Principal 8'", "Fugara 8'", "Flûte harmonique 8'"],
     pedal: ["Subbass 16'", "Octavbass 8'", "Bassflöte 8'"],
   },
@@ -62,7 +62,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbass 16'"],
   },
   'flute-8': {
-    description: "Gedact 8' — soft stopped flute",
+    description: "Gedact 8', soft stopped flute",
     positive: ["Gedact 8'"],
     pedal: ["Subbass 16'"],
   },
@@ -73,7 +73,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbass 16'"],
   },
   strings: {
-    description: "Viola di Gamba 8' with Gedact — the Romantic string sound",
+    description: "Viola di Gamba 8' with Gedact, the Romantic string sound",
     positive: ["Gedact 8'", "Viola di Gamba 8'"],
     pedal: ["Subbass 16'", "Bassflöte 8'"],
   },

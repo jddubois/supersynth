@@ -52,7 +52,7 @@ const STOPS: StopDefinition[] = [
 
 const PRESETS: Record<string, OrganPreset> = {
   principal: {
-    description: "Principal 8' alone — the foundation tone of the organ",
+    description: "Principal 8' alone, the foundation tone of the organ",
     great: ["Principal 8'"],
     pedal: ["Subbass 16'", "Principal 8'"],
   },
@@ -78,33 +78,33 @@ const PRESETS: Record<string, OrganPreset> = {
     couple: { great: ['swell', 'positive'], pedal: ['great'] },
   },
   flutes: {
-    description: "Flutes 8' + 4' — gentle, for chorale preludes",
+    description: "Flutes 8' + 4', gentle, for chorale preludes",
     great: ["Gedackt 8'", "Rohrflöte 4'"],
     pedal: ["Subbass 16'", "Gedackt 8'"],
   },
   'flute-8': {
-    description: "Gedackt 8' — soft stopped flute",
+    description: "Gedackt 8', soft stopped flute",
     positive: ["Gedackt 8'"],
     pedal: ["Subbass 16'"],
   },
   cornet: {
-    description: 'Cornet (8\' 4\' 2 2/3\' 2\' 1 3/5\') — solo voice for ornamented melodies',
+    description: 'Cornet (8\' 4\' 2 2/3\' 2\' 1 3/5\'), solo voice for ornamented melodies',
     great: ["Gedackt 8'", "Rohrflöte 4'", 'Sesquialtera II'],
     swell: ["Rohrflöte 8'", "Hohlflöte 4'", "Waldflöte 2'", "Terz 1 3/5'"],
     pedal: ["Subbass 16'", "Gedackt 8'"],
   },
   trumpet: {
-    description: "Trumpet 8' with Principal — festive solo",
+    description: "Trumpet 8' with Principal as a festive solo",
     great: ["Principal 8'", "Trumpet 8'"],
     pedal: ["Subbass 16'", "Principal 8'", "Fagott 16'"],
   },
   krummhorn: {
-    description: "Krummhorn 8' — nasal Renaissance reed solo",
+    description: "Krummhorn 8', nasal Renaissance reed solo",
     positive: ["Gedackt 8'", "Krummhorn 8'"],
     pedal: ["Subbass 16'", "Gedackt 8'"],
   },
   celeste: {
-    description: "Salicional + Voix céleste — shimmering strings for romantic music",
+    description: "Salicional + Voix céleste, shimmering strings for romantic music",
     swell: ["Salicional 8'", "Voix céleste 8'"],
     pedal: ["Subbass 16'"],
   },
@@ -114,7 +114,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbass 16'"],
   },
   'sesquialtera-solo': {
-    description: 'Sesquialtera solo with flutes — the classic Dutch/Scandinavian chorale cantus',
+    description: 'Sesquialtera solo with flutes, the classic Dutch/Scandinavian chorale cantus',
     great: ["Gedackt 8'", "Rohrflöte 4'", 'Sesquialtera II'],
     pedal: ["Subbass 16'", "Gedackt 8'"],
   },

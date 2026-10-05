@@ -34,7 +34,7 @@ const PRESETS: Record<string, OrganPreset> = {
     couple: { great: ['swell'] },
   },
   'jeux-doux': {
-    description: "Bourdon 8' — the softest registration, for accompanying",
+    description: "Bourdon 8', the softest registration, for accompanying",
     great: ["Bourdon 8'"],
     pedal: ["Soubasse 16'"],
   },
@@ -60,7 +60,7 @@ const PRESETS: Record<string, OrganPreset> = {
     couple: { great: ['swell'], pedal: ['great', 'swell'] },
   },
   'grand-choeur-octaves': {
-    description: "Grand chœur with the Récit coupled at 16', 8' and 4' to the Grand Orgue and in octaves on itself — the full romantic sound",
+    description: "Grand chœur with the Récit coupled at 16', 8' and 4' to the Grand Orgue and in octaves on itself, the full romantic sound",
     great: ["Bourdon 16'", "Flûte harmonique 8'", "Bourdon 8'", "Prestant 4'", "Quinte 2 2/3'", "Doublette 2'", "Tierce 1 3/5'"],
     swell: ["Flûte 8'", "Flûte 4'", 'Plein-jeu III', "Trompette 8'"],
     pedal: ["Soubasse 16'", "Bourdon 8'", "Flûte 8'", "Flûte 4'", "Flûte 2'"],
@@ -85,7 +85,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Soubasse 16'", "Bourdon 8'"],
   },
   nazard: {
-    description: "Bourdon 8' with Quinte 2 2/3' — a gentle solo against the Récit",
+    description: "Bourdon 8' with Quinte 2 2/3', a gentle solo against the Récit",
     great: ["Bourdon 8'", "Quinte 2 2/3'"],
     swell: ["Flûte 8'"],
     pedal: ["Soubasse 16'"],

@@ -23,7 +23,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbaß 16'", "Principal baß 8'"],
   },
   foundations: {
-    description: "All the 8' stops — the warm Romantic foundation",
+    description: "All the 8' stops, the warm Romantic foundation",
     great: ["Principal 8'", "Salicet 8'", "Portunal-Flöte 8'", "Flaut major 8'"],
     pedal: ["Subbaß 16'", "Principal baß 8'", "Violon Cello 8'"],
   },
@@ -45,7 +45,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbaß 16'"],
   },
   'flute-8': {
-    description: "Portunal-Flöte 8' — soft, for quiet accompaniment",
+    description: "Portunal-Flöte 8', soft, for quiet accompaniment",
     great: ["Portunal-Flöte 8'"],
     pedal: ["Subbaß 16'"],
   },

@@ -49,7 +49,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbass 16'", "Octavbass 8'"],
   },
   foundations: {
-    description: "The 8' stops of both manuals coupled — Voelkner's Romantic fonds",
+    description: "The 8' stops of both manuals coupled, Voelkner's Romantic fonds",
     great: ["Principal 8'", "Gambe 8'", "Röhrflöte 8'", "Flûte harmonique 8'"],
     swell: ["Geigenprincipal 8'", "Gedackt 8'", "Konzertfloete 8'"],
     pedal: ["Subbass 16'", "Violon 16'", "Octavbass 8'", "Violoncello 8'"],
@@ -79,7 +79,7 @@ const PRESETS: Record<string, OrganPreset> = {
     couple: { great: ['swell'], pedal: ['great', 'swell'] },
   },
   'full-16': {
-    description: "Full organ with the swell also coupled an octave down (II 16'/I) — Voelkner's romantic gravity",
+    description: "Full organ with the swell also coupled an octave down (II 16'/I)",
     great: ["Principal 16'", "Bordun 16'", "Principal 8'", "Gambe 8'", "Röhrflöte 8'", "Flûte harmonique 8'", "Octave 4'", "Hohlflöte 4'",
       "Piccolo 2'", "Rauschquinte 2 2/3' u. 2'", 'Cornett 2-4 fach', 'Mixtur 5 fach', "Trompete 8'"],
     swell: ["Lieblich Gedackt 16'", "Geigenprincipal 8'", "Gedackt 8'", "Konzertfloete 8'", "Gemshorn 8'", "Schalmeÿ 8'", "Fugara 4'",
@@ -94,7 +94,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbass 16'", "Bassflöte 8'"],
   },
   'flute-8': {
-    description: "Gedackt 8' — soft stopped flute",
+    description: "Gedackt 8', soft stopped flute",
     swell: ["Gedackt 8'"],
     pedal: ["Echobass 16'"],
   },
@@ -105,7 +105,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Echobass 16'"],
   },
   celeste: {
-    description: "Aeoline + Vox coelestis — the shimmering Romantic strings",
+    description: "Aeoline + Vox coelestis, the shimmering Romantic strings",
     swell: ["Aeoline 8'", "Vox coelestis 8'"],
     pedal: ["Echobass 16'"],
   },
@@ -115,7 +115,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Violon 16'", "Violoncello 8'"],
   },
   quiet: {
-    description: "Lieblich Gedackt 16' with Aeoline 8' — the softest registration",
+    description: "Lieblich Gedackt 16' with Aeoline 8', the softest registration",
     swell: ["Lieblich Gedackt 16'", "Aeoline 8'"],
     pedal: ["Echobass 16'"],
   },
@@ -126,7 +126,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbass 16'", "Bassflöte 8'"],
   },
   trumpet: {
-    description: "Trompete 8' with Principal 8' — festive solo",
+    description: "Trompete 8' with Principal 8' as a festive solo",
     great: ["Principal 8'", "Trompete 8'"],
     swell: ["Geigenprincipal 8'", "Gedackt 8'"],
     pedal: ["Subbass 16'", "Octavbass 8'", "Posaune 16'"],

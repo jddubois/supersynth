@@ -29,12 +29,12 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Pedal 16' + 8'"],
   },
   flutes: {
-    description: 'Soft flutes with soft pedal — gentle, for chorale preludes',
+    description: 'Soft flutes with soft pedal, gentle, for chorale preludes',
     great: ['Flutes'],
     pedal: ["Soft Bass 16'"],
   },
   chamber: {
-    description: "Chamber organ 8' + 4' — bright Renaissance consort sound",
+    description: "Chamber organ 8' + 4', bright Renaissance consort sound",
     positive: ["Gedackt 8'", "Principal 4'"],
     pedal: ["Soft Bass 16'"],
   },

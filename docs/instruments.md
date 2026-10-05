@@ -393,4 +393,4 @@ Config: `TUBULAR_BELLS`. Suggested room: `church`.
 |---|---|
 | `default` | No adjustments |
 
-The church organs (`synth.add('burea')`, …) have four divisions with drawable stops, their models in packages of their own (`npm install @supersynth/organ-burea`) — see [organ.md](organ.md).
+The church organs (`synth.add('burea')`, …) have four divisions with drawable stops, and their models come in separate packages (`npm install @supersynth/organ-burea`); see [organ.md](organ.md).

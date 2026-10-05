@@ -56,7 +56,7 @@ const PRESETS: Record<string, OrganPreset> = {
     couple: { great: ['positive'], pedal: ['great', 'positive'] },
   },
   'voce-umana': {
-    description: "Voce umana with the Principale 8' — the Italian beating principal",
+    description: "Voce umana with the Principale 8', the Italian beating principal",
     great: ["Principale 8'", "Voce umana 8'"],
     pedal: ["Subbasso 16'"],
   },
@@ -71,7 +71,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbasso 16'", "Flauto 8'"],
   },
   'flute-8': {
-    description: "Bordone 8' — soft stopped flute",
+    description: "Bordone 8', soft stopped flute",
     positive: ["Bordone 8'"],
     pedal: ["Subbasso 16'"],
   },

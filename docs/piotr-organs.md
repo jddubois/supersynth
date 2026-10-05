@@ -1,16 +1,17 @@
 # Piotr Grabowski's organs
 
-Every organ that Piotr Grabowski gives away free at [piotrgrabowski.pl](https://piotrgrabowski.pl/instruments/),
-analysed stop by stop like the Bureå organ (see [models.md](models.md)). Each stop is analysed from
-the sample set's recordings **as its organ definition plays them**: each pipe's attack and sustain,
-its release crossfaded in at key-up, the definition's retuning and level for every pipe, and
-the borrowed, extended and retuned ranks exactly where the sample set places them, and the
-releases recorded after short key presses. Stops keep the organ's own pitch and temperament (an
-organ at Baroque or historic pitch sounds at that pitch), the balance between stops, and the room
-the pipes were recorded in. Keys where a stop has no pipe (a treble-only Cornet) stay silent.
-Swell boxes close as far as the organ definition says; sampled tremulants are measured from the
-pipes recorded with the tremulant on. The machinery noises the sample sets recorded (key and stop
-action, blower, room) play with `noises: true`.
+These are all the organs Piotr Grabowski gives away for free at
+[piotrgrabowski.pl](https://piotrgrabowski.pl/instruments/), analysed stop by stop in the same way
+as the Bureå organ (see [models.md](models.md)). Each stop is analysed from the sample set's
+recordings the way its organ definition plays them: every pipe's attack and sustain, its release
+crossfaded in at key-up, the retuning and level the definition gives each pipe, borrowed,
+extended and retuned ranks exactly where the sample set puts them, and the releases recorded
+after short key presses. The stops keep the organ's own pitch and temperament (an organ at a
+Baroque or historic pitch still sounds at that pitch), the balance between stops, and the room
+the pipes were recorded in. Keys where a stop has no pipe, as on a treble-only Cornet, stay
+silent. Swell boxes close as far as the organ definition says, and sampled tremulants are
+measured from pipes recorded with the tremulant on. The machinery noises the sample sets
+recorded (key and stop action, blower, room) play with `noises: true`.
 
 ```ts
 const organ = synth.add('szczecinek', { preset: 'celeste' });
@@ -18,13 +19,13 @@ organ.swell.play(['C4', 'E4', 'G4'], { duration: 4 });
 organ.preset('full');
 ```
 
-Every organ is an `OrganDefinition` exported from `supersynth` and `supersynth/organs` (all of them also as
-`PIOTR_ORGANS`). Sample sets © Piotr Grabowski; the models are not covered by the MIT license
-and may not be sold or built into products for sale — see NOTICE.md.
+Each organ is an `OrganDefinition` exported from `supersynth` and `supersynth/organs`, and
+`PIOTR_ORGANS` collects all of them. The sample sets are © Piotr Grabowski. The models aren't
+covered by the MIT license and can't be sold or built into products for sale; see NOTICE.md.
 
-Each organ's models are an npm package of their own, `@supersynth/organ-<id>`: install the organs
-you play (`npm install @supersynth/organ-friesach`), or all of them with `npm install @supersynth/organs`.
-Adding an organ whose package is not installed throws a `SupersynthError` that names the package.
+Each organ is a separate npm package, `@supersynth/organ-<id>`. Install the ones you play
+(`npm install @supersynth/organ-friesach`), or all of them with `npm install @supersynth/organs`.
+Adding an organ whose package isn't installed throws a `SupersynthError` that names the package.
 
 | Id | Organ | Stops | Package | Models |
 |---|---|---|---|---|
@@ -62,7 +63,7 @@ Install: `npm install @supersynth/organ-azzio`. Config: `AZZIO_ORGAN`. Default p
 | `ripieno` | Ripieno: Principale 8', Ottava 4' and the Ripieno |
 | `full` | Full organ with both manuals coupled and the Trombone |
 | `flutes` | Flauto camino 8' on the great, Bordone 8' + Flauto conico 4' on the positive |
-| `flute-8` | Bordone 8' — soft stopped flute |
+| `flute-8` | Bordone 8', soft stopped flute |
 | `cornetto` | Cornet from the positive's flutes and mutations (8' 4' 2 2/3' 2') |
 | `sesquialtera` | Sesquialtera solo on the great against the Bordone on the positive |
 
@@ -90,7 +91,7 @@ Install: `npm install @supersynth/organ-cracow`. Config: `CRACOW_ORGAN`. Default
 | `flutes` | Flûte Traversière 8' + Flûte Octaviante 4' on the récit |
 | `cornet` | Cornet 5x solo on the great against the récit foundations |
 | `jeu-de-tierce` | Jeu de tierce on the positive: Cor de Nuit 8', Dolce 4', Nazard, Octavin and Tierce |
-| `celeste` | Aeoline + Voix Céleste — the récit's undulating strings |
+| `celeste` | Aeoline + Voix Céleste, the récit's undulating strings |
 | `hautbois` | Hautbois 8' solo on the récit against the great's Bourdon |
 | `clarinette` | Clarinette 8' solo on the positive against the récit strings |
 | `trompette` | Trompette Harmonique 8' solo on the récit with the great's foundations |
@@ -115,7 +116,7 @@ Install: `npm install @supersynth/organ-dluga-koscielna`. Config: `DLUGA_KOSCIEL
 | `full` | Full organ with Krumhorn and Fagot |
 | `foundations` | The 8' stops of both manuals coupled |
 | `flutes` | Flet kryty 8' + Flet rurkowy 4' on manual I |
-| `flute-8` | Flauto amabile 8' — the softest flute |
+| `flute-8` | Flauto amabile 8', the softest flute |
 | `cornet` | Cornet from manual II's flutes and mutations (8' 4' 2 2/3' 2' 1 3/5') against manual I |
 | `nasard` | Flet otwarty 8', Flet kryty 4' and Nasard 2 2/3' |
 | `gamba` | Viola di Gamba 8' with the Flet kryty |
@@ -143,14 +144,14 @@ Install: `npm install @supersynth/organ-friesach`. Config: `FRIESACH_ORGAN`. Def
 | `grand-choeur` | Grand chœur: reeds and mixtures of all manuals coupled (French Romantic tutti) |
 | `fonds` | Fonds de 8': the 8' foundations of Hauptwerk and Schwellwerk coupled (Franck, Widor) |
 | `flutes` | Nachthorn Gedackt 8' + Querflöte 4' on the Schwellwerk |
-| `flute-8` | Nachthorn Gedackt 8' — soft stopped flute |
-| `flute-harmonique` | Jubalflöte 8' + Trichterflöte 4' — the Solowerk's big flutes, accompanied by the Schwellwerk |
-| `celeste` | Viola + Vox celeste 8' (from c) — the swell strings for Romantic music |
+| `flute-8` | Nachthorn Gedackt 8', soft stopped flute |
+| `flute-harmonique` | Jubalflöte 8' + Trichterflöte 4', the Solowerk's big flutes, accompanied by the Schwellwerk |
+| `celeste` | Viola + Vox celeste 8' (from c), the swell strings for Romantic music |
 | `cornet-decompose` | Cornet décomposé on the Schwellwerk (8' 4' 2 2/3' 2' 1 3/5') against the Hauptwerk flutes |
 | `cornet` | Cornet à pavillon solo (from g) against the Schwellwerk |
 | `hautbois` | Hautbois 8' solo with Bourdon and Gedackt, against the Hauptwerk Holzflöte |
 | `englischhorn` | Englischhorn 8' solo on the Solowerk against the Schwellwerk |
-| `chamade` | Trompete en chamade 8' — the horizontal trumpet in fanfare against the full Hauptwerk |
+| `chamade` | Trompete en chamade 8', the horizontal trumpet in fanfare against the full Hauptwerk |
 
 ## `giubiasco` — Giubiasco
 
@@ -170,10 +171,10 @@ Install: `npm install @supersynth/organ-giubiasco`. Config: `GIUBIASCO_ORGAN`. D
 | `ripieno` | Ripieno: Principale 8', Ottava 4', Quintadecima 2' and the Ripieno |
 | `pleno` | Organo pleno: Ripieno on the great, Cimbalo on the positive, both coupled |
 | `full` | Full organ with Cornetto, Regale and Contro Fagotto |
-| `voce-umana` | Voce umana with the Principale 8' — the Italian beating principal |
+| `voce-umana` | Voce umana with the Principale 8', the Italian beating principal |
 | `strings` | Viola da Gamba 8' and Violoncello 8' with the Flauto a camino |
 | `flutes` | Flauto a camino 8' + Flauto conico 4' on the great |
-| `flute-8` | Bordone 8' — soft stopped flute |
+| `flute-8` | Bordone 8', soft stopped flute |
 | `cornetto` | Cornetto solo on the great (Flauto a camino 8', Flauto conico 4') against the positive's Bordone |
 | `terza` | Positive flutes with Quinta and Terza (8' 4' 2 2/3' 2' 1 3/5') |
 | `regale` | Regale 8' solo on the positive against the great's flutes |
@@ -188,9 +189,9 @@ Install: `npm install @supersynth/organ-green-positiv`. Config: `GREEN_POSITIV_O
 
 | Preset | Description |
 |---|---|
-| `flute-8` | Flet kryty 8' alone — the soft stopped flute for continuo |
-| `continuo` | Flet kryty 8' + 4' — continuo for a choir or an ensemble |
-| `flute-2` | Flet kryty 8' with Pryncypał 2' — bright solo or continuo for a larger ensemble |
+| `flute-8` | Flet kryty 8' alone, the soft stopped flute for continuo |
+| `continuo` | Flet kryty 8' + 4', continuo for a choir or an ensemble |
+| `flute-2` | Flet kryty 8' with Pryncypał 2', bright solo or continuo for a larger ensemble |
 | `principal` | Flet kryty 8' with the principals 4' + 2' |
 | `plenum` | The small plenum: 8' 4' 2' 1 1/3' |
 | `full` | Every stop drawn |
@@ -209,9 +210,9 @@ Install: `npm install @supersynth/organ-harmonium`. Config: `HARMONIUM_ORGAN`. D
 
 | Preset | Description |
 |---|---|
-| `diapason` | Diapason + Melodia 8' — the full 8' voice of manual I |
-| `soft` | Dulcet + Flöte 8' — the soft 8' of manual II |
-| `celeste` | Dulcet 8' and Flöte 8' with Vox Jubilante — the beating treble celeste |
+| `diapason` | Diapason + Melodia 8', the full 8' voice of manual I |
+| `soft` | Dulcet + Flöte 8', the soft 8' of manual II |
+| `celeste` | Dulcet 8' and Flöte 8' with Vox Jubilante, the beating treble celeste |
 | `8-4` | Manual I at 8' and 4' |
 | `solo` | Melodia 8' with the Forte: a melody in the treble against the soft manual II |
 | `full` | Every register, manual II coupled |
@@ -230,11 +231,11 @@ Install: `npm install @supersynth/organ-ledziny`. Config: `LEDZINY_ORGAN`. Defau
 | Preset | Description |
 |---|---|
 | `principal` | Principal 8' alone |
-| `foundations` | All the 8' stops — the warm Romantic foundation |
+| `foundations` | All the 8' stops, the warm Romantic foundation |
 | `principal-chorus` | Principals 8' 4' with Quinte and Octave |
 | `full` | Full organ: principals, flutes, Quinte, Octave and Mixtur |
 | `flutes` | Flaut major 8' + Flauto traverse 4' |
-| `flute-8` | Portunal-Flöte 8' — soft, for quiet accompaniment |
+| `flute-8` | Portunal-Flöte 8', soft, for quiet accompaniment |
 | `strings` | Salicet 8' with Violon Cello in the pedal |
 
 ## `lipiny` — Lipiny
@@ -252,16 +253,16 @@ Install: `npm install @supersynth/organ-lipiny`. Config: `LIPINY_ORGAN`. Default
 | Preset | Description |
 |---|---|
 | `principal` | Principal 8' alone |
-| `foundations` | The 8' stops of both manuals coupled — the Romantic fonds |
+| `foundations` | The 8' stops of both manuals coupled, the Romantic fonds |
 | `principal-chorus` | Principal chorus 8' 4' 2' |
 | `plenum` | Plenum: principals, Quinte and Mixtur on Bordun 16' |
 | `full` | Full organ with Cornett, Trompete and Posaune |
 | `flutes` | Doppelröhrflöte 8' + 4' on the great |
-| `flute-8` | Portunal Flaut 8' — soft flute on the positive |
+| `flute-8` | Portunal Flaut 8', soft flute on the positive |
 | `soft-flutes` | Portunal Flaut 8' + 4' on the positive |
-| `strings` | Salicet 8' with Flaut Major — the soft strings of the positive |
+| `strings` | Salicet 8' with Flaut Major, the soft strings of the positive |
 | `cornet` | Cornett solo on the great against the positive |
-| `trumpet` | Trompete 8' with Principal 8' — festive solo |
+| `trumpet` | Trompete 8' with Principal 8' as a festive solo |
 
 ## `melcer` — Melcer Chamber Music Hall
 
@@ -281,11 +282,11 @@ Install: `npm install @supersynth/organ-melcer`. Config: `MELCER_ORGAN`. Default
 | `plenum` | Organo pleno: the Hauptwerk chorus with Mixtur, the Brustwerk coupled |
 | `full` | Full organ with the Trompeten and Krumhorn |
 | `flutes` | Gedackt 8' + Rohrflöte 4' on the Brustwerk |
-| `flute-8` | Gedackt 8' — soft stopped flute |
-| `nasard` | Nachthorn 8', Prinzipal 4' and Nasard 2 2/3' — a solo voice against the Gedackt |
-| `sifflote` | Gedackt 8' + Sifflöte 1' — the gapped Baroque registration |
+| `flute-8` | Gedackt 8', soft stopped flute |
+| `nasard` | Nachthorn 8', Prinzipal 4' and Nasard 2 2/3', a solo voice against the Gedackt |
+| `sifflote` | Gedackt 8' + Sifflöte 1', the gapped Baroque registration |
 | `krumhorn` | Krumhorn 8' solo on the Brustwerk against the Nachthorn |
-| `trumpet` | Trompete 8' with Prinzipal 4' — festive solo |
+| `trumpet` | Trompete 8' with Prinzipal 4' as a festive solo |
 
 ## `raszczyce` — Raszczyce
 
@@ -306,11 +307,11 @@ Install: `npm install @supersynth/organ-raszczyce`. Config: `RASZCZYCE_ORGAN`. D
 | `plenum` | Organo pleno: Hoofdwerk Mixtuur, Rugwerk Scherp, both coupled |
 | `full` | Full organ with Trompet, Kromhoorn, Cymbel and Fagot |
 | `flutes` | Roerfluit 8' + Gedekt fluit 4' on the Hoofdwerk |
-| `flute-8` | Holpijp 8' — the Rugwerk's soft flute |
+| `flute-8` | Holpijp 8', the Rugwerk's soft flute |
 | `cornet` | Sesquialter with flutes (8' 4' 2 2/3' 2' 1 3/5') against the Rugwerk |
 | `nasard` | Roerfluit 8', Gedekt fluit 4' and Nasard 2 2/3' |
 | `kromhoorn` | Kromhoorn 8' solo on the Rugwerk against the Hoofdwerk flutes |
-| `trumpet` | Trompet 8' with Prestant 8' — festive solo |
+| `trumpet` | Trompet 8' with Prestant 8' as a festive solo |
 
 ## `saint-jean-de-luz` — Saint-Jean-de-Luz (chœur)
 
@@ -327,14 +328,14 @@ Install: `npm install @supersynth/organ-saint-jean-de-luz`. Config: `SAINT_JEAN_
 | Preset | Description |
 |---|---|
 | `fonds` | Fonds de 8': Flûte harmonique and Bourdon with the Récit Flûte coupled |
-| `jeux-doux` | Bourdon 8' — the softest registration, for accompanying |
+| `jeux-doux` | Bourdon 8', the softest registration, for accompanying |
 | `fonds-8-4` | Fonds 8' and 4' on both manuals |
 | `plein-jeu` | Plein jeu: the Grand Orgue chorus with the Récit Plein-jeu coupled |
 | `grand-choeur` | Grand chœur: every stop, the Récit coupled |
-| `grand-choeur-octaves` | Grand chœur with the Récit coupled at 16', 8' and 4' to the Grand Orgue and in octaves on itself — the full romantic sound |
+| `grand-choeur-octaves` | Grand chœur with the Récit coupled at 16', 8' and 4' to the Grand Orgue and in octaves on itself, the full romantic sound |
 | `recit-annulation` | The Récit (Flûte 8' + Trompette 8') played from the Grand Orgue alone, with its 4' coupler: Annulation GO |
 | `cornet` | Cornet décomposé on the Grand Orgue (8' 4' 2 2/3' 2' 1 3/5') against the Récit flutes |
-| `nazard` | Bourdon 8' with Quinte 2 2/3' — a gentle solo against the Récit |
+| `nazard` | Bourdon 8' with Quinte 2 2/3', a gentle solo against the Récit |
 | `flute-harmonique` | Flûte harmonique 8' solo against the Récit Flûte |
 | `trompette` | Trompette 8' solo on the Récit against the Grand Orgue fonds |
 
@@ -356,11 +357,11 @@ Install: `npm install @supersynth/organ-skrzatusz`. Config: `SKRZATUSZ_ORGAN`. D
 | `principal-chorus` | Principal chorus 8' 4' 2' |
 | `plenum` | Plenum: principals, Quinte and Mixtur on Bordun 16' |
 | `full` | Full organ with Cornett and Posaune |
-| `foundations` | The 8' stops of the great — Sauer's Romantic fonds |
+| `foundations` | The 8' stops of the great, Sauer's Romantic fonds |
 | `flutes` | Gedact 8' + Flauto dolce 4' on the positive |
-| `flute-8` | Gedact 8' — soft stopped flute |
+| `flute-8` | Gedact 8', soft stopped flute |
 | `flute-solo` | Flûte harmonique 8' solo on the great, accompanied by the Gedact on the positive |
-| `strings` | Viola di Gamba 8' with Gedact — the Romantic string sound |
+| `strings` | Viola di Gamba 8' with Gedact, the Romantic string sound |
 | `cornet` | Cornett solo (from middle C) on the great against the positive |
 
 ## `strassburg` — Strassburg
@@ -382,10 +383,10 @@ Install: `npm install @supersynth/organ-strassburg`. Config: `STRASSBURG_ORGAN`.
 | `plenum` | Organo pleno for the Baroque repertoire: principals, Quint and Mixtur, the Positiv coupled |
 | `full` | Every stop, the Positiv coupled |
 | `flutes` | Gedeckt 8' + Flöte 4' on the Hauptwerk |
-| `flute-8` | Gedackt 8' — the Positiv's soft stopped flute |
+| `flute-8` | Gedackt 8', the Positiv's soft stopped flute |
 | `positive-chorus` | The Positiv's small chorus: Gedackt 8', Prinzipal 4', Oktav 2' |
-| `gemshorn` | Gemshorn 8' with Flöte 4' — the gentle colour of the Hauptwerk |
-| `cornet-decompose` | Gedeckt 8', Flöte 4' and Quint 2 2/3' — a gapped solo against the Positiv Gedackt |
+| `gemshorn` | Gemshorn 8' with Flöte 4', the gentle colour of the Hauptwerk |
+| `cornet-decompose` | Gedeckt 8', Flöte 4' and Quint 2 2/3', a gapped solo against the Positiv Gedackt |
 
 ## `szczecinek` — Szczecinek
 
@@ -402,16 +403,16 @@ Install: `npm install @supersynth/organ-szczecinek`. Config: `SZCZECINEK_ORGAN`.
 | Preset | Description |
 |---|---|
 | `principal` | Principal 8' alone |
-| `foundations` | The 8' stops of both manuals coupled — Voelkner's Romantic fonds |
+| `foundations` | The 8' stops of both manuals coupled, Voelkner's Romantic fonds |
 | `principal-chorus` | Principals 16' 8' 4' with the Rauschquinte |
 | `plenum` | Plenum: principals, Rauschquinte and Mixtur with the swell coupled |
 | `full` | Full organ with Cornett, Trompete, Schalmey and Posaune |
-| `full-16` | Full organ with the swell also coupled an octave down (II 16'/I) — Voelkner's romantic gravity |
+| `full-16` | Full organ with the swell also coupled an octave down (II 16'/I) |
 | `flutes` | Konzertflöte 8' + Traversflöte 4' on the swell |
-| `flute-8` | Gedackt 8' — soft stopped flute |
+| `flute-8` | Gedackt 8', soft stopped flute |
 | `flute-solo` | Flûte harmonique 8' solo on the great against the swell's Gedackt and Aeoline |
-| `celeste` | Aeoline + Vox coelestis — the shimmering Romantic strings |
+| `celeste` | Aeoline + Vox coelestis, the shimmering Romantic strings |
 | `strings` | Gambe 8' and Salicional 8' on the great with Violon and Violoncello |
-| `quiet` | Lieblich Gedackt 16' with Aeoline 8' — the softest registration |
+| `quiet` | Lieblich Gedackt 16' with Aeoline 8', the softest registration |
 | `schalmey` | Schalmey 8' solo on the swell against the great's Röhrflöte |
-| `trumpet` | Trompete 8' with Principal 8' — festive solo |
+| `trumpet` | Trompete 8' with Principal 8' as a festive solo |

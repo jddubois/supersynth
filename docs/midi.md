@@ -13,32 +13,34 @@ const audio = synth.renderMidi('song.mid', {
 await synth.playMidi('song.mid', { instrument: 'harpsichord' }); // real time (starts output)
 ```
 
-Note on/off, sustain (CC64), modulation (CC1), volume (CC7), pan (CC10), expression (CC11),
-reverb send (CC91) and pitch bend are honoured. Program changes and other controllers are
-ignored. Channel 10 (GM drums) is skipped unless mapped; with `byTrack` it is not skipped, so
-map or leave out drum tracks yourself. `byTrack: true` maps by track instead of channel: the
-keys of `channels` are then 0-based track indices (`0` is the first track). A channel or track
-without notes gets no instrument. A target is an instrument id, an `Instrument` or a
-`Division`; an organ id throws (pass one of its divisions, `organ.great`).
+Supported messages are note on/off, sustain (CC64), modulation (CC1), volume (CC7), pan (CC10),
+expression (CC11), reverb send (CC91) and pitch bend. Program changes and other controllers are
+ignored. Channel 10 (GM drums) is skipped unless you map it.
 
-An instrument or division you pass is played as it is (an organ division with its couplers).
-When the file ends (or is aborted), its notes are released and its sustain pedal, modulation,
-expression and pitch bend are reset, so nothing the file left on carries over; volume, pan and
-reverb send stay as the file set them. An instrument named by id is added for the file and
-removed when the file is done, so a file can be rendered any number of times.
+With `byTrack: true`, instruments are assigned per track instead of per channel, and the keys
+of `channels` are 0-based track indices (`0` is the first track). Channel 10 isn't skipped in
+this mode, so map or leave out drum tracks yourself. Channels or tracks without notes don't get
+an instrument. A target can be an instrument id, an `Instrument` or a `Division`. Passing an
+organ id throws; pass one of its divisions instead, such as `organ.great`.
 
-Several events at the same tick are ordered as a player would expect: a note-off that ends a
-note sounding before that tick comes first (a note re-struck at the same tick is not cut), and a
-note that starts and ends at the same tick (a zero-length note) is played and released.
+An instrument or division you pass in is played as it is (an organ division with its couplers).
+When the file ends or is aborted, its notes are released and the sustain pedal, modulation,
+expression and pitch bend are reset, so nothing the file left on carries over. Volume, pan and
+reverb send stay where the file left them. An instrument given by id is added for the file and
+removed afterwards, so you can render the same file as many times as you like.
+
+Events on the same tick are ordered the way a player would expect. A note-off for a note that
+started earlier comes first, so a note re-struck on that tick isn't cut off, and a zero-length
+note (one that starts and ends on the same tick) is still played and released.
 
 `speed` must be above 0, `tail` 0 or more, and `transpose` a whole number of semitones;
 anything else throws `SupersynthError`.
 
-`playMidi()` resolves when the file and its tail have played. It also resolves, early, when
-output stops (`synth.stop()` or `synth.close()`). To stop it yourself, pass an `AbortSignal`:
-aborting releases the notes it was playing (on every instrument and division it used) and
-rejects the promise with an `AbortError` (a `SupersynthError`). An error while it plays rejects
-the promise too.
+`playMidi()` resolves once the file and its tail have finished playing, or earlier if output
+stops (`synth.stop()` or `synth.close()`). To stop it yourself, pass an `AbortSignal`. Aborting
+releases the notes it was playing on every instrument and division it used, and rejects the
+promise with an `AbortError` (a subclass of `SupersynthError`). Any error during playback also
+rejects the promise.
 
 ```ts
 const ac = new AbortController();
@@ -47,17 +49,17 @@ setTimeout(() => ac.abort(), 10_000);
 await playing.catch((e) => { if (!(e instanceof AbortError)) throw e; });
 ```
 
-Events are sent to the engine ahead of time, a second and a half at most and never more than
-its queue holds (see [the event queue](synth.md#the-event-queue)), so files of any length and
-density play.
+Events are sent to the engine up to a second and a half ahead, never more than its queue can
+hold (see [the event queue](synth.md#the-event-queue)), so files of any length or density will
+play.
 
-`parseMidiFile(bytes)` gives the file as data, `{ events, duration, tracks, trackNames,
-ticksPerBeat }`: `events` in time order, each with `time` (seconds, the file's tempo changes
-applied), `track` (0-based), `channel` (1–16) and its `type` — `noteOn` (`note`, `velocity`),
-`noteOff` (`note`), `cc` (`controller`, `value`), `pitchBend` (`value`, −1 … 1) or `program`
-(`program`); `duration` is the time of the last event. It reads Standard MIDI Files of format 0
-and 1 timed in ticks per beat; format 2, SMPTE timing, and a file that is not a Standard MIDI
-File or is truncated or corrupt throw `MidiError`.
+`parseMidiFile(bytes)` returns the file as data: `{ events, duration, tracks, trackNames,
+ticksPerBeat }`. `events` are sorted by time, and each has a `time` in seconds (with the file's
+tempo changes applied), a 0-based `track`, a `channel` from 1 to 16 and a `type`: `noteOn`
+(with `note` and `velocity`), `noteOff` (`note`), `cc` (`controller`, `value`), `pitchBend`
+(`value`, −1 … 1) or `program` (`program`). `duration` is the time of the last event. It reads
+Standard MIDI Files of format 0 and 1 timed in ticks per beat. Format 2 files, SMPTE timing,
+and files that are truncated, corrupt or not MIDI files at all throw `MidiError`.
 
 ## Hardware input
 
@@ -69,25 +71,28 @@ await synth.enableMidi('Arturia');          // substring of the device name; omi
 synth.on('midi', (e) => console.log(e.type, e.channel, e.note, e.velocity));
 ```
 
-An enabled MIDI input keeps Node.js running until `disableMidi()` or `synth.close()`.
+While a MIDI input is enabled, Node.js keeps running until you call `disableMidi()` or
+`synth.close()`.
 
-The `'midi'` event's `MidiEvent` has `type` (`'noteOn'`, `'noteOff'`, `'cc'`, `'programChange'`,
-`'pitchBend'` or `'unknown'`), `channel` (1–16), `raw` (the bytes) and, as the type has them,
-`note` and `velocity`, `controller` and `value` (0–127), `program`, or `value` (−1 … 1 for pitch
-bend). A note-on with velocity 0 arrives as `'noteOff'`.
+Each `'midi'` event is a `MidiEvent` with a `type` (`'noteOn'`, `'noteOff'`, `'cc'`,
+`'programChange'`, `'pitchBend'` or `'unknown'`), a `channel` (1–16) and the `raw` bytes. Depending
+on the type it also has `note` and `velocity`, `controller` and `value` (0–127), `program`, or a
+pitch-bend `value` from −1 to 1. A note-on with velocity 0 arrives as `'noteOff'`.
 
-Nothing plays from a MIDI keyboard until it is given a channel: `instrument.midi(n)` (or
-`instrument.midi()` for every channel) and `organ.midi({ great: 1, … })`. A channel belongs to
-one instrument or division at a time; giving it to another takes it over, and calling `midi()`
-again replaces the channels an instrument or organ had.
+A MIDI keyboard doesn't play anything until you assign a channel: `instrument.midi(n)` (or
+`instrument.midi()` for all channels) and `organ.midi({ great: 1, … })`. Each channel belongs to
+one instrument or division at a time. Assigning it to another one moves it, and calling `midi()`
+again replaces the channels an instrument or organ had before.
 
-With `route: true` (default) notes and controllers go straight to the engine, with no
-JavaScript round trip, while real-time output runs (`synth.start()`); stopped, nothing sounds.
-Offline (`render()`) a MIDI keyboard plays nothing. Messages apply at the start of the next
-audio buffer, so their timing varies by up to one buffer (`bufferSize`). Live input has room of
-its own in the engine's queue: events scheduled ahead by a program never crowd it out. Set
-`route: false` to handle everything yourself in the `'midi'` event, which is emitted for every
-message either way. `disableMidi()` disconnects.
+With `route: true` (the default), notes and controllers go straight to the engine without a
+round trip through JavaScript, but only while real-time output is running (`synth.start()`).
+When output is stopped, or when rendering offline with `render()`, the keyboard doesn't play
+anything. Messages take effect at the start of the next audio buffer, so their timing can vary
+by up to one buffer (`bufferSize`). Live input has its own space in the engine's queue, so
+events a program schedules ahead of time can't crowd it out. Set `route: false` to handle
+everything yourself in the `'midi'` event, which fires for every message either way.
+`disableMidi()` disconnects the device.
 
-An organ assigns its divisions to channels with `organ.midi({ great: 1, swell: 2, pedal: 3 })`
-(couplers apply, program changes select presets; see [organ.md](organ.md#midi-keyboards)).
+To play an organ from MIDI, assign its divisions to channels with
+`organ.midi({ great: 1, swell: 2, pedal: 3 })`. Couplers apply, and program changes select
+presets; see [organ.md](organ.md#midi-keyboards).

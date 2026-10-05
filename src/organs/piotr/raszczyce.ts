@@ -60,7 +60,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbas 16'", "Gedekt 8'"],
   },
   'flute-8': {
-    description: "Holpijp 8' — the Rugwerk's soft flute",
+    description: "Holpijp 8', the Rugwerk's soft flute",
     positive: ["Holpijp 8'"],
     pedal: ["Subbas 16'"],
   },
@@ -83,7 +83,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbas 16'", "Gedekt 8'"],
   },
   trumpet: {
-    description: "Trompet 8' with Prestant 8' — festive solo",
+    description: "Trompet 8' with Prestant 8' as a festive solo",
     great: ["Prestant 8'", "Trompet 8'"],
     positive: ["Holpijp 8'", "Roerfluit 4'"],
     pedal: ["Subbas 16'", "Prestant 8'", "Fagot 16'"],

@@ -39,7 +39,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbaß 16'", "Octavbaß 8'"],
   },
   foundations: {
-    description: "The 8' stops of both manuals coupled — the Romantic fonds",
+    description: "The 8' stops of both manuals coupled, the Romantic fonds",
     great: ["Principal 8'", "Viola di Gamba 8'", "Gemshorn 8'", "Doppelröhrflöte 8'"],
     positive: ["Geigenprincipal 8'", "Salicet 8'", "Flaut Major 8'"],
     pedal: ["Subbaß 16'", "Violonbaß 16'", "Octavbaß 8'", "Flautbaß 8'"],
@@ -72,7 +72,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbaß 16'", "Flautbaß 8'"],
   },
   'flute-8': {
-    description: "Portunal Flaut 8' — soft flute on the positive",
+    description: "Portunal Flaut 8', soft flute on the positive",
     positive: ["Portunal Flaut 8'"],
     pedal: ["Subbaß 16'"],
   },
@@ -82,7 +82,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbaß 16'"],
   },
   strings: {
-    description: "Salicet 8' with Flaut Major — the soft strings of the positive",
+    description: "Salicet 8' with Flaut Major, the soft strings of the positive",
     positive: ["Salicet 8'", "Flaut Major 8'"],
     pedal: ["Subbaß 16'", "Violonbaß 16'"],
   },
@@ -93,7 +93,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbaß 16'", "Flautbaß 8'"],
   },
   trumpet: {
-    description: "Trompete 8' with Principal 8' — festive solo",
+    description: "Trompete 8' with Principal 8' as a festive solo",
     great: ["Principal 8'", "Trompete 8'"],
     positive: ["Geigenprincipal 8'", "Flaut Major 8'"],
     pedal: ["Subbaß 16'", "Octavbaß 8'", "Posaune 16'"],

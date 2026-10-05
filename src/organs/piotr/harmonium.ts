@@ -21,17 +21,17 @@ const STOPS: StopDefinition[] = [
 
 const PRESETS: Record<string, OrganPreset> = {
   diapason: {
-    description: "Diapason + Melodia 8' — the full 8' voice of manual I",
+    description: "Diapason + Melodia 8', the full 8' voice of manual I",
     great: ["Diapason 8'", "Melodia 8'"],
     pedal: ["Diapason 16'"],
   },
   soft: {
-    description: "Dulcet + Flöte 8' — the soft 8' of manual II",
+    description: "Dulcet + Flöte 8', the soft 8' of manual II",
     swell: ["Dulcet 8'", "Flöte 8'"],
     pedal: ["Diapason 16'"],
   },
   celeste: {
-    description: "Dulcet 8' and Flöte 8' with Vox Jubilante — the beating treble celeste",
+    description: "Dulcet 8' and Flöte 8' with Vox Jubilante, the beating treble celeste",
     swell: ["Dulcet 8'", "Flöte 8'", "Vox Jubilante 8'"],
     pedal: ["Diapason 16'"],
   },

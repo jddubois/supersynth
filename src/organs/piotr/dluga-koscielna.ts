@@ -69,7 +69,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbass 16'", "Flet kryty 8'"],
   },
   'flute-8': {
-    description: "Flauto amabile 8' — the softest flute",
+    description: "Flauto amabile 8', the softest flute",
     positive: ["Flauto amabile 8'"],
     pedal: ["Subbass 16'"],
   },

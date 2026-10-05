@@ -1,7 +1,7 @@
 # supersynth
 
-Acoustic instrument sounds for Node.js, played by a native Rust engine: a piano, a harpsichord,
-sixteen pipe organs and a harmonium, strings, winds, brass and mallets. Every instrument is a
+Acoustic instrument sounds for Node.js, played by a native Rust engine: piano, harpsichord,
+sixteen pipe organs and a harmonium, strings, winds, brass and mallets. Each instrument is a
 spectral model analysed from freely licensed recordings.
 
 ```ts
@@ -16,105 +16,106 @@ await synth.idle();   // real-time output does not keep Node.js running by itsel
 synth.close();
 ```
 
-## Where it is useful
+## What it's for
 
-- **Programs that make music**: generative and algorithmic music, sonification, games and
-  installations that play notes from code, with every note, controller and setting scheduled
-  to the sample (`{ at }`).
-- **Rendering offline**: MIDI files or generated scores to WAV on a server or in a build step,
-  with no audio device.
-- **Small or headless machines**: the shipped instruments take 36 MB, and the engine is prebuilt for
-  64-bit ARM. The Raspberry Pi 5 figures in [Performance](#performance) are estimates from a
-  cloud VM; they were not measured on a Pi.
-- **Playing a MIDI keyboard through Node**, including organs with several keyboards, couplers,
-  stops and presets driven from code.
-- **Changing the sound from code**: brightness, attack, release, vibrato, inharmonicity, noise
-  and effects can be changed while notes sound.
+- Generative and algorithmic music, sonification, games and installations: anything that plays
+  notes from code. Notes, controllers and settings can all be scheduled to the sample with `{ at }`.
+- Rendering MIDI files or generated scores to WAV, on a server or in a build step, without an
+  audio device.
+- Small or headless machines. The bundled instruments take 36 MB and the engine is prebuilt for
+  64-bit ARM. (The Raspberry Pi 5 numbers under [Performance](#performance) are estimated on a
+  cloud VM, not measured on a Pi.)
+- Playing a MIDI keyboard through Node, including multi-manual organs whose stops, couplers and
+  presets you control from code.
+- Changing the sound while it plays: brightness, attack, release, vibrato, inharmonicity, noise
+  and effects.
 
-When the goal is the most faithful reproduction of a particular instrument, other tools are
-the usual choice. A sampler (sfizz, FluidSynth, Decent Sampler) plays the source recordings
-themselves; VCSL and VSCO 2 CE are available for samplers. GrandOrgue plays the organ sample
-sets. Physically modelled instruments simulate what this engine does not, such as the coupling
-of piano strings, and some sample libraries record the transitions between notes.
+If you want the most faithful reproduction of one particular instrument, use something else. A
+sampler (sfizz, FluidSynth, Decent Sampler) plays the recordings themselves, and VCSL and VSCO 2
+CE are available in sampler formats. GrandOrgue plays the organ sample sets directly. Physical
+models simulate things this engine doesn't, like the coupling between piano strings, and some
+sample libraries record the transitions between notes.
 
 ## How it works
 
-For each recorded note and dynamic level, the analysis (`tools/ssm/`, [docs/models.md](docs/models.md))
+For each recorded note and dynamic level, the analysis in `tools/ssm/` ([docs/models.md](docs/models.md))
 measures:
 
-- the frequency and amplitude envelope of each harmonic partial: up to 512, keeping those within
-  80 dB of the strongest. It also measures string stiffness (piano inharmonicity), vibrato and
-  pitch drift;
-- stable inharmonic peaks in what is left: resonances in the piano recording, the modes of a
-  bar or bell;
-- the noise in 30 frequency bands over time: breath, bow, hammer, wind and key action;
-- for nearly every instrument, the first 40–250 ms of the recording itself (the attack), which
+- the frequency and amplitude envelope of each harmonic partial (up to 512, keeping those within
+  80 dB of the strongest), plus string stiffness (piano inharmonicity), vibrato and pitch drift;
+- stable inharmonic peaks in what's left over, such as resonances in a piano recording or the
+  modes of a bar or bell;
+- the noise in 30 frequency bands over time: breath, bow, hammer, wind, key action;
+- for almost every instrument, the first 40–250 ms of the recording itself (the attack), which
   the engine cross-fades into the synthesised tone;
 - sustain loops, release behaviour and the tuning of each note.
 
 The engine plays this back with an oscillator bank and band-shaped noise. Notes between
-recorded pitches or dynamics blend the partial levels of the nearest recordings (with formant
-preservation for strings, winds and brass). The attack excerpt and the shape of the envelope come
-from the nearest recording, resampled to the new pitch.
+recorded pitches or dynamics blend the partial levels of the nearest recordings, with formant
+preservation for strings, winds and brass. The attack and the envelope shape come from the
+nearest recording, resampled to the new pitch.
 
 ## Limitations
 
-- **No published comparison with the recordings.** `tools/ssm/` contains scripts that compare
-  synthesised notes with recordings and with a simple pitch-shifting sampler (see
-  [docs/models.md](docs/models.md#evaluation)). The repository holds no results from them and no
-  record of listening tests with people, so it makes no claim about how close the instruments
-  are to the real ones or to a sampler.
-- **Between recorded notes**, the attack and envelope come from one neighbouring recording.
-  They switch to the other neighbour halfway between them, much like a sampler's zones.
-  The attack is resampled by linear interpolation, which can alias on high transpositions.
-- **Piano**: there is no sympathetic or pedal resonance between notes. Resonances in each recording
-  are kept. Re-striking a note that still sounds (held by the pedal, too) releases the previous
-  strike.
-- **Strings, winds and brass**: legato is a pitch glide into the next note's sustain, not a
-  recorded transition. A section (`strings`, `violins`, …) is one model, not separate players.
-- **Organs**: the Bureå and Piotr Grabowski sample sets record every pipe, so these models are
-  resyntheses of those recordings rather than interpolations. The pipes do not interact, apart
-  from a simple shared-wind model (`wind`).
-- **Live MIDI** is applied at the start of the next audio buffer, so its timing varies by up to
+- There's no published comparison with the recordings. `tools/ssm/` has scripts that compare
+  synthesised notes with the recordings and with a simple pitch-shifting sampler
+  ([docs/models.md](docs/models.md#evaluation)), but none of their results are in the repository
+  and there have been no recorded listening tests. So this README makes no claim about how close
+  the instruments come to the real thing, or to a sampler.
+- Between recorded notes, the attack and envelope come from one of the two neighbouring
+  recordings and switch over halfway between them, much like sampler zones. The attack is
+  resampled with linear interpolation, which can alias when it's transposed a long way up.
+- Piano: there's no sympathetic or pedal resonance between notes (resonances inside each
+  recording are kept). Re-striking a note that is still sounding, including one held by the
+  pedal, releases the previous strike.
+- Strings, winds and brass: legato is a pitch glide into the next note's sustain, not a recorded
+  transition. Sections (`strings`, `violins`, …) are a single model, not individual players.
+- Organs: the Bureå and Piotr Grabowski sample sets record every pipe, so these models
+  resynthesise those recordings rather than interpolating between them. Pipes don't interact,
+  apart from a simple shared-wind model (`wind`).
+- Live MIDI is applied at the start of the next audio buffer, so its timing can be off by up to
   one buffer (2.7 ms at 128 frames).
-- **CPU**: by estimate, the largest organs at full registration need more than a Raspberry Pi 5
-  ([Performance](#performance)).
+- The largest organs at full registration probably need more CPU than a Raspberry Pi 5 has
+  (see [Performance](#performance)).
 
 ## Instruments
 
 | Family | Instruments (ids) |
 |---|---|
 | Keyboards | `grand-piano`, `upright-piano`, `harpsichord` |
-| Organs | `burea` — the full Bureå church organ (40 stops, 4 divisions); `vcsl` — the VCSL church organ with a Renaissance chamber organ; 15 organs from Piotr Grabowski's free sample sets (`friesach`, `cracow`, `szczecinek`, … — [docs/piotr-organs.md](docs/piotr-organs.md)); `pipe-organ`, `chamber-organ` (single sounds). The organs other than `vcsl` install separately ([Install](#install)) |
+| Organs | `burea` (the Bureå church organ: 40 stops, 4 divisions); `vcsl` (the VCSL church organ plus a Renaissance chamber organ); 15 organs from Piotr Grabowski's free sample sets, such as `friesach`, `cracow` and `szczecinek` ([full list](docs/piotr-organs.md)); `pipe-organ` and `chamber-organ` (single sounds). Apart from `vcsl` and the single sounds, organs are installed separately ([Install](#install)) |
 | Strings | `violin`, `violins`, `violas`, `cellos`, `contrabass`, `strings` (full section), `harp`, `violin-pizzicato`, `cello-pizzicato`, `contrabass-pizzicato` |
 | Woodwinds | `flute`, `oboe`, `clarinet`, `bassoon`, `tenor-sax` |
 | Brass | `trumpet`, `french-horn`, `trombone`, `tuba`, `brass` (section) |
 | Percussion | `marimba`, `vibraphone`, `xylophone`, `glockenspiel`, `tubular-bells` |
 
-Each comes with presets (`synth.add('grand-piano', { preset: 'felt' })`); `INSTRUMENTS` and
-`ORGANS` list everything, with presets and descriptions (see [docs/instruments.md](docs/instruments.md)).
+Every instrument has presets (`synth.add('grand-piano', { preset: 'felt' })`). `INSTRUMENTS` and
+`ORGANS` hold the whole catalog with presets and descriptions, also listed in
+[docs/instruments.md](docs/instruments.md).
 
-## The API in one screen
+## API overview
 
-- **`Synth`** is the engine; `synth.add(id)` adds anything in the catalog. `add('violin')`
-  gives an **`Instrument`**, `add('burea')` an **`Organ`** with four **`Division`s** (its keyboards).
-- Instruments and divisions are **`Playable`**: `noteOn`, `noteOff`, `play`, `sequence`,
+- `Synth` is the engine. `synth.add(id)` adds anything from the catalog: `add('violin')` returns
+  an `Instrument`, and `add('burea')` an `Organ` with four `Division`s (its keyboards).
+- Instruments and divisions are both `Playable`: `noteOn`, `noteOff`, `play`, `sequence`,
   `expression`, `allNotesOff`.
-- **Every change can be scheduled**: notes, controllers, parameters, presets, stops, couplers,
-  volume and room all take `{ at }` or `{ delay }` last, so a whole piece renders in one go.
-- **`set(settings)`** changes some settings and keeps the rest — `synth.set({ volume, reverb })`,
-  `instrument.set({ brightness })`, `organ.set({ tremulant, wind, noises })`, `division.set({ stops })`.
-- Instruments and organs share one **preset** API: `preset(name | object)`, `presets()`,
+- Notes, controllers, parameters, presets, stops, couplers, volume and reverb all take `{ at }`
+  or `{ delay }` as their last argument, so you can schedule a whole piece and render it in one
+  pass.
+- `set(settings)` changes only the settings you pass: `synth.set({ volume, reverb })`,
+  `instrument.set({ brightness })`, `organ.set({ tremulant, wind, noises })`,
+  `division.set({ stops })`.
+- Instruments and organs have the same preset methods: `preset(name | object)`, `presets()`,
   `savePreset(name)`, `current()`, `activePreset()`.
-- **MIDI channels** are 1–16, and a MIDI keyboard plays only what you give a channel:
-  `instrument.midi(1)`, `organ.midi({ great: 1, pedal: 2 })`.
-- Instruments and organs are **configuration** (`InstrumentDefinition`, `OrganDefinition`), with
-  the built-in ones in `INSTRUMENTS` and `ORGANS` by id: import, copy, change, and pass to `add`.
+- MIDI channels are numbered 1–16. A MIDI keyboard only plays what you've assigned a channel
+  to: `instrument.midi(1)`, `organ.midi({ great: 1, pedal: 2 })`.
+- Instruments and organs are plain configuration objects (`InstrumentDefinition`,
+  `OrganDefinition`). The built-in ones are in `INSTRUMENTS` and `ORGANS`, keyed by id; copy
+  one, change it and pass it to `add`.
 
-Reference: [docs/synth.md](docs/synth.md) (Synth, Instrument, the rules above),
-[docs/organ.md](docs/organ.md), [docs/parameters.md](docs/parameters.md) (parameters, reverb),
-[docs/midi.md](docs/midi.md), [docs/errors.md](docs/errors.md); how the models are made:
-[docs/models.md](docs/models.md).
+Reference: [docs/synth.md](docs/synth.md) (`Synth` and `Instrument`), [docs/organ.md](docs/organ.md),
+[docs/parameters.md](docs/parameters.md) (parameters and reverb), [docs/midi.md](docs/midi.md),
+[docs/errors.md](docs/errors.md), and [docs/models.md](docs/models.md) for how the models are built.
 
 ## Install
 
@@ -122,13 +123,13 @@ Reference: [docs/synth.md](docs/synth.md) (Synth, Instrument, the rules above),
 npm install supersynth
 ```
 
-This brings the engine prebuilt for your platform — Linux x64 and arm64 (glibc 2.35+, e.g. a
-Raspberry Pi 5 on Raspberry Pi OS Bookworm), Linux x64 musl (Alpine), macOS (Intel and Apple
-silicon), Windows x64; Node 18 or later — and every instrument except the organs that come in
-packages of their own (36 MB). On Linux the engine uses ALSA's `libasound.so.2` (package
-`libasound2` or `alsa-lib`).
+This installs the prebuilt engine for your platform and every instrument except the separately
+packaged organs (36 MB). Prebuilt engines are available for Linux x64 and arm64 (glibc 2.35 or
+newer, e.g. Raspberry Pi OS Bookworm on a Pi 5), Linux x64 musl (Alpine), macOS (Intel and Apple
+silicon) and Windows x64. Node 18 or later is required. On Linux the engine uses ALSA's
+`libasound.so.2` (package `libasound2` or `alsa-lib`).
 
-Each organ's models are a package of their own, so you download only the organs you play:
+Each organ is its own package, so you only download the ones you use:
 
 ```bash
 npm install @supersynth/organ-burea      # the Bureå organ (71 MB)
@@ -136,14 +137,15 @@ npm install @supersynth/organ-friesach   # one of Piotr Grabowski's organs: @sup
 npm install @supersynth/organs           # all 16 organs (about 900 MB)
 ```
 
-`synth.add('friesach')` without its package throws an error naming the package to install. The
-VCSL organ (`vcsl`) and the single organ sounds ship with supersynth.
+If the package isn't installed, `synth.add('friesach')` throws an error that tells you which one
+to install. The VCSL organ (`vcsl`) and the single organ sounds come with supersynth itself.
 
-Building from source needs Rust ([rustup.rs](https://rustup.rs)) and, on Linux, `pkg-config`
-and the ALSA and JACK development headers (Debian/Ubuntu: `libasound2-dev libjack-jackd2-dev`;
-JACK itself is loaded at run time only if it is installed). Then run `npm ci && npm run build`
-in a clone. The current models alone are about 1 GB and the git history holds every version of
-them, so a full clone is larger still (`git clone --depth 1` fetches only the current ones).
+To build from source you need Rust ([rustup.rs](https://rustup.rs)). On Linux you also need
+`pkg-config` and the ALSA and JACK development headers (`libasound2-dev libjack-jackd2-dev` on
+Debian/Ubuntu); JACK itself is only loaded at run time if it's installed. Then run
+`npm ci && npm run build` in a clone. The current models are about 1 GB and the git history
+contains every version of them, so a full clone is bigger than that. `git clone --depth 1`
+fetches only the current ones.
 
 ## Usage
 
@@ -164,8 +166,8 @@ piano.sustain(true);                                        // pedal
 violin.pitchBend(0.5); violin.modulation(0.3); violin.expression(0.6); // swells
 ```
 
-All note methods accept `{ at }` (absolute seconds on `synth.currentTime`) or `{ delay }` for
-sample-accurate scheduling.
+All note methods take `{ at }` (seconds on the `synth.currentTime` clock) or `{ delay }`
+(seconds from now), and are scheduled to the sample.
 
 ### Presets and tweaks
 
@@ -215,11 +217,11 @@ await synth.enableMidi();
 organ.midi({ great: 1, swell: 2, pedal: 3 });   // keyboards per channel, couplers included
 ```
 
-### Instruments and organs are configuration
+### Custom instruments and organs
 
 Every instrument (`GRAND_PIANO`, `VIOLAS`, …) and organ (`BUREA_ORGAN`, `VCSL_ORGAN`,
-`FRIESACH_ORGAN`, …) is a plain object you can import, copy and change, from `supersynth` or from
-`supersynth/instruments` and `supersynth/organs`:
+`FRIESACH_ORGAN`, …) is a plain object that you can import, copy and modify. They're exported
+from `supersynth` as well as `supersynth/instruments` and `supersynth/organs`:
 
 ```ts
 import { GRAND_PIANO } from 'supersynth/instruments';
@@ -259,8 +261,8 @@ await synth.enableMidi('Keystation');      // routed in the engine, not through 
 synth.on('midi', (e) => console.log(e));
 ```
 
-Messages are applied at the start of the next audio buffer. An open MIDI input keeps Node.js
-running until `disableMidi()` or `close()`.
+Incoming messages take effect at the start of the next audio buffer. While a MIDI input is
+open, Node.js keeps running until you call `disableMidi()` or `close()`.
 
 ## Examples
 
@@ -273,21 +275,22 @@ npm run example:midi          # Bach's BWV 532 from a MIDI file, on the piano
 npm run demos -- demos/       # render every instrument × preset to WAV
 ```
 
-Append `-- out.wav` to the first four to render to a file instead of the speakers. The MIDI
-example takes `-- --organ` (the Bureå plenum; needs `@supersynth/organ-burea`),
-`-- --instrument <id>` and `-- --out file.wav`.
+Add `-- out.wav` to any of the first four to render to a file instead of playing through the
+speakers. The MIDI example takes `-- --organ` (the Bureå plenum, which needs
+`@supersynth/organ-burea`), `-- --instrument <id>` and `-- --out file.wav`.
 
 ## Performance
 
-The engine runs outside Node's event loop and garbage collector; the API talks to it through a
-lock-free queue. Each audio block is rendered on several cores (`threads`, default: one per core
-but one, at most 8, so 3 on a Raspberry Pi 5): new notes are set up and voices rendered on every
-core, then each part's noise and effects; the result is bit-for-bit the same for any number of threads. The
-voice code is vectorised (NEON on ARM; SSE2, SSE4.1 or AVX2 on x86-64, chosen at run time),
-without changing a single output sample.
+The engine runs outside Node's event loop and garbage collector, and the API talks to it
+through a lock-free queue. Each audio block is rendered on several cores. The `threads` option
+defaults to one less than the number of cores, up to 8 (so 3 on a Raspberry Pi 5). New notes
+are set up and voices rendered across all of them, then each part's noise and effects. The
+output is identical whatever the thread count. The voice code is vectorised (NEON on ARM; SSE2,
+SSE4.1 or AVX2 on x86-64, picked at run time), and every variant produces the same samples.
 
-`npm run bench` (offline, 2.1 GHz Xeon cloud VM with AVX2; share of one core needed in real time,
-and with `npm run bench -- --threads 3` the share of real time that passes):
+`npm run bench`, offline on a 2.1 GHz Xeon cloud VM with AVX2. The 1-thread column is the share
+of one core needed to keep up in real time; the 3-thread column (`npm run bench -- --threads 3`)
+is elapsed time as a share of the audio's duration:
 
 | Scenario | 0.2.0 | now, 1 thread | now, 3 threads (wall clock) |
 |---|---|---|---|
@@ -296,17 +299,20 @@ and with `npm run bench -- --threads 3` the share of real time that passes):
 | Bureå plenum chord + pedal (25 pipes) | 30 % | 26 % | 16 % |
 | Bureå full organ, all couplers (116 pipes) | 118 % | 95 % | 48 % |
 
-Playing live is what counts: `npm run live-test` and `npm run bench:organs` play the engine as a
-performer does, one 128-frame buffer (2.67 ms) at a time with keys arriving at buffer boundaries,
-and time every buffer. The Raspberry Pi estimate below takes this VM's SSE4.1 code (4 lanes, as
-NEON; `SUPERSYNTH_SIMD=sse4.1` in the environment) at 3 threads (`--threads 3`) and a CPU 1.7×
-slower; `--repeat 3` keeps each buffer's fastest of three runs, since a shared VM adds random stalls of its own (an engine rendering nothing shows 36 % p99.9 here).
-A buffer must finish within its 2.67 ms: below 59 % here leaves the Pi on time.
+For live playing, averages matter less than the slowest buffers. `npm run live-test` and
+`npm run bench:organs` drive the engine the way a performer would, one 128-frame buffer
+(2.67 ms) at a time with keys arriving at buffer boundaries, and time every buffer. The
+Raspberry Pi estimates use this VM's SSE4.1 code path (4 lanes, like NEON; set
+`SUPERSYNTH_SIMD=sse4.1`) at 3 threads (`--threads 3`) and assume a CPU 1.7× slower.
+`--repeat 3` keeps the fastest of three runs for each buffer, because a shared VM adds random
+stalls of its own (an engine rendering nothing still shows 36 % at p99.9 here). Every buffer has
+to finish within its 2.67 ms, so anything under 59 % on this VM should keep up on a Pi.
 
-Live play (`live-test`, 3 threads, SSE4.1, `--repeat 3`): piano BWV 532 with pedal 13 % mean / 24 %
-worst 0.1 %, fortissimo piano chords 35 / 53 %, strings 20 / 36 %, BWV 532 on the Bureå plenum
-31 / 57 %: all on time on a Pi 5 by this estimate (0.2.0, one thread: 154 / 396 / 82 / 297 % worst,
-with dropouts even on this VM).
+With `live-test` (3 threads, SSE4.1, `--repeat 3`), the mean and worst-0.1 % buffer loads are
+13 % and 24 % for BWV 532 on the piano with pedal, 35 % and 53 % for fortissimo piano chords,
+20 % and 36 % for strings, and 31 % and 57 % for BWV 532 on the Bureå plenum. By this estimate
+all of them keep up on a Pi 5. Version 0.2.0 on one thread had worst cases of 154, 396, 82 and
+297 %, and dropped out even on this VM.
 
 | Organ, 6-note chord + 2 pedal notes (`bench:organs`) | voices | mean | worst 0.1 % | Pi 5 (est.) |
 |---|---|---|---|---|
@@ -316,18 +322,18 @@ with dropouts even on this VM).
 | szczecinek, friesach grand-choeur, cracow grand-choeur | 162–220 | 56–62 % | 75–95 % | no: needs a faster machine or `releaseCulling` |
 | Bureå full / tutti, Friesach and Cracow tutti + couplers | 130–285 | 55–89 % | 93–140 % | no |
 
-The decisive load for a large organ is a fast piece on a plenum: every pipe plays its recorded
-release (the pipe and several seconds of the church), so BWV 532 on the Friesach plenum keeps up to
-955 pipes sounding at once (mean 586, over the 45 s `npm run live-test` plays) and needs about 3.8
-cores of this VM — more than a Pi 5 has.
-`maxVoices` defaults to 1024 so that none of them is cut.
+The hardest case for a large organ is a fast piece on a full registration, because every pipe
+plays its recorded release: the pipe itself plus several seconds of the church. BWV 532 on the
+Friesach plenum keeps up to 955 pipes sounding at once (586 on average over the 45 s that
+`live-test` plays) and needs about 3.8 cores of this VM, more than a Pi 5 has. `maxVoices`
+defaults to 1024 so that none of them get cut off.
 
-By default every release tail plays in full, so by this estimate the largest organs (Friesach,
-Cracow, Szczecinek, Bureå) at full registration need a faster machine than a Pi 5.
-`releaseCulling` (opt-in, it changes the sound) ends quiet release tails early. Its gentlest useful setting,
-`{ belowMixDb: 80, hold: 'smooth' }`, ends a tail only when it is 80 dB below both its keyboard and
-the whole organ, so tails still ring out when the music stops. Measured on BWV 532 (third-octave
-band levels per 100 ms, against the full tails):
+Because release tails play in full by default, the largest organs (Friesach, Cracow,
+Szczecinek, Bureå) at full registration probably need a faster machine than a Pi 5. The opt-in
+`releaseCulling` setting ends quiet tails early, which does change the sound. The gentlest
+useful setting, `{ belowMixDb: 80, hold: 'smooth' }`, only ends a tail once it is 80 dB below
+both its own keyboard and the whole organ, so tails still ring out when the music stops.
+Measured on BWV 532, comparing third-octave band levels in 100 ms windows with the full tails:
 
 | `releaseCulling` | Friesach plenum voices (mean / peak) | largest band change while playing / in pauses and the final decay |
 |---|---|---|
@@ -335,23 +341,24 @@ band levels per 100 ms, against the full tails):
 | `{ belowMixDb: 80, hold: 'smooth' }` | 425 / 688 | Friesach 0.78 / 0.53 dB; Cracow 0.12 / 0.42 dB; Bureå 0.12 / 0.08 dB (2.8 dB in the pauses of full-organ chords) |
 | `{ floorDb: -80 }` | 287 / 498 | up to 1.8 dB, and the end of the room tail is cut in pauses |
 
-Neither saves enough for fast pieces on the Friesach and Cracow plena to fit a Pi 5
-(about 4× its budget); on the Pi, play the large organs with lighter registrations, which fit
-by this estimate.
+Neither setting saves enough to fit fast pieces on the Friesach or Cracow plenum onto a Pi 5:
+they need about 4× its budget. On a Pi, use lighter registrations on the large organs, which
+should fit.
 
-Suggested settings for a Raspberry Pi 5 (derived from the estimates above): 64-bit OS, `threads: 'auto'` (or 4 if nothing else runs),
-`bufferSize: 256` (5.3 ms) for organs, and the defaults otherwise. Check with
-`npm run live-test -- --repeat 3` and `npm run bench:organs` on the Pi itself. During real-time
-output the render threads take the audio thread's scheduling: the real-time priority of a JACK
-or PipeWire audio thread or, with ALSA on Linux, `SCHED_FIFO` requested for the audio thread
-and render threads together (granted where the user's real-time priority limit allows it).
-They never run above the audio thread.
+Suggested settings for a Raspberry Pi 5, based on these estimates: a 64-bit OS,
+`threads: 'auto'` (or 4 if nothing else is running), `bufferSize: 256` (5.3 ms) for organs, and
+the defaults for everything else. Check with `npm run live-test -- --repeat 3` and
+`npm run bench:organs` on the Pi itself. During real-time output the render threads get the
+same scheduling as the audio thread. With JACK or PipeWire that's the real-time priority of
+their audio thread; with ALSA on Linux, supersynth requests `SCHED_FIFO` for the audio and
+render threads together, which is granted if the user's real-time priority limit allows it.
+Render threads never run at a higher priority than the audio thread.
 
-Models load off the JavaScript thread. Adding an organ waits only for its starting preset's
-stops (loaded in parallel); the others load in the background, so drawing a stop never stalls
-playing ([organ.md](docs/organ.md#loading)). On a 4-core cloud VM, `npm run load-test`: Friesach with
-every stop drawn is ready in 0.95 s (430 MB decoded), and with its default preset `add()` returns
-in 0.12 s.
+Models are loaded off the JavaScript thread. Adding an organ only waits for the stops in its
+starting preset, which load in parallel; the rest load in the background, so drawing a stop
+later doesn't hold up playback ([organ.md](docs/organ.md#loading)). On a 4-core cloud VM
+(`npm run load-test`), Friesach with every stop drawn is ready in 0.95 s (430 MB decoded), and
+with its default preset `add()` returns in 0.12 s.
 
 ## Architecture
 
@@ -376,8 +383,8 @@ npm/<platform>/                the engine prebuilt per platform (@supersynth/<pl
 scripts/                       build-native.mjs, release helpers, doc generators
 ```
 
-The repository is an npm workspace: `npm ci` links the organ packages into `node_modules`, where
-supersynth finds them as it does when they are installed from npm.
+The repository is an npm workspace. `npm ci` links the organ packages into `node_modules`, where
+supersynth finds them just as it would if they were installed from npm.
 
 Rebuild the models from the source recordings with `npm run models` (Python 3.12 with the
 packages in `tools/ssm/requirements.txt`, in an active virtual environment; see
@@ -397,7 +404,8 @@ CI also runs `cargo clippy --release --workspace -- -D warnings` in `native/`.
 
 ## License
 
-Code: MIT (see [LICENSE](LICENSE)). The instrument models in `supersynth` are derived from CC0 recordings. The organ
-packages carry their own licenses: `@supersynth/organ-burea` CC BY-SA 2.5 SE (attribution: Lars
-Palo); Piotr Grabowski's organs (`@supersynth/organ-<id>`) may be used freely but not sold or built
-into products for sale. See [NOTICE.md](NOTICE.md).
+The code is MIT-licensed ([LICENSE](LICENSE)). The instrument models bundled with `supersynth`
+come from CC0 recordings. The organ packages have their own licenses: `@supersynth/organ-burea`
+is CC BY-SA 2.5 SE (attribution: Lars Palo), and Piotr Grabowski's organs
+(`@supersynth/organ-<id>`) can be used freely but not sold or built into products for sale.
+See [NOTICE.md](NOTICE.md).
