@@ -88,6 +88,11 @@ extra (a staccato note plays a shorter recorded tail instead of the long one). N
 voices for the blower and the room and a short voice per key movement and stop change: leave
 them off where CPU is tight.
 
+**Live play.** The speech delay puts each pipe up to 10 ms after its key, as on a real organ:
+playing live on a slow machine with audio buffering on top, set `speech: 0` (a copied
+definition: `synth.add({ ...FRIESACH_ORGAN, speech: 0 })`) for the lowest latency and CPU (at
+present each delayed pipe start also splits the engine's audio block).
+
 ## Presets
 
 A preset (registration) is the stops of each division and the couplers (also: `unisonOff`, the
