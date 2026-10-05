@@ -26,6 +26,10 @@
     "supersynth.*.node",
     "NOTICE.md"
   ],
+  "workspaces": [
+    "packages/*",
+    "npm/*"
+  ],
   "scripts": {
     "build:native": "cd native && cargo build --release -p supersynth-native && (cp target/release/libsupersynth_native.dylib ../supersynth.node 2>/dev/null || cp target/release/libsupersynth_native.so ../supersynth.node)",
     "build:ts": "tsc -p tsconfig.build.json",
@@ -68,6 +72,74 @@
   "homepage": "https://github.com/jddubois/supersynth#readme",
   "bugs": {
     "url": "https://github.com/jddubois/supersynth/issues"
+  },
+  "peerDependencies": {
+    "supersynth-organ-burea": "*",
+    "supersynth-organ-azzio": "*",
+    "supersynth-organ-cracow": "*",
+    "supersynth-organ-dluga-koscielna": "*",
+    "supersynth-organ-friesach": "*",
+    "supersynth-organ-giubiasco": "*",
+    "supersynth-organ-green-positiv": "*",
+    "supersynth-organ-harmonium": "*",
+    "supersynth-organ-ledziny": "*",
+    "supersynth-organ-lipiny": "*",
+    "supersynth-organ-melcer": "*",
+    "supersynth-organ-raszczyce": "*",
+    "supersynth-organ-saint-jean-de-luz": "*",
+    "supersynth-organ-skrzatusz": "*",
+    "supersynth-organ-strassburg": "*",
+    "supersynth-organ-szczecinek": "*"
+  },
+  "peerDependenciesMeta": {
+    "supersynth-organ-burea": {
+      "optional": true
+    },
+    "supersynth-organ-azzio": {
+      "optional": true
+    },
+    "supersynth-organ-cracow": {
+      "optional": true
+    },
+    "supersynth-organ-dluga-koscielna": {
+      "optional": true
+    },
+    "supersynth-organ-friesach": {
+      "optional": true
+    },
+    "supersynth-organ-giubiasco": {
+      "optional": true
+    },
+    "supersynth-organ-green-positiv": {
+      "optional": true
+    },
+    "supersynth-organ-harmonium": {
+      "optional": true
+    },
+    "supersynth-organ-ledziny": {
+      "optional": true
+    },
+    "supersynth-organ-lipiny": {
+      "optional": true
+    },
+    "supersynth-organ-melcer": {
+      "optional": true
+    },
+    "supersynth-organ-raszczyce": {
+      "optional": true
+    },
+    "supersynth-organ-saint-jean-de-luz": {
+      "optional": true
+    },
+    "supersynth-organ-skrzatusz": {
+      "optional": true
+    },
+    "supersynth-organ-strassburg": {
+      "optional": true
+    },
+    "supersynth-organ-szczecinek": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
