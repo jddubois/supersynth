@@ -1,0 +1,16 @@
+{
+  "name": "supersynth-linux-x64-musl",
+  "version": "0.2.0",
+  "description": "supersynth's native engine for Linux x64 (musl, Alpine)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jddubois/supersynth.git",
+    "directory": "npm/linux-x64-musl"
+  },
+  "homepage": "https://github.com/jddubois/supersynth#readme",
+  "main": "supersynth.linux-x64-musl.node",
+  "files": [
+    "supersynth.linux-x64-musl.node"
+  ]
+}

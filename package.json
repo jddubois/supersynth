@@ -22,8 +22,6 @@
   "files": [
     "dist",
     "models",
-    "supersynth.node",
-    "supersynth.*.node",
     "NOTICE.md"
   ],
   "workspaces": [
@@ -31,7 +29,7 @@
     "npm/*"
   ],
   "scripts": {
-    "build:native": "cd native && cargo build --release -p supersynth-native && (cp target/release/libsupersynth_native.dylib ../supersynth.node 2>/dev/null || cp target/release/libsupersynth_native.so ../supersynth.node)",
+    "build:native": "node scripts/build-native.mjs",
     "build:ts": "tsc -p tsconfig.build.json",
     "build": "npm run build:native && npm run build:ts",
     "test": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.js",
@@ -44,7 +42,8 @@
     "example:orchestra": "node --import tsx examples/orchestra.ts",
     "example:midi": "node --import tsx examples/midi-file.ts examples/jsbwv532.mid",
     "demos": "node --import tsx examples/render-demos.ts",
-    "models": "cd tools/ssm && python build_all.py"
+    "models": "cd tools/ssm && python build_all.py",
+    "version": "node scripts/sync-versions.mjs && git add npm package-lock.json"
   },
   "keywords": [
     "additive",
@@ -140,6 +139,14 @@
     "supersynth-organ-szczecinek": {
       "optional": true
     }
+  },
+  "optionalDependencies": {
+    "supersynth-linux-x64-gnu": "0.2.0",
+    "supersynth-linux-x64-musl": "0.2.0",
+    "supersynth-linux-arm64-gnu": "0.2.0",
+    "supersynth-darwin-x64": "0.2.0",
+    "supersynth-darwin-arm64": "0.2.0",
+    "supersynth-win32-x64-msvc": "0.2.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
