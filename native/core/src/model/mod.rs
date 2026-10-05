@@ -762,7 +762,7 @@ fn gunzip(bytes: &[u8], limit: usize) -> Result<Vec<u8>, String> {
 }
 
 fn f32s(b: &[u8]) -> Vec<f32> {
-    b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
+    b.as_chunks::<4>().0.iter().map(|&c| f32::from_le_bytes(c)).collect()
 }
 
 impl Model {
@@ -844,7 +844,7 @@ impl Model {
                 amps,
                 amps_smooth: Vec::new(),
                 grid: zgrid,
-                pitch: pitch_q.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 100.0).collect(),
+                pitch: pitch_q.as_chunks::<2>().0.iter().map(|&c| i16::from_le_bytes(c) as f32 / 100.0).collect(),
                 noise,
                 release: rel_q[..k].iter().map(|&q| q as f32 * 2.0).collect(),
                 release_noise: hz.release_noise,
@@ -912,7 +912,7 @@ impl Model {
                                     })
                                     .collect()
                             } else {
-                                b.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect()
+                                b.as_chunks::<2>().0.iter().map(|&c| i16::from_le_bytes(c)).collect()
                             })
                         };
                         let data_r = match t.o_r {

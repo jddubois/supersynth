@@ -107,7 +107,7 @@ impl Hist {
 #[inline(always)]
 fn dot(a: &[f32], b: &[f32]) -> f32 {
     let mut acc = [0.0f32; 8];
-    for (ca, cb) in a.chunks_exact(8).zip(b.chunks_exact(8)) {
+    for (ca, cb) in a.as_chunks::<8>().0.iter().zip(b.as_chunks::<8>().0) {
         for j in 0..8 {
             acc[j] += ca[j] * cb[j];
         }
