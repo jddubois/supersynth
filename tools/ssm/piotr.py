@@ -23,6 +23,7 @@ import math
 import os
 import re
 import shutil
+import stat
 import sys
 import unicodedata
 
@@ -536,14 +537,29 @@ def prune(organ: str) -> int:
                     keep.add(os.path.realpath(p.attack))
                     if p.release:
                         keep.add(os.path.realpath(p.release))
+    if not keep:
+        raise SystemExit(f'{organ}: no stop plays any recording (definition not read?): refusing to prune')
+    return prune_tree(os.path.join(SAMPLES, organ), keep)
+
+
+def prune_tree(tree: str, keep: set[str]) -> int:
+    """Delete the .wav/.wv files under `tree` whose real path is not in `keep`; returns bytes
+    freed. Never touches anything outside `tree`: a symbolic link is judged by its target but
+    only the link itself is removed (its target may live elsewhere, or be shared), and links to
+    directories are not followed."""
+    top = os.path.realpath(tree)
     freed = 0
-    for root, _, files in os.walk(os.path.join(SAMPLES, organ)):
+    for root, _, files in os.walk(top):           # (followlinks=False)
         for f in files:
-            if f.lower().endswith(('.wav', '.wv')):
-                path = os.path.realpath(os.path.join(root, f))
-                if path not in keep:
-                    freed += os.path.getsize(path)
-                    os.remove(path)
+            if not f.lower().endswith(('.wav', '.wv')):
+                continue
+            path = os.path.join(root, f)
+            if os.path.realpath(path) in keep:
+                continue
+            st = os.lstat(path)                       # the entry itself, not a link's target
+            os.unlink(path)                           # a link: removes the link only
+            if stat.S_ISREG(st.st_mode):
+                freed += st.st_size
     return freed
 
 
