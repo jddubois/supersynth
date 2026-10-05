@@ -1,4 +1,3 @@
-import { CHURCH_DIVISIONS } from '../defaults.js';
 import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/friesach/<id>.ssm.
@@ -25,7 +24,7 @@ const STOPS: StopDefinition[] = [
   { id: 'swell-nachthorn-gedackt-8', model: 'organ/friesach/swell-nachthorn-gedackt-8', name: "Nachthorn Gedackt 8'", division: 'swell', family: 'flute', transpose: 0 },
   { id: 'swell-corno-dolce-8', model: 'organ/friesach/swell-corno-dolce-8', name: "Corno dolce 8'", division: 'swell', family: 'flute', transpose: 0 },
   { id: 'swell-viola-8', model: 'organ/friesach/swell-viola-8', name: "Viola 8'", division: 'swell', family: 'string', transpose: 0 },
-  { id: 'swell-vox-celeste-8', model: 'organ/friesach/swell-vox-celeste-8', name: "Vox celeste 8'", division: 'swell', family: 'string', transpose: 0 },
+  { id: 'swell-vox-celeste-8', model: 'organ/friesach/swell-vox-celeste-8', name: "Vox celeste 8'", division: 'swell', family: 'string', transpose: 0, keys: [48, 96] },
   { id: 'swell-geigenprincipal-4', model: 'organ/friesach/swell-geigenprincipal-4', name: "Geigenprincipal 4'", division: 'swell', family: 'principal', transpose: 12 },
   { id: 'swell-querflote-4', model: 'organ/friesach/swell-querflote-4', name: "Querflöte 4'", division: 'swell', family: 'flute', transpose: 12 },
   { id: 'swell-nazard-2-2-3', model: 'organ/friesach/swell-nazard-2-2-3', name: "Nazard 2 2/3'", division: 'swell', family: 'mutation', transpose: 19 },
@@ -40,7 +39,7 @@ const STOPS: StopDefinition[] = [
 
   { id: 'positive-jubalflote-8', model: 'organ/friesach/positive-jubalflote-8', name: "Jubalflöte 8'", division: 'positive', family: 'flute', transpose: 0 },
   { id: 'positive-trichterflote-4', model: 'organ/friesach/positive-trichterflote-4', name: "Trichterflöte 4'", division: 'positive', family: 'flute', transpose: 12 },
-  { id: 'positive-cornet-a-pavillon-8', model: 'organ/friesach/positive-cornet-a-pavillon-8', name: "Cornet à pavillon 8'", division: 'positive', family: 'mixture', transpose: 0 },
+  { id: 'positive-cornet-a-pavillon-8', model: 'organ/friesach/positive-cornet-a-pavillon-8', name: "Cornet à pavillon 8'", division: 'positive', family: 'mixture', transpose: 0, keys: [55, 96] },
   { id: 'positive-trompete-en-chamade-8', model: 'organ/friesach/positive-trompete-en-chamade-8', name: "Trompete en chamade 8'", division: 'positive', family: 'reed', transpose: 0 },
   { id: 'positive-englischhorn-8', model: 'organ/friesach/positive-englischhorn-8', name: "Englischhorn 8'", division: 'positive', family: 'reed', transpose: 0 },
 
@@ -153,7 +152,8 @@ export const FRIESACH_ORGAN: OrganDefinition = {
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'principal-chorus',
-  divisions: CHURCH_DIVISIONS,
-  tremulant: { division: 'swell', depth: 0.51, pitch: 3.6, rate: 4.0 },
+  divisions: { great: { pan: 0 }, swell: { pan: 0.15, swellBox: { closed: -4.4 } }, positive: { pan: -0.15 }, pedal: { pan: 0 } },
+  tremulant: [{ division: 'swell', name: 'Tremulant 2 Man', depth: 0.51, pitch: 3.6, rate: 4 }, { division: 'positive', name: 'Tremulant 3 Man', depth: 0.67, pitch: 4.8, rate: 4.81 }],
+  wind: 0,
   reverb: 'cathedral',
 };

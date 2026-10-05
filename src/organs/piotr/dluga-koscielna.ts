@@ -1,4 +1,3 @@
-import { CHURCH_DIVISIONS } from '../defaults.js';
 import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/dluga-koscielna/<id>.ssm.
@@ -17,9 +16,9 @@ const STOPS: StopDefinition[] = [
   { id: 'positive-flet-otwarty-8', model: 'organ/dluga-koscielna/positive-flet-otwarty-8', name: "Flet otwarty 8'", division: 'positive', family: 'flute', transpose: 0 },
   { id: 'positive-pryncypal-4', model: 'organ/dluga-koscielna/positive-pryncypal-4', name: "Pryncypał 4'", division: 'positive', family: 'principal', transpose: 12 },
   { id: 'positive-flet-kryty-4', model: 'organ/dluga-koscielna/positive-flet-kryty-4', name: "Flet kryty 4'", division: 'positive', family: 'flute', transpose: 12 },
-  { id: 'positive-nasard-2-2-3', model: 'organ/dluga-koscielna/positive-nasard-2-2-3', name: "Nasard 2 2/3'", division: 'positive', family: 'mutation', transpose: 19 },
+  { id: 'positive-nasard-2-2-3', model: 'organ/dluga-koscielna/positive-nasard-2-2-3', name: "Nasard 2 2/3'", division: 'positive', family: 'mutation', transpose: 19, keys: [55, 91] },
   { id: 'positive-szpicflet-2', model: 'organ/dluga-koscielna/positive-szpicflet-2', name: "Szpicflet 2'", division: 'positive', family: 'flute', transpose: 24 },
-  { id: 'positive-tercja-1-3-5', model: 'organ/dluga-koscielna/positive-tercja-1-3-5', name: "Tercja 1 3/5'", division: 'positive', family: 'mutation', transpose: 28 },
+  { id: 'positive-tercja-1-3-5', model: 'organ/dluga-koscielna/positive-tercja-1-3-5', name: "Tercja 1 3/5'", division: 'positive', family: 'mutation', transpose: 28, keys: [60, 91] },
   { id: 'positive-kwinta-1-1-3', model: 'organ/dluga-koscielna/positive-kwinta-1-1-3', name: "Kwinta 1 1/3'", division: 'positive', family: 'mutation', transpose: 31 },
   { id: 'positive-krumhorn-8', model: 'organ/dluga-koscielna/positive-krumhorn-8', name: "Krumhorn 8'", division: 'positive', family: 'reed', transpose: 0 },
 
@@ -108,6 +107,7 @@ export const DLUGA_KOSCIELNA_ORGAN: OrganDefinition = {
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'principal-chorus',
-  divisions: CHURCH_DIVISIONS,
-  tremulant: { division: 'positive', depth: 0.98, pitch: 7.2, rate: 4.74 },
+  divisions: { great: { pan: 0 }, swell: { pan: 0.15 }, positive: { pan: -0.15 }, pedal: { pan: 0 } },
+  tremulant: { division: 'positive', name: 'Tremulant 2 Man', depth: 0.98, pitch: 7.2, rate: 4.74 },
+  wind: 0,
 };

@@ -172,6 +172,12 @@ pub struct Zone {
     /// Frame where the recording's own release begins (sustained instruments whose analysed
     /// recording keeps its release and room tail after the loop).
     pub rel_frame: Option<usize>,
+    /// Alternative releases recorded after shorter key presses (GrandOrgue's
+    /// `MaxKeyPressTime`): (longest hold in seconds, first frame), by increasing hold. Each
+    /// is a frame segment after the main release, ending where the next begins.
+    pub alt_rel: Vec<(f32, usize)>,
+    /// End (exclusive) of the main recording: the frames before the first alternative release.
+    pub main_end: usize,
     /// Recorded stereo image per harmonic partial (spaced microphones in a room): left/right
     /// gains (l² + r² = 2) and the right channel's phase relative to the left.
     pub stereo: Option<ZoneStereo>,
@@ -180,6 +186,15 @@ pub struct Zone {
 }
 
 impl Zone {
+    /// End (exclusive) of the frame segment starting at `start`: the main recording ends at
+    /// the first alternative release, each alternative release at the next one.
+    pub fn segment_end(&self, start: usize) -> usize {
+        if start < self.main_end {
+            return self.main_end;
+        }
+        self.alt_rel.iter().map(|&(_, f)| f).filter(|&f| f > start).min().unwrap_or(self.frames)
+    }
+
     #[inline]
     pub fn amp_db(&self, frame: usize, partial: usize) -> f32 {
         if partial >= self.partials {
@@ -356,9 +371,19 @@ struct HZone {
     shimmer_tau: Option<f32>,
     #[serde(rename = "relFrame", default)]
     rel_frame: Option<usize>,
+    #[serde(rename = "altRel", default)]
+    alt_rel: Vec<(f32, usize)>,
     #[serde(default)]
     stereo: Option<HStereo>,
     o: HOffsets,
+}
+
+/// Valid alternative releases of a zone: inside the frames, after the main release, sorted.
+fn alt_rel(hz: &HZone, t: usize) -> Vec<(f32, usize)> {
+    let Some(rf) = hz.rel_frame else { return Vec::new() };
+    let mut v: Vec<(f32, usize)> = hz.alt_rel.iter().copied().filter(|&(h, f)| h > 0.0 && f > rf && f < t.saturating_sub(2)).collect();
+    v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    v
 }
 
 #[derive(Deserialize, Default)]
@@ -476,6 +501,12 @@ impl HZone {
         check_opt(self.jitter_tau, "zone jitterTau")?;
         check_opt(self.shimmer_tau, "zone shimmerTau")?;
         check_opt(self.o.amps_step, "zone ampsStep")?;
+        if self.alt_rel.len() > MAX_FRAMES {
+            return Err("zone has too many alternative releases".into());
+        }
+        for &(hold, _) in &self.alt_rel {
+            check_finite(hold, "zone altRel hold time")?;
+        }
         if let Some(t) = &self.transient {
             if t.n > MAX_TRANSIENT_SAMPLES {
                 return Err("zone transient too long".into());
@@ -696,6 +727,8 @@ impl Model {
                 shimmer: hz.shimmer.iter().map(|&q| q as f32 / 100.0).collect(),
                 shimmer_tau: hz.shimmer_tau.unwrap_or(0.01).clamp(0.001, 0.2),
                 rel_frame: hz.rel_frame.filter(|&f| f + 2 < t),
+                alt_rel: alt_rel(hz, t),
+                main_end: hz.alt_rel.iter().map(|&(_, f)| f).min().unwrap_or(t).clamp(1, t),
                 image: match (hz.o.ild, hz.o.iph, hz.o.img_k) {
                     (Some(a), Some(b), Some(ik)) if ik > 0 => Some(ZoneImage {
                         k: ik,
@@ -1040,6 +1073,35 @@ mod tests {
         let mut b = good.clone();
         b[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
         assert!(Model::from_bytes(&b).is_err());
+    }
+
+    #[test]
+    fn alternative_releases_are_accepted_and_bad_ones_ignored() {
+        let b = bytes_with(|h| {
+            h["zones"][0]["relFrame"] = json!(20);
+            h["zones"][0]["altRel"] = json!([[0.3, 28], [0.1, 24], [1.0, usize::MAX - 1], [0.5, 5]]);
+        });
+        let m = Model::from_bytes(&b).unwrap();
+        assert_eq!(m.zones[0].alt_rel, vec![(0.1, 24), (0.3, 28)]);
+        // short presses play their own release segment, a long one the main release
+        for hold_blocks in [10, 40, 400] {
+            let m = std::sync::Arc::new(m.clone());
+            let mut rng = Rng::new(5);
+            let p = SpectralParams::default();
+            let mut v = SpectralVoice::default();
+            v.start(NoteOn { model: &m, note: 60, velocity: 90, pitch: 60.0, pan: 0.0, params: &p, sample_rate: 48000.0, rng: &mut rng });
+            let (mut l, mut r) = ([0.0f32; 64], [0.0f32; 64]);
+            for _ in 0..hold_blocks {
+                v.render(&mut l, &mut r, &p, &BlockMod::default());
+            }
+            v.release();
+            for _ in 0..2000 {
+                v.render(&mut l, &mut r, &p, &BlockMod::default());
+            }
+            assert!(l.iter().all(|x| x.is_finite()));
+        }
+        let b = bytes_with(|h| h["zones"][0]["altRel"] = json!([[1e39, 24]]));
+        assert!(Model::from_bytes(&b).is_err(), "infinite hold time");
     }
 
     #[test]

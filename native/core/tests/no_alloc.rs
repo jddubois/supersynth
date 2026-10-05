@@ -7,7 +7,7 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use supersynth_core::engine::params::{MasterParam, PartParam};
-use supersynth_core::engine::{Command, Controller, Engine, EngineConfig, InstLayer, Instrument};
+use supersynth_core::engine::{Command, Controller, Couplers, Engine, EngineConfig, InstLayer, Instrument, Route};
 use supersynth_core::model::Model;
 
 struct Counting;
@@ -47,9 +47,13 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOC: Counting = Counting;
 
+/// A model of the repository (the organ ones live in the Burea organ's package).
 fn model(name: &str) -> Option<Arc<Model>> {
-    let path = format!("{}/../../models/{name}.ssm", env!("CARGO_MANIFEST_DIR"));
-    std::fs::read(path).ok().map(|b| Arc::new(Model::from_bytes(&b).expect("model parses")))
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+    ["models", "packages/organ-burea/models"]
+        .iter()
+        .find_map(|dir| std::fs::read(format!("{root}/{dir}/{name}.ssm")).ok())
+        .map(|b| Arc::new(Model::from_bytes(&b).expect("model parses")))
 }
 
 /// Render `frames` with the allocation counter armed; returns the number of (de)allocations.
@@ -66,7 +70,7 @@ fn render(eng: &mut Engine, frames: usize) -> usize {
 }
 
 fn layer(model: Arc<Model>, transpose: f32, enabled: bool) -> InstLayer {
-    InstLayer { model, transpose, gain_db: 0.0, pan: 0.0, key_lo: 0, key_hi: 127, enabled, detune_cents: 0.0, on_release: false }
+    InstLayer { transpose, enabled, ..InstLayer::new(model) }
 }
 
 fn check(eng: &mut Engine, ctl: &mut Controller, what: &str, cmds: Vec<Command>, frames: usize) {
@@ -153,7 +157,16 @@ fn rendering_and_commands_do_not_allocate() {
     // more layers than the instrument has room for: moved into the controller's spare
     let stops = (0..70).map(|i| Command::add_layer(1, layer(flute.clone(), (i % 3) as f32 * 12.0, false))).collect();
     check(e, c, "many stops", stops, 4800);
-    check(e, c, "couplers", vec![Command::SetCouplers { part: 0, targets: 1 << 1 }, Command::NoteOn { part: 0, note: 72, velocity: 90 }], 4800);
+    let octaves = Couplers::new(&[Route { part: 1, shift: 0 }, Route { part: 1, shift: 12 }, Route { part: 0, shift: -12 }], false);
+    check(e, c, "couplers", vec![Command::SetCouplers { part: 0, couplers: octaves }, Command::NoteOn { part: 0, note: 72, velocity: 90 }], 4800);
+    // pipes with a speech delay and key-action noise
+    let delayed = InstLayer { speech_ms: 15.0, ..layer(o4.clone(), 0.0, true) };
+    let noise = InstLayer { direct_only: true, ..layer(flute.clone(), 0.0, true) };
+    check(e, c, "speech delay", vec![Command::add_layer(1, delayed), Command::add_layer(1, noise)], 4800);
+    let keys = (40..52).flat_map(|n| [Command::NoteOn { part: 1, note: n, velocity: 90 }]).collect();
+    check(e, c, "delayed pipes", keys, 9600);
+    let unison_off = Couplers::new(&[Route { part: 1, shift: 12 }], true);
+    check(e, c, "unison off", vec![Command::SetCouplers { part: 0, couplers: unison_off }], 4800);
     check(e, c, "all notes off", vec![Command::AllNotesOff { part: None }], 48000);
 
     // legato

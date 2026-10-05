@@ -1,15 +1,15 @@
 import { SupersynthError } from './errors.js';
-import type { NativeEngine } from './native.js';
+import type { NativeEngine, NativeLayer } from './native.js';
 import { noteNumber, type NoteLike } from './notes.js';
 import { CHURCH_DIVISIONS, ORGAN_DEFAULTS, SWELL_TREMULANT } from './organs/defaults.js';
 import { ORGANS, type OrganId } from './organs/index.js';
-import type { DivisionName, OrganDefinition, OrganPreset, StopDefinition } from './organs/types.js';
+import type { CouplerLike, DivisionName, OrganDefinition, OrganPreset, StopDefinition, TremulantDefinition } from './organs/types.js';
 import { playNotes, playSequence, resolveTime, type Keys, type Playable, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
 import type { Synth } from './Synth.js';
 import type { MidiEvent } from './types.js';
 import { clamp, finite, velocity as checkVelocity } from './validate.js';
 
-export type { DivisionName, OrganDefinition, OrganPreset, StopDefinition } from './organs/types.js';
+export type { CouplerLike, DivisionName, OrganDefinition, OrganPreset, StopDefinition } from './organs/types.js';
 
 const DIVISIONS: DivisionName[] = ['great', 'swell', 'positive', 'pedal'];
 
@@ -42,19 +42,53 @@ function checkDivision(name: string): DivisionName {
 
 const list = <T>(x: T | T[]): T[] => (Array.isArray(x) ? x : [x]);
 
+/** A coupler as division + octave (−1, 0, 1). */
+interface Coupler {
+  division: DivisionName;
+  octave: -1 | 0 | 1;
+}
+
+/** A checked coupler: its division exists and its octave is −1, 0 or 1. */
+function coupler(c: CouplerLike): Coupler {
+  if (typeof c === 'string') return { division: checkDivision(c), octave: 0 };
+  if (typeof c !== 'object' || c === null) throw new SupersynthError(`A coupler is a division's name or { division, octave }, got ${String(c)}`);
+  const octave = c.octave ?? 0;
+  if (octave !== -1 && octave !== 0 && octave !== 1) throw new RangeError(`Coupler octave must be -1, 0 or 1, got ${String(octave)}`);
+  return { division: checkDivision(c.division), octave };
+}
+
+const couplerLike = (c: Coupler): CouplerLike => (c.octave === 0 ? c.division : { division: c.division, octave: c.octave });
+const sameCoupler = (a: Coupler, b: Coupler): boolean => a.division === b.division && a.octave === b.octave;
+
+/** Engine events of one stop drawn or retired, at most: its layer and its Forte layer added and
+ *  switched, and the stop action's noise (key down and up). */
+const STOP_EVENTS = 6;
+/** Engine events of one coupler engaged or released, at most: its action noise. */
+const COUPLER_NOISE_EVENTS = 2;
+
 /** What {@link Division.set} changes: the stops drawn and the couplers, each replaced as a whole. */
 export interface DivisionSettings {
   /** Exactly these stops drawn (by name or id); `[]` silences the division. */
   stops?: string[];
-  /** Exactly these divisions coupled to this keyboard; `[]` releases every coupler. */
-  couple?: DivisionName[];
+  /** Exactly these couplers to this keyboard (see {@link CouplerLike}); `[]` releases every
+   *  coupler. */
+  couple?: CouplerLike[];
+  /** `false`: the keys play only what is coupled to this keyboard, not its own stops
+   *  ("unison off"). */
+  unison?: boolean;
+  /** The Forte (harmoniums): stops that have a forte recording play it. */
+  forte?: boolean;
 }
 
 /** One keyboard (manual or pedalboard) of the organ. */
 export class Division implements Playable {
   private layers = new Map<string, number>(); // stop name -> layer index in the engine
   private pulled = new Set<string>();
-  private couplers = new Set<DivisionName>();
+  private couplers: Coupler[] = [];
+  private unisonOff = false;
+  private nlayers = 0;
+  private forteOn = false;
+  private forteLayers = new Map<string, number>(); // stop name -> layer of its forte model
 
   /** @internal */
   constructor(
@@ -118,7 +152,7 @@ export class Division implements Playable {
     this.organ._engine();
     const names = list(stops).map((s) => this._stop(s).name);
     const t = this.organ._time(options);
-    this.organ.synth._reserve(2 * names.length);
+    this.organ.synth._reserve(STOP_EVENTS * names.length);
     for (const n of names) this.toggle(n, true, t);
     this.organ._changed();
     return this;
@@ -129,27 +163,48 @@ export class Division implements Playable {
     this.organ._engine();
     const names = list(stops).map((s) => this._stop(s).name);
     const t = this.organ._time(options);
-    this.organ.synth._reserve(names.length);
+    this.organ.synth._reserve(STOP_EVENTS * names.length);
     for (const n of names) this.toggle(n, false, t);
     this.organ._changed();
     return this;
   }
 
   /** Couple another division or several to this keyboard: playing it also sounds their drawn
-   *  stops. `organ.great.couple('swell')` is the "Swell to Great" coupler. Couplers act on
-   *  every note, whether it comes from the API, a MIDI keyboard or a MIDI file. */
-  couple(divisions: DivisionName | DivisionName[], options: TimeOptions = {}): this {
+   *  stops. `organ.great.couple('swell')` is the "Swell to Great" coupler,
+   *  `organ.great.couple({ division: 'swell', octave: 1 })` "Swell to Great 4'" and
+   *  `organ.swell.couple({ division: 'swell', octave: 1 })` the swell's super octave. Couplers
+   *  act on every note, whether it comes from the API, a MIDI keyboard or a MIDI file. */
+  couple(couplers: CouplerLike | CouplerLike[], options: TimeOptions = {}): this {
     this.organ._engine();
-    this._couplers([...this.couplers, ...list(divisions)], this.organ._time(options));
+    const add = list(couplers).map(coupler);
+    const t = this.organ._time(options);
+    this.organ.synth._reserve(this._couplerEvents(add.length));
+    this._couplers([...this.couplers, ...add], t);
     this.organ._changed();
     return this;
   }
 
-  /** Release couplers to this keyboard. */
-  uncouple(divisions: DivisionName | DivisionName[], options: TimeOptions = {}): this {
+  /** Release couplers to this keyboard: a division's name releases all of its couplers
+   *  (unison and octave), `{ division, octave }` just that one. */
+  uncouple(couplers: CouplerLike | CouplerLike[], options: TimeOptions = {}): this {
     this.organ._engine();
-    const off = new Set(list(divisions));
-    this._couplers([...this.couplers].filter((d) => !off.has(d)), this.organ._time(options));
+    const off = list(couplers).map((o) => (typeof o === 'string' ? checkDivision(o) : coupler(o)));
+    const gone = (c: Coupler) => off.some((o) => (typeof o === 'string' ? o === c.division : sameCoupler(o, c)));
+    const t = this.organ._time(options);
+    this.organ.synth._reserve(this._couplerEvents(0));
+    this._couplers(this.couplers.filter((c) => !gone(c)), t);
+    this.organ._changed();
+    return this;
+  }
+
+  /** Unison on (the default) or off: with the unison off the keys play only what is coupled
+   *  to this keyboard, e.g. a super octave coupler alone plays the stops an octave up. */
+  unison(on: boolean, options: TimeOptions = {}): this {
+    this.organ._engine();
+    const t = this.organ._time(options);
+    this.organ.synth._reserve(this._couplerEvents(0));
+    this.unisonOff = !on;
+    this._couplers(this.couplers, t);
     this.organ._changed();
     return this;
   }
@@ -166,9 +221,9 @@ export class Division implements Playable {
   set(settings: DivisionSettings, options: TimeOptions = {}): this {
     this.organ._engine();
     for (const s of settings.stops ?? []) this._stop(s);
-    for (const d of settings.couple ?? []) checkDivision(d);
+    for (const c of settings.couple ?? []) coupler(c);
     const t = this.organ._time(options);
-    this.organ.synth._reserve(2 * (this.pulled.size + (settings.stops?.length ?? 0)) + 1);
+    this.organ.synth._reserve(this._events(settings));
     this._apply(settings, t);
     this.organ._changed();
     return this;
@@ -184,9 +239,31 @@ export class Division implements Playable {
     return [...this.pulled];
   }
 
-  /** Divisions coupled to this keyboard. */
-  coupled(): DivisionName[] {
-    return [...this.couplers];
+  /** Couplers to this keyboard: unison couplers by the division's name, octave couplers as
+   *  `{ division, octave }`. */
+  coupled(): CouplerLike[] {
+    return this.couplers.map(couplerLike);
+  }
+
+  /** The Forte on or off (harmoniums): the drawn stops that have a forte recording
+   *  ({@link StopDefinition.forte}) play it. */
+  forte(on: boolean, options: TimeOptions = {}): this {
+    this.organ._engine();
+    const t = this.organ._time(options);
+    this.organ.synth._reserve(2 * this.pulled.size);
+    this._forte(on, t);
+    this.organ._changed();
+    return this;
+  }
+
+  /** Whether the Forte is on. */
+  forteIsOn(): boolean {
+    return this.forteOn;
+  }
+
+  /** Whether the keys play this division's own stops (see {@link unison}). */
+  unisonOn(): boolean {
+    return !this.unisonOff;
   }
 
   // ── internals ─────────────────────────────────────────────────────────────
@@ -201,6 +278,20 @@ export class Division implements Playable {
     return findStop(this.organ.definition, this.name, name);
   }
 
+  /** @internal Engine events {@link _apply} sends at most for these settings. */
+  _events(settings: DivisionSettings): number {
+    const stops = settings.stops ? STOP_EVENTS * (this.pulled.size + settings.stops.length) : 0;
+    const forte = settings.forte !== undefined ? 2 * (this.pulled.size + (settings.stops?.length ?? 0)) : 0;
+    const couplers = settings.couple || settings.unison !== undefined ? this._couplerEvents(settings.couple?.length ?? 0) : 0;
+    return stops + forte + couplers;
+  }
+
+  /** Engine events of a coupler change at most: the change, and the action noise of every
+   *  coupler engaged or released. */
+  private _couplerEvents(added: number): number {
+    return 1 + COUPLER_NOISE_EVENTS * (this.couplers.length + added);
+  }
+
   /** @internal Apply checked settings. */
   _apply(settings: DivisionSettings, time: number | undefined): void {
     if (settings.stops) {
@@ -208,14 +299,47 @@ export class Division implements Playable {
       for (const n of [...this.pulled]) if (!want.has(n)) this.toggle(n, false, time);
       for (const n of want) this.toggle(n, true, time);
     }
-    if (settings.couple) this._couplers(settings.couple, time);
+    if (settings.forte !== undefined) this._forte(settings.forte, time);
+    if (settings.unison !== undefined) this.unisonOff = !settings.unison;
+    if (settings.couple || settings.unison !== undefined) this._couplers(settings.couple?.map(coupler) ?? this.couplers, time);
   }
 
   /** Replace the couplers (one engine change, so held notes are not restruck). */
-  private _couplers(names: DivisionName[], time: number | undefined): void {
-    const targets = [...new Set(names)].filter((n) => n !== this.name).map((n) => this.organ.division(n));
-    this.organ.synth._native().setCouplers(this.channel, targets.map((d) => d.channel), time);
-    this.couplers = new Set(targets.map((d) => d.name));
+  private _couplers(couplers: Coupler[], time: number | undefined): void {
+    const keep: Coupler[] = [];
+    for (const c of couplers) {
+      // a division coupled to itself in unison is just its own keys
+      if ((c.division === this.name && c.octave === 0) || keep.some((k) => sameCoupler(k, c))) continue;
+      keep.push(c);
+    }
+    const targets = keep.map((c) => ({ part: this.organ.division(c.division).channel, shift: 12 * c.octave }));
+    // the engine change first: it is the one that can be refused (too many couplers)
+    this.organ.synth._native().setCouplers(this.channel, targets, this.unisonOff, time);
+    // the coupler's action, once for each coupler engaged or released
+    const noise = this.organ.definition.noises?.coupler;
+    const added = keep.filter((c) => !this.couplers.some((o) => sameCoupler(o, c))).length;
+    const removed = this.couplers.filter((o) => !keep.some((c) => sameCoupler(o, c))).length;
+    for (let i = 0; i < added; i++) this.organ._stopNoise({ actionNoise: noise }, true, time);
+    for (let i = 0; i < removed; i++) this.organ._stopNoise({ actionNoise: noise }, false, time);
+    this.couplers = keep;
+  }
+
+  private _forte(on: boolean, time: number | undefined): void {
+    if (on === this.forteOn) return;
+    this.forteOn = on;
+    const n = this.organ.synth._native();
+    for (const name of this.pulled) {
+      const f = this.forteLayers.get(name);
+      if (f === undefined) continue;
+      n.setLayerEnabled(this.channel, this.layers.get(name)!, !on, time);
+      n.setLayerEnabled(this.channel, f, on, time);
+    }
+  }
+
+  /** @internal Add a layer to this division's engine part; returns its index. */
+  _addLayer(layer: NativeLayer): number {
+    this.organ.synth._native().addLayer(this.channel, layer);
+    return this.nlayers++;
   }
 
   private toggle(name: string, on: boolean, time: number | undefined): void {
@@ -225,22 +349,49 @@ export class Division implements Playable {
     const n = synth._native();
     let li = this.layers.get(def.name);
     if (li === undefined) {
-      // load the stop's model the first time it is drawn; added now (silent) so that layer
-      // indices follow the order of the calls, and sounded at its time
-      li = this.layers.size;
-      n.addLayer(this.channel, { ...synth._layer({ model: stopModel(def), transpose: def.transpose, gain: def.gain ?? 0 }, this.organ), enabled: false });
+      // load the stop's models the first time it is drawn (both before adding either, so a
+      // missing model changes nothing); added now (silent) so that layer indices follow the
+      // order of the calls, and sounded at its time
+      const [keyLow, keyHigh] = def.keys ?? [0, 127];
+      const layer = (model: string): NativeLayer => ({
+        ...synth._layer({ model, transpose: def.transpose, gain: def.gain ?? 0, keyLow, keyHigh }, this.organ),
+        speechMs: this.organ._speech,
+        enabled: false,
+      });
+      const main = layer(stopModel(def));
+      const forte = def.forte ? layer(def.forte) : undefined;
+      li = this._addLayer(main);
       this.layers.set(def.name, li);
+      if (forte) this.forteLayers.set(def.name, this._addLayer(forte));
     }
-    n.setLayerEnabled(this.channel, li, on, time);
+    const f = this.forteLayers.get(def.name);
+    n.setLayerEnabled(this.channel, li, on && !(f !== undefined && this.forteOn), time);
+    if (f !== undefined) n.setLayerEnabled(this.channel, f, on && this.forteOn, time);
+    this.organ._stopNoise(def, on, time);
     if (on) this.pulled.add(def.name);
     else this.pulled.delete(def.name);
   }
 }
 
+/** Which of an organ's noises play. */
+export interface OrganNoiseSettings {
+  /** The blower running. */
+  blower: boolean;
+  /** The empty church (its background noise). */
+  ambient: boolean;
+  /** Keys, stop knobs, couplers and tremulants moving. */
+  action: boolean;
+}
+
 /** What {@link Organ.set} changes. */
 export interface OrganSettings {
-  /** The tremulant (see {@link OrganDefinition.tremulant}). */
-  tremulant?: boolean;
+  /** The tremulants (see {@link OrganDefinition.tremulant}): `true`/`false` for all, or by a
+   *  division they shake, `{ swell: true }`. */
+  tremulant?: boolean | Partial<Record<DivisionName, boolean>>;
+  /** The sounds of the machinery ({@link OrganDefinition.noises}): `true` for all of them, or
+   *  each: the blower and the room while on, the action of the keys, stops, couplers and
+   *  tremulants. Organs without noise recordings ignore it. */
+  noises?: boolean | Partial<OrganNoiseSettings>;
   /** Wind supply: how much the pipes of a division sag together when many start at once
    *  (pressure dip and regulator recovery). 0 = perfectly steady, 1 = flexible historic
    *  winding. */
@@ -263,6 +414,11 @@ export interface OrganMidiOptions {
   presets?: string[] | false;
 }
 
+/** Engine events of turning the noises on or off, at most: the noise part set up (instrument,
+ *  reverb send, a key-down and a key-up layer per division), the blower and room started or
+ *  stopped, and the key-noise layers switched. */
+const NOISE_EVENTS = 2 + 2 * 4 + 2 + 2 * 4;
+
 /**
  * A real church organ: four divisions with drawable stops, couplers, swell pedal and
  * tremulant, played from an {@link OrganDefinition}. Created by {@link Synth.add}.
@@ -282,10 +438,17 @@ export class Organ {
   readonly pedal: Division;
   /** The organ's definition: stops, presets, layout. */
   readonly definition: OrganDefinition;
+  /** @internal Longest speech delay of a pipe (ms). */
+  readonly _speech: number;
   private saved: Record<string, OrganPreset>;
   private active: string | undefined;
   private midiListener: ((e: MidiEvent) => void) | undefined;
   private removed = false;
+  private readonly trems: TremulantDefinition[];
+  private tremOn: boolean[];
+  private noiseState: OrganNoiseSettings = { blower: false, ambient: false, action: false };
+  /** engine part of the blower, room and stop action; key-noise layers by division */
+  private noise: { channel: number; keyLayers: Map<DivisionName, number[]> } | undefined;
 
   /** @internal Use {@link Synth.add}. */
   constructor(
@@ -296,11 +459,28 @@ export class Organ {
   ) {
     const def = resolveOrgan(organ);
     this.definition = def;
+    this.trems = def.tremulant === undefined ? [SWELL_TREMULANT] : list(def.tremulant);
+    for (const tr of this.trems) {
+      for (const d of list(tr.division)) checkDivision(d);
+      finite(tr.depth, 'tremulant depth');
+      finite(tr.pitch, 'tremulant pitch');
+      finite(tr.rate, 'tremulant rate');
+    }
+    this.tremOn = this.trems.map(() => false);
+    this._speech = finite(def.speech ?? ORGAN_DEFAULTS.speech, 'speech');
     this.saved = { ...options.presets };
     const preset = options.preset ?? def.defaultPreset;
     // fail before taking channels
     this.checkPreset(this.lookup(preset));
     const wind = finite(options.wind ?? def.wind ?? ORGAN_DEFAULTS.wind, 'wind');
+    const layout = def.divisions ?? CHURCH_DIVISIONS;
+    const boxes = new Map<DivisionName, { closed: number; shelf: number }>();
+    for (const d of DIVISIONS) {
+      const box = layout[d]?.swellBox;
+      if (typeof box !== 'object' || box === null) continue;
+      const closed = Math.min(0, finite(box.closed ?? -9, 'swell box closed level'));
+      boxes.set(d, { closed, shelf: Math.min(0, finite(box.shelf ?? (closed * 14) / 9, 'swell box shelf')) });
+    }
     const channels: number[] = [];
     try {
       for (let i = 0; i < 4; i++) channels.push(synth._attach(this));
@@ -313,7 +493,6 @@ export class Organ {
     this.positive = new Division(this, 'positive', channels[2]!);
     this.pedal = new Division(this, 'pedal', channels[3]!);
     try {
-      const layout = def.divisions ?? CHURCH_DIVISIONS;
       const n = synth._native();
       synth._reserve(32);
       for (const d of this.divisions()) {
@@ -323,13 +502,20 @@ export class Organ {
         if (synth._maxPartials < 512) n.setParam(d.channel, 'maxPartials', synth._maxPartials);
       }
       for (const d of this.divisions()) {
-        if (layout[d.name]?.swellBox) n.setParam(d.channel, 'swellBox', 1);
+        if (!layout[d.name]?.swellBox) continue;
+        n.setParam(d.channel, 'swellBox', 1);
+        const box = boxes.get(d.name);
+        if (box) {
+          n.setParam(d.channel, 'swellClosed', box.closed);
+          n.setParam(d.channel, 'swellShelf', box.shelf);
+        }
       }
-      this.set({ wind, ...(options.tremulant ? { tremulant: true } : {}) });
+      this.set({ wind, ...(options.tremulant !== undefined ? { tremulant: options.tremulant } : {}) });
       this.preset(preset);
+      if (options.noises) this.set({ noises: options.noises });
     } catch (e) {
       this.removed = true;
-      synth._detach(this, channels);
+      synth._detach(this, this._channels());
       throw e;
     }
   }
@@ -350,24 +536,54 @@ export class Organ {
     return this.definition.stops;
   }
 
-  /** Change the tremulant and/or the wind; what is left out stays as it is. */
+  /** Change the tremulants, the wind and/or the noises; what is left out stays as it is. */
   set(settings: OrganSettings, options: TimeOptions = {}): this {
     const n = this._engine();
     const t = this._time(options);
     const wind = settings.wind === undefined ? undefined : Math.max(0, finite(settings.wind, 'wind'));
-    this.synth._reserve(7);
-    if (settings.tremulant !== undefined) {
-      // all pipes of the division pulse together in loudness and (less) in pitch
-      const tr = this.definition.tremulant ?? SWELL_TREMULANT;
-      const ch = this.division(tr.division).channel;
-      n.setParam(ch, 'tremolo', settings.tremulant ? tr.depth : 0, t);
-      n.setParam(ch, 'tremoloPitch', settings.tremulant ? tr.pitch : 0, t);
-      n.setParam(ch, 'tremoloRate', tr.rate, t);
+    const tr = settings.tremulant;
+    if (tr !== undefined && typeof tr !== 'boolean') {
+      if (typeof tr !== 'object' || tr === null) throw new SupersynthError(`tremulant must be true, false or { <division>: boolean }, got ${String(tr)}`);
+      for (const d of Object.keys(tr)) checkDivision(d);
+    }
+    const nz = settings.noises;
+    if (nz !== undefined && typeof nz !== 'boolean' && (typeof nz !== 'object' || nz === null)) {
+      throw new SupersynthError(`noises must be true, false or { blower, ambient, action }, got ${String(nz)}`);
+    }
+    this.synth._reserve(this._setEvents(settings));
+    if (tr !== undefined) {
+      this.trems.forEach((trem, i) => {
+        const divs = list(trem.division);
+        const on = typeof tr === 'boolean' ? tr : divs.some((d) => tr[d]) ? true : divs.some((d) => tr[d] === false) ? false : undefined;
+        if (on === undefined) return;
+        if (on !== this.tremOn[i]) this._stopNoise(trem, on, t);
+        this.tremOn[i] = on;
+        // all pipes on the tremulant's wind pulse together in loudness and (less) in pitch
+        for (const d of divs) {
+          const ch = this.division(d).channel;
+          n.setParam(ch, 'tremolo', on ? trem.depth : 0, t);
+          n.setParam(ch, 'tremoloPitch', on ? trem.pitch : 0, t);
+          n.setParam(ch, 'tremoloRate', trem.rate, t);
+        }
+      });
     }
     if (wind !== undefined) {
       for (const d of this.divisions()) n.setParam(d.channel, 'wind', wind, t);
     }
+    if (nz !== undefined) {
+      this._noises(typeof nz === 'boolean' ? { blower: nz, ambient: nz, action: nz } : { ...this.noiseState, ...nz }, t);
+    }
     return this;
+  }
+
+  /** The tremulants and whether each is on. */
+  tremulants(): { definition: TremulantDefinition; on: boolean }[] {
+    return this.trems.map((definition, i) => ({ definition, on: this.tremOn[i] ?? false }));
+  }
+
+  /** Which machinery noises are on (see {@link OrganSettings.noises}). */
+  noisesOn(): OrganNoiseSettings {
+    return { ...this.noiseState };
   }
 
   /** Release every held key on every division. */
@@ -394,10 +610,16 @@ export class Organ {
     // check everything before changing anything
     this.checkPreset(p);
     const t = this._time(options);
-    let events = 4;
-    for (const d of this.divisions()) events += 2 * (d.drawn().length + (p[d.name]?.length ?? 0));
+    const off = new Set(p.unisonOff ?? []);
+    const forte = new Set(p.forte ?? []);
+    const settings = (d: Division): DivisionSettings => ({ stops: p[d.name] ?? [], couple: p.couple?.[d.name] ?? [], unison: !off.has(d.name), forte: forte.has(d.name) });
+    const tremulant = p.tremulant ? Object.fromEntries(DIVISIONS.map((d) => [d, p.tremulant!.includes(d)])) : undefined;
+    let events = 0;
+    for (const d of this.divisions()) events += d._events(settings(d));
+    if (tremulant) events += this._setEvents({ tremulant });
     this.synth._reserve(events);
-    for (const d of this.divisions()) d._apply({ stops: p[d.name] ?? [], couple: p.couple?.[d.name] ?? [] }, t);
+    for (const d of this.divisions()) d._apply(settings(d), t);
+    if (tremulant) this.set({ tremulant }, options);
     this.active = typeof preset === 'string' ? preset : undefined;
     return this;
   }
@@ -415,7 +637,7 @@ export class Organ {
     return this;
   }
 
-  /** The stops drawn and couplers engaged now, as a preset. */
+  /** The stops drawn, couplers engaged and tremulants on now, as a preset. */
   current(): OrganPreset {
     const p: OrganPreset = {};
     const couple: OrganPreset['couple'] = {};
@@ -424,6 +646,12 @@ export class Organ {
       if (d.coupled().length) couple[d.name] = d.coupled();
     }
     if (Object.keys(couple).length) p.couple = couple;
+    const off = this.divisions().filter((d) => !d.unisonOn()).map((d) => d.name);
+    if (off.length) p.unisonOff = off;
+    const trem = [...new Set(this.trems.flatMap((tr, i) => (this.tremOn[i] ? list(tr.division) : [])))];
+    if (trem.length) p.tremulant = trem;
+    const forte = this.divisions().filter((d) => d.forteIsOn()).map((d) => d.name);
+    if (forte.length) p.forte = forte;
     return p;
   }
 
@@ -504,6 +732,79 @@ export class Organ {
     this.midiListener = undefined;
   }
 
+  /** @internal Engine channels the organ holds: its divisions, and its noises once on. */
+  _channels(): number[] {
+    return [...this.divisions().filter((d) => d).map((d) => d.channel), ...(this.noise ? [this.noise.channel] : [])];
+  }
+
+  /** @internal Play the noise of a stop (or coupler, tremulant) being drawn or retired. */
+  _stopNoise(stop: { actionNoise?: [number, number] | undefined } | undefined, on: boolean, time: number | undefined): void {
+    if (!this.noiseState.action || !this.noise || !this.definition.noises?.stops || !stop?.actionNoise) return;
+    const note = stop.actionNoise[on ? 0 : 1];
+    const n = this.synth._native();
+    n.noteOn(this.noise.channel, note, 100, time);
+    n.noteOff(this.noise.channel, note, time);
+  }
+
+  /** Engine events {@link set} sends at most for these settings. */
+  private _setEvents(settings: OrganSettings): number {
+    let events = 0;
+    if (settings.tremulant !== undefined) for (const tr of this.trems) events += 2 + 3 * list(tr.division).length;
+    if (settings.wind !== undefined) events += 4;
+    if (settings.noises !== undefined) events += NOISE_EVENTS;
+    return events;
+  }
+
+  /** Turn the machinery noises on or off. */
+  private _noises(want: OrganNoiseSettings, time: number | undefined): void {
+    const nz = this.definition.noises;
+    const was = this.noiseState;
+    if (!nz || !(want.blower || want.ambient || want.action || this.noise)) {
+      this.noiseState = want;
+      return;
+    }
+    const n = this.synth._native();
+    if (!this.noise) {
+      // one engine part for the blower, the room and the stop action: the blower on key 1,
+      // the room on key 2, the stops on their own notes; key noise is a layer of each division.
+      // Every model is loaded (for this organ) before the part is taken, so a missing model
+      // leaves nothing half set up.
+      const gain = finite(nz.gain ?? 0, 'noise gain');
+      const layers: NativeLayer[] = [];
+      const at = (model: string, key: number, note: number): NativeLayer => this.synth._layer({ model, transpose: note - key, gain, keyLow: key, keyHigh: key }, this);
+      if (nz.blower) layers.push(at(nz.blower.model, 1, nz.blower.note ?? 60));
+      if (nz.ambient) layers.push(at(nz.ambient.model, 2, nz.ambient.note ?? 60));
+      if (nz.stops) layers.push(this.synth._layer({ model: nz.stops, gain, keyLow: 3, keyHigh: 127 }, this));
+      const keys: [Division, NativeLayer[]][] = [];
+      for (const d of this.divisions()) {
+        const k = nz.keys?.[d.name];
+        if (!k) continue;
+        const kl: NativeLayer[] = [];
+        if (k.down) kl.push({ ...this.synth._layer({ model: k.down, gain }, this), directOnly: true, enabled: false });
+        if (k.up) kl.push({ ...this.synth._layer({ model: k.up, gain, trigger: 'release' }, this), directOnly: true, enabled: false });
+        keys.push([d, kl]);
+      }
+      const channel = this.synth._attach(this);
+      const keyLayers = new Map<DivisionName, number[]>();
+      // held from now on, so that removing the organ frees it whatever happens next
+      this.noise = { channel, keyLayers };
+      n.setInstrument(channel, layers);
+      n.setParam(channel, 'reverbSend', this.definition.reverbSend ?? ORGAN_DEFAULTS.reverbSend);
+      if (this.synth._maxPartials < 512) n.setParam(channel, 'maxPartials', this.synth._maxPartials);
+      for (const [d, kl] of keys) keyLayers.set(d.name, kl.map((l) => d._addLayer(l)));
+    }
+    this.noiseState = want;
+    const ch = this.noise.channel;
+    for (const [key, on, before] of [[1, want.blower, was.blower], [2, want.ambient, was.ambient]] as const) {
+      if (on === before) continue;
+      if (on) n.noteOn(ch, key, 100, time);
+      else n.noteOff(ch, key, time);
+    }
+    if (want.action !== was.action) {
+      for (const d of this.divisions()) for (const li of this.noise.keyLayers.get(d.name) ?? []) n.setLayerEnabled(d.channel, li, want.action, time);
+    }
+  }
+
   private lookup(preset: string | OrganPreset): OrganPreset {
     if (typeof preset !== 'string') return preset;
     const all = this.presets();
@@ -512,9 +813,13 @@ export class Organ {
     return p;
   }
 
-  /** Throw unless every stop and division a preset names exists. */
+  /** Throw unless every stop, coupler and division a preset names exists. */
   private checkPreset(p: OrganPreset): void {
     for (const d of DIVISIONS) for (const s of p[d] ?? []) findStop(this.definition, d, s);
-    for (const [k, v] of Object.entries(p.couple ?? {})) for (const n of [k, ...(v ?? [])]) checkDivision(n);
+    for (const [k, v] of Object.entries(p.couple ?? {})) {
+      checkDivision(k);
+      for (const c of v ?? []) coupler(c);
+    }
+    for (const d of [...(p.unisonOff ?? []), ...(p.tremulant ?? []), ...(p.forte ?? [])]) checkDivision(d);
   }
 }

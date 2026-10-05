@@ -17,11 +17,13 @@ Every organ that Piotr Grabowski gives away free at [piotrgrabowski.pl](https://
 analysed stop by stop like the Bureå organ (see [models.md](models.md)). Each stop is analysed from
 the sample set's recordings **as its organ definition plays them**: each pipe's attack and sustain,
 its release crossfaded in at key-up, the definition's retuning and level for every pipe, and
-the borrowed, extended and retuned ranks exactly where the sample set places them. Stops keep the
-organ's own pitch and temperament (an organ at Baroque or historic pitch sounds at that pitch),
-the balance between stops, and the room the pipes were recorded in. Keys where a stop has no pipe
-(a treble-only Cornet) stay silent. Sampled tremulants are measured from the pipes recorded with
-the tremulant on.
+the borrowed, extended and retuned ranks exactly where the sample set places them, and the
+releases recorded after short key presses. Stops keep the organ's own pitch and temperament (an
+organ at Baroque or historic pitch sounds at that pitch), the balance between stops, and the room
+the pipes were recorded in. Keys where a stop has no pipe (a treble-only Cornet) stay silent.
+Swell boxes close as far as the organ definition says; sampled tremulants are measured from the
+pipes recorded with the tremulant on. The machinery noises the sample sets recorded (key and stop
+action, blower, room) play with \`noises: true\`.
 
 \`\`\`ts
 const organ = synth.add('szczecinek', { preset: 'celeste' });
@@ -43,9 +45,16 @@ Adding an organ whose package is not installed throws a \`SupersynthError\` that
 for (const o of Object.values(PIOTR_ORGANS)) md += `| \`${o.id}\` | ${o.name} | ${o.stops.length} | \`@supersynth/organ-${o.id}\` | ${modelsMB(o.id)} MB |\n`;
 for (const o of Object.values(PIOTR_ORGANS)) {
   md += `\n## \`${o.id}\` — ${o.name}\n\n${o.description}\n\nInstall: \`npm install @supersynth/organ-${o.id}\`. Config: \`${constName(o.id)}\`. Default preset: \`${o.defaultPreset}\`.`;
-  if (o.tremulant) md += ` Tremulant on the ${o.tremulant.division}.`;
-  const boxed = Object.entries(o.divisions ?? {}).filter(([k, d]) => d?.swellBox && o.stops.some((s) => s.division === k)).map(([k]) => k);
-  if (boxed.length) md += ` In a swell box: ${boxed.join(', ')}.`;
+  const trems = o.tremulant === undefined ? [] : Array.isArray(o.tremulant) ? o.tremulant : [o.tremulant];
+  for (const t of trems) md += ` Tremulant on the ${[t.division].flat().join(' and ')}.`;
+  const boxed = Object.entries(o.divisions ?? {}).filter(([k, d]) => d?.swellBox && o.stops.some((s) => s.division === k));
+  if (boxed.length) {
+    const box = ([k, d]: [string, (typeof boxed)[number][1]]) =>
+      typeof d?.swellBox === 'object' && d.swellBox.closed !== undefined ? `${k} (closes to ${d.swellBox.closed} dB)` : k;
+    md += ` In a swell box: ${boxed.map(box).join(', ')}.`;
+  }
+  if (o.stops.some((s) => s.forte)) md += ' Each division has a Forte (`division.forte(true)`).';
+  if (o.noises) md += ' Noises: ' + [o.noises.keys && 'key action', o.noises.stops && 'stop action', o.noises.blower && 'blower', o.noises.ambient && 'room'].filter(Boolean).join(', ') + '.';
   md += '\n\n';
   for (const div of ['great', 'swell', 'positive', 'pedal']) {
     const stops = o.stops.filter((s) => s.division === div);

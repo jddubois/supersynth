@@ -49,5 +49,7 @@ export const GREEN_POSITIV_ORGAN: OrganDefinition = {
   presets: PRESETS,
   defaultPreset: 'continuo',
   divisions: { great: { pan: 0 }, swell: { pan: 0 }, positive: { pan: 0 }, pedal: { pan: 0 } },
+  tremulant: [],
+  wind: 0,
   reverb: 'chamber',
 };

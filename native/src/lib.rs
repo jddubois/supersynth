@@ -21,7 +21,7 @@ use midi::message::{MidiMessage, MidiMessageKind};
 /// A MIDI channel routed to no part: its messages only reach the JavaScript callback.
 const NO_ROUTE: u8 = 255;
 use supersynth_core::engine::params::{MasterParam, PartParam};
-use supersynth_core::engine::{Command, Controller, Engine, EngineConfig, InstLayer, Instrument, Status as EngineStatus};
+use supersynth_core::engine::{Command, Controller, Couplers, Engine, EngineConfig, InstLayer, Instrument, Route, Status as EngineStatus, MAX_PARTS, MAX_ROUTES};
 use supersynth_core::fx::reverb::ReverbParams;
 use supersynth_core::model::{Kind, Model, ReleaseMode};
 
@@ -52,6 +52,17 @@ pub struct JsLayer {
     pub detune_cents: Option<f64>,
     /// Play this layer when the key is released (damper / jack noises).
     pub on_release: Option<bool>,
+    /// Longest random delay before the layer speaks, ms (organ pipes).
+    pub speech_ms: Option<f64>,
+    /// Sound only when this part's own key moves, never through a coupler (key-action noise).
+    pub direct_only: Option<bool>,
+}
+
+/// One organ coupler: also play `part`, `shift` semitones away (±12: octave couplers).
+#[napi(object)]
+pub struct JsCoupler {
+    pub part: u32,
+    pub shift: Option<i32>,
 }
 
 // ── engine handle ────────────────────────────────────────────────────────────
@@ -265,6 +276,8 @@ impl SynthEngine {
             enabled: l.enabled.unwrap_or(true),
             detune_cents: finite_or(l.detune_cents, 0.0, "detuneCents")?,
             on_release: l.on_release.unwrap_or(false),
+            speech_ms: finite_or(l.speech_ms, 0.0, "speechMs")?.clamp(0.0, 200.0),
+            direct_only: l.direct_only.unwrap_or(false),
         })
     }
 
@@ -352,11 +365,20 @@ impl SynthEngine {
     }
 
     /// Organ couplers: keys pressed on `part` (from any source: API, MIDI input, MIDI files)
-    /// also play the `targets` parts. An empty list releases all of its couplers.
+    /// also play the `targets` parts, octave-shifted by their `shift`. An empty list releases
+    /// all of its couplers. `unison_off`: the keys do not play `part` itself.
     #[napi]
-    pub fn set_couplers(&self, part: u32, targets: Vec<u32>, time: Option<f64>) -> Result<()> {
-        let mask = targets.iter().filter(|&&t| t < 32).fold(0u32, |m, &t| m | 1 << t);
-        self.shared.send(time, Command::SetCouplers { part: part as u16, targets: mask })
+    pub fn set_couplers(&self, part: u32, targets: Vec<JsCoupler>, unison_off: Option<bool>, time: Option<f64>) -> Result<()> {
+        if targets.len() > MAX_ROUTES {
+            return Err(err(format!("at most {MAX_ROUTES} couplers per keyboard")));
+        }
+        let routes: Vec<Route> = targets
+            .iter()
+            .filter(|t| t.part < MAX_PARTS as u32)
+            .map(|t| Route { part: t.part as u8, shift: t.shift.unwrap_or(0).clamp(-48, 48) as i8 })
+            .collect();
+        let couplers = Couplers::new(&routes, unison_off.unwrap_or(false));
+        self.shared.send(time, Command::SetCouplers { part: part as u16, couplers })
     }
 
     /// Part that MIDI input on `channel` (1–16) plays; 255 (or more) routes it to no part.

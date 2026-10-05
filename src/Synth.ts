@@ -202,7 +202,7 @@ export class Synth extends EventEmitter {
   /** Remove an instrument or an organ: its notes stop at once, its channels and MIDI channels
    *  are freed, and the models nothing else uses are unloaded. Using it afterwards throws. */
   remove(item: Instrument | Organ): void {
-    const channels = item instanceof Organ ? item.divisions().map((d) => d.channel) : [item.channel];
+    const channels = item instanceof Organ ? item._channels() : [item.channel];
     if (channels.some((ch) => this.slots[ch] !== item)) return;
     item._remove();
     this._detach(item, channels);
@@ -603,6 +603,8 @@ export class Synth extends EventEmitter {
       n.setParam(ch, key, toNativeParameter(key, defaultParameter(key)));
     }
     n.setParam(ch, 'swellBox', 0);
+    n.setParam(ch, 'swellClosed', -9);
+    n.setParam(ch, 'swellShelf', -14);
     n.setParam(ch, 'wind', 0);
   }
 
