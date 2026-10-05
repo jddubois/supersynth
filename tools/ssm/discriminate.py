@@ -20,7 +20,7 @@ import os
 import numpy as np
 
 from analysis import find_onset
-from fidelity import MODELS, OCT_EDGES, attack_stats, load_stereo, model_zones, release_onset, render, steady_stats
+from fidelity import OCT_EDGES, default_model_path, attack_stats, load_stereo, model_zones, release_onset, render, steady_stats
 from evaluate import sustain_duration
 
 NH = 12
@@ -85,7 +85,7 @@ def release_features(x, sr, t_off, ref_bands=None):
 
 
 def collect_features(model_id, max_notes=None, sets=(), path=None, rel=None):
-    path = path or os.path.join(MODELS, f'{model_id}.ssm')
+    path = path or default_model_path(model_id)
     hdr, zones = model_zones(model_id, path, max_notes)
     rows, att = [], []
     for gi, (z, src) in enumerate(zones):
