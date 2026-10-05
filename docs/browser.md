@@ -78,7 +78,7 @@ nothing else to configure.
 | engine | native (napi), SSE/AVX2 or NEON | WebAssembly with 128-bit SIMD, 1.3–1.5× slower |
 | audio output | the audio device (CPAL) | an AudioWorklet (128-frame buffers) |
 | render threads | `threads`, default one per core but one | the same, as Web Workers |
-| models | read from disk when used | downloaded by `synth.load()`, then parsed on the page's main thread when first used (an organ's other stops: one per task, between other work) |
+| models | read from disk, parsed on loading threads | downloaded by `synth.load()`, then parsed on loading workers (Web Workers, one per core less two, up to 6) |
 | MIDI input | hardware devices (`midir`) | Web MIDI; `listMidiDevices()` lists the inputs once `enableMidi()` has been granted access |
 | files | `renderToFile()`, `renderMidi(path)` | none: `encodeWav(audio)` makes a WAV file's bytes, `renderMidi(bytes)` |
 | `encodeWav()`, MIDI event `raw` | Buffer | Uint8Array |
@@ -90,9 +90,13 @@ Nothing about the sound differs. The WebAssembly engine's output matches the nat
 2·10⁻⁶ (−113 dB). Only the math library differs, in the last bits. As natively, the output is
 bit for bit the same on any number of threads.
 
-Parsing a model blocks the page's main thread for 20–250 ms. The audio thread is not affected,
-so sound does not drop out, but a page that adds an organ while it animates will stutter. Add
-large organs before playing, or between interactions.
+Models are parsed on loading workers, as natively on loading threads, so the page stays
+responsive while an organ loads its stops in the background. `add()` itself waits for the stops
+of the preset it starts with (as in Node.js): the page's main thread spins until they have
+loaded, since a browser's main thread may not block. In Chromium, adding the Bureå organ with
+`preload: 'all'` takes 53 ms in `add()`, then its other 40 models load in 0.5 s with the main
+thread never stalled more than 5 ms. Parsing them on the main thread took 1.2 s with stalls of
+up to 110 ms.
 
 ## Performance
 

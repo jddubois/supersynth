@@ -137,6 +137,11 @@ export function setThreadStarter(s: ThreadStarter | undefined): void {
   starter = s;
 }
 
+/** Whether threads can be started here (Web Workers, or the tests' starter). */
+export function canStartThreads(): boolean {
+  return starter !== undefined || typeof Worker === 'function';
+}
+
 /** Start `count` threads, each running one of the threads the engines asked for; resolves once
  *  they run. A Web Worker only starts while the page's main thread is free: until then the
  *  engine renders without it. Without Web Workers nothing starts, and the engine renders on its

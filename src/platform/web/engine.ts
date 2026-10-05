@@ -3,15 +3,15 @@
 // only what a browser provides: audio goes out through an AudioWorklet, the render workers are
 // Web Workers, models arrive as fetched bytes, MIDI comes from Web MIDI.
 //
-// Everything runs on one shared memory: the API calls and the models on the page's main thread,
-// rendering on the audio thread (the worklet) and the render workers. The main thread never
-// blocks; models load on it, when first used or between other work (one per task).
-import initWasm, { freeAudioHandle, queuedThreads, sweep, SynthEngine } from '#wasm';
+// Everything runs on one shared memory: the API calls on the page's main thread, rendering on the
+// audio thread (the worklet) and the render workers, models loading on loading workers (Web
+// Workers too). The main thread never blocks: a use of a model still loading spins until it has.
+import initWasm, { freeAudioHandle, queuedThreads, setLoadingThreads, sweep, SynthEngine } from '#wasm';
 
 import type { NativeCoupler, NativeEngine, NativeLayer } from '../../engine.js';
 import { SupersynthError } from '../../errors.js';
 import type { EngineOptions } from '../platform.js';
-import { addWorklet, startThreads, WORKLET_FRAMES, type WasmShared } from './threads.js';
+import { addWorklet, canStartThreads, startThreads, WORKLET_FRAMES, type WasmShared } from './threads.js';
 
 let shared: WasmShared | undefined;
 let preparing: Promise<void> | undefined;
@@ -30,6 +30,8 @@ export function prepareWasm(source: () => Promise<ArrayBuffer | Uint8Array>): Pr
     const { initial, maximum } = memoryLimits(bytes);
     const memory = new WebAssembly.Memory({ initial, maximum, shared: true });
     await initWasm({ module_or_path: module, memory });
+    // as natively: the cores less two (the page's main thread, the audio thread), 1–6
+    setLoadingThreads(Math.max(1, Math.min(6, cores() - 2)));
     shared = { module, memory };
   })();
   preparing.catch(() => {
@@ -87,11 +89,32 @@ export function memoryLimits(wasm: Uint8Array): { initial: number; maximum: numb
   throw new SupersynthError('The WebAssembly engine imports no memory: it was not built for threads (npm run build:wasm)');
 }
 
+function cores(): number {
+  return (globalThis as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency ?? 1;
+}
+
 /** Threads to render with by default: one per core but one, 1–8 (as in Node.js). */
 function defaultThreads(): number {
-  const cores = (globalThis as { navigator?: { hardwareConcurrency?: number } }).navigator?.hardwareConcurrency ?? 1;
-  return Math.max(1, Math.min(8, cores - 1));
+  return Math.max(1, Math.min(8, cores() - 1));
 }
+
+/** Start the threads the engine asked for (render workers when it is created; loading workers
+ *  and the model reclaimer when it first needs them); resolves once they run. */
+function startQueued(): Promise<void> {
+  // (threads started but not running yet have not taken theirs from the queue)
+  const n = queuedThreads() - starting;
+  if (!shared || n <= 0) return pendingStarts;
+  starting += n;
+  const started = startThreads(shared, n).finally(() => {
+    starting -= n;
+  });
+  pendingStarts = Promise.all([pendingStarts, started]).then(() => undefined);
+  return pendingStarts;
+}
+
+/** Threads started that have not taken a queued thread yet, and when they all will have. */
+let starting = 0;
+let pendingStarts: Promise<void> = Promise.resolve();
 
 interface Watcher {
   ids: number[];
@@ -128,7 +151,7 @@ export class WasmEngine implements NativeEngine {
     this.bufferSize = options.bufferSize;
     this.bytes = bytes;
     // the render workers the engine asked for
-    this.started = startThreads(shared, queuedThreads());
+    this.started = startQueued();
   }
 
   /** Resolves once the render workers run (Web Workers start only while the page's main thread
@@ -203,8 +226,10 @@ export class WasmEngine implements NativeEngine {
     return this.e.loadModel(bytes);
   }
 
+  /** Queue a model's (fetched) bytes: a loading worker parses it. */
   queueModelFile(location: string): number {
     const id = this.e.queueModelBytes(location, this.bytes(location));
+    void startQueued();
     this.pump();
     return id;
   }
@@ -228,22 +253,24 @@ export class WasmEngine implements NativeEngine {
 
   unloadModel(id: number): void {
     this.e.unloadModel(id);
+    void startQueued(); // (the reclaimer, the first time)
   }
 
   modelInfo(id: number): string {
     return this.e.modelInfo(id);
   }
 
-  /** Load the queued models one per task (the page stays responsive between them), and settle
-   *  the watchers whose models have loaded. */
+  /** Settle the watchers whose models have loaded, checking every few milliseconds while
+   *  some wait. Where no thread can be started, load the queued models here, one per task. */
   private pump(): void {
     if (this.pumping) return;
     this.pumping = true;
+    const threads = canStartThreads();
     const tick = () => {
       this.settle();
-      const more = this.e.loadNext();
+      const more = !threads && this.e.loadNext();
       this.settle();
-      if (more || this.watchers.length > 0) setTimeout(tick, 0);
+      if (more || this.watchers.length > 0) setTimeout(tick, threads ? 5 : 0);
       else this.pumping = false;
     };
     setTimeout(tick, 0);
@@ -414,6 +441,7 @@ export class WasmEngine implements NativeEngine {
     this.disableMidi();
     this.watchers = [];
     this.e.releaseResources();
+    void startQueued();
     void this.ctx?.close();
     this.ctx = undefined;
   }

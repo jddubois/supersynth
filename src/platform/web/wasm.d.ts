@@ -58,5 +58,6 @@ export function initSync(options: { module: WebAssembly.Module; memory?: WebAsse
 export function queuedThreads(): number;
 export function freeAudioHandle(handle: number): void;
 export function sweep(): void;
+export function setLoadingThreads(n: number): void;
 export function reverbPresets(): string[];
 export function partParamNames(): string[];

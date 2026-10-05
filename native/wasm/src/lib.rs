@@ -10,9 +10,10 @@
 //! - Web Workers: the engine's render workers, which the host starts for the threads the
 //!   engine asked for ([`queued_threads`], [`run_queued_thread`]).
 //!
-//! The main thread never blocks (a browser forbids it): models load on it when first used or
-//! between other work ([`SynthEngine::load_next`]), and the locks it shares with the audio
-//! thread spin instead of waiting (`supersynth_host::sync`).
+//! Models load on Web Workers too (the host starts them for the loading threads the model store
+//! asks for). The main thread never blocks (a browser forbids it): a use of a model a worker is
+//! still loading, and the locks it shares with other threads, spin instead of waiting
+//! (`supersynth_host::sync`).
 
 #![cfg(target_arch = "wasm32")]
 
@@ -356,10 +357,17 @@ pub fn run_queued_thread() -> bool {
     supersynth_core::thread::run_queued()
 }
 
-/// Free the unloaded models nothing holds any more (there is no reclaim thread in a browser).
+/// Free the unloaded models nothing holds any more (where there is no reclaim thread).
 #[wasm_bindgen]
 pub fn sweep() {
     models::sweep();
+}
+
+/// Threads loading models (Web Workers the host starts, like the render workers): call before
+/// the first model is queued.
+#[wasm_bindgen(js_name = setLoadingThreads)]
+pub fn set_loading_threads(n: usize) {
+    models::set_loading_threads(n);
 }
 
 #[wasm_bindgen(js_name = reverbPresets)]
