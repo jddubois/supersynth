@@ -192,6 +192,19 @@ fn rendering_and_commands_do_not_allocate() {
         4800,
     );
     check(e, c, "legato", vec![Command::NoteOn { part: 2, note: 72, velocity: 100 }], 4800);
+    // the overload guard (overloaded): released notes shed, then partials faded out, then back
+    e.set_overload_guard(true);
+    e.force_guard_load(Some((0.0, 0.5)));
+    let keys = (60..72).map(|n| Command::NoteOn { part: 1, note: n, velocity: 90 }).collect();
+    check(e, c, "keys", keys, 24000);
+    let offs = (60..66).map(|n| Command::NoteOff { part: 1, note: n }).collect();
+    check(e, c, "overload guard", offs, 48000);
+    assert!(e.guard_stats().1 > 0 && e.guard_stats().2 > 0, "the guard shed voices and partials: {:?}", e.guard_stats());
+    e.force_guard_load(Some((0.3, 0.0)));
+    check(e, c, "overload guard letting go", vec![], 96000);
+    assert!(!e.guard_stats().0);
+    e.set_overload_guard(false);
+    e.force_guard_load(None);
     // replacing instruments: the old models' last references leave through the garbage ring
     check(e, c, "replace", vec![Command::set_instrument(2, Instrument::single(piano.clone())), Command::NoteOn { part: 2, note: 60, velocity: 90 }], 4800);
     drop((piano, p8, o4, flute, violin));
