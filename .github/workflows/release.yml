@@ -1,6 +1,7 @@
 name: Release
 
-# Push a tag vX.Y.Z (after `npm version X.Y.Z`, which also moves the platform packages to X.Y.Z):
+# Push a tag vX.Y.Z (after `npm version X.Y.Z`, which also moves the platform packages to X.Y.Z),
+# or run it by hand from main (Actions → Release → Run workflow): publishes package.json's version.
 # builds the engine for every platform and the browser's (WebAssembly, shipped in supersynth's
 # wasm/), then publishes to npm, in order, the platform packages, the model packages
 # (@supersynth/instruments and the organs'), @supersynth/organs (only versions not on npm yet),
@@ -8,6 +9,7 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -137,7 +139,13 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # npm 11.5.1 or later publishes as a trusted publisher (OIDC, no token) once the packages
+      # trust this workflow (npm-setup.yml); NPM_TOKEN is the fallback
+      - name: npm 11
+        run: npm install -g npm@11
+
       - name: Tag matches the version
+        if: github.event_name == 'push'
         run: node -e "const v = 'v' + require('./package.json').version; if (v !== process.env.GITHUB_REF_NAME) { console.error('tag', process.env.GITHUB_REF_NAME, 'but package.json is', v); process.exit(1); }"
 
       - run: npm ci
