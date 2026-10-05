@@ -252,11 +252,11 @@ describe('organ', () => {
     const organ = synth.add('burea', { presets: { soft: { description: 'Soft', swell: ["Salicional 8'"], pedal: ["Subbass 16'"] } }, preset: 'soft' });
     expect(organ.swell.drawn()).toEqual(["Salicional 8'"]);
     organ.preset({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] } });
-    expect(organ.current()).toEqual({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] } });
+    expect(organ.current()).toEqual({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] }, tremulant: [] });
     expect(organ.activePreset()).toBeUndefined();
     organ.savePreset('mine');
     organ.preset('plenum').preset('mine');
-    expect(organ.current()).toEqual({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] } });
+    expect(organ.current()).toEqual({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] }, tremulant: [] });
     expect(Object.keys(organ.presets())).toContain('mine');
     // a bad preset changes nothing
     expect(() => organ.preset({ great: ['Bombarde 32'] })).toThrow(SupersynthError);
@@ -476,7 +476,7 @@ describe('configurations', () => {
     organ.great.couple({ division: 'swell', octave: 1 }).unison(false);
     expect(pitch(() => organ.great.noteOn('C4')) / direct).toBeCloseTo(1, 1);
     expect(organ.great.coupled()).toEqual([{ division: 'swell', octave: 1 }]);
-    expect(organ.current()).toEqual({ swell: ["Rohrflöte 8'"], couple: { great: [{ division: 'swell', octave: 1 }] }, unisonOff: ['great'] });
+    expect(organ.current()).toEqual({ swell: ["Rohrflöte 8'"], couple: { great: [{ division: 'swell', octave: 1 }] }, unisonOff: ['great'], tremulant: [] });
     // the swell's sub octave on itself with its unison off: C5 plays C4
     const c4 = pitch(() => organ.swell.noteOn('C4'));
     organ.preset({ swell: ["Rohrflöte 8'"], couple: { swell: [{ division: 'swell', octave: -1 }] }, unisonOff: ['swell'] });
@@ -518,6 +518,12 @@ describe('configurations', () => {
     expect(organ.tremulants().map((t) => t.on)).toEqual([false, true]);
     organ.preset({ swell: ["Rohrflöte 8'"] }); // tremulants left as they are
     expect(organ.tremulants().map((t) => t.on)).toEqual([false, true]);
+    // a preset saved with the tremulants off turns them off again
+    organ.set({ tremulant: false });
+    organ.savePreset('steady');
+    organ.set({ tremulant: true });
+    organ.preset('steady');
+    expect(organ.tremulants().map((t) => t.on)).toEqual([false, false]);
     organ.set({ tremulant: false });
     expect(organ.tremulants().map((t) => t.on)).toEqual([false, false]);
     // the swell's tremulant pulses its pipes
@@ -555,7 +561,7 @@ describe('configurations', () => {
     synth.render(0.6);
     const loud = rms(synth.render(0.5).left);
     expect(loud).toBeGreaterThan(soft * 1.2);
-    expect(organ.current()).toEqual({ great: ["Melodia 8'"], forte: ['great'] });
+    expect(organ.current()).toEqual({ great: ["Melodia 8'"], tremulant: [], forte: ['great'] });
     organ.preset('diapason');
     expect(organ.great.forteIsOn()).toBe(false);
   });

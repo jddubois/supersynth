@@ -10,7 +10,7 @@ export const MARIMBA: InstrumentDefinition = {
   layers: one('marimba'),
   range: [45, 96],
   reverb: 'hall',
-  presets: { default: { description: 'As recorded' }, soft: { description: 'Yarn mallets', parameters: { brightness: -2, noise: -6 } } },
+  presets: { default: { description: 'No adjustments' }, soft: { description: 'Yarn mallets', parameters: { brightness: -2, noise: -6 } } },
 };
 
 /** Vibraphone. */
@@ -23,7 +23,7 @@ export const VIBRAPHONE: InstrumentDefinition = {
   range: [53, 89],
   reverb: 'hall',
   presets: {
-    default: { description: 'As recorded' },
+    default: { description: 'No adjustments' },
     'let-ring': { description: 'Pedal down: notes ring', parameters: { release: 8 } },
     motor: { description: 'Motor on: the classic vibraphone pulse', parameters: { tremolo: 4, tremoloRate: 5.5, release: 4 } },
   },
@@ -38,7 +38,7 @@ export const XYLOPHONE: InstrumentDefinition = {
   layers: one('xylophone'),
   range: [60, 108],
   reverb: 'hall',
-  presets: { default: { description: 'As recorded' } },
+  presets: { default: { description: 'No adjustments' } },
 };
 
 /** Glockenspiel. */
@@ -50,7 +50,7 @@ export const GLOCKENSPIEL: InstrumentDefinition = {
   layers: one('glockenspiel'),
   range: [72, 108],
   reverb: 'hall',
-  presets: { default: { description: 'As recorded' } },
+  presets: { default: { description: 'No adjustments' } },
 };
 
 /** Tubular Bells. */
@@ -62,5 +62,5 @@ export const TUBULAR_BELLS: InstrumentDefinition = {
   layers: one('tubular-bells'),
   range: [60, 77],
   reverb: 'church',
-  presets: { default: { description: 'As recorded' } },
+  presets: { default: { description: 'No adjustments' } },
 };

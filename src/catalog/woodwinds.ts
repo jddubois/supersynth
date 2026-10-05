@@ -29,7 +29,7 @@ export const OBOE: InstrumentDefinition = {
   range: [58, 91],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, vibrato: { description: 'Light vibrato', parameters: { vibrato: 8, vibratoRate: 5.2 } } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' }, vibrato: { description: 'Light vibrato', parameters: { vibrato: 8, vibratoRate: 5.2 } } },
 };
 
 /** Clarinet. */
@@ -42,7 +42,7 @@ export const CLARINET: InstrumentDefinition = {
   range: [50, 91],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, dark: { description: 'Dark, covered tone', parameters: { brightness: -1.5, evenHarmonics: -3 } } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' }, dark: { description: 'Dark, covered tone', parameters: { brightness: -1.5, evenHarmonics: -3 } } },
 };
 
 /** Bassoon. */
@@ -55,7 +55,7 @@ export const BASSOON: InstrumentDefinition = {
   range: [34, 75],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' } },
 };
 
 /** Tenor Saxophone. */

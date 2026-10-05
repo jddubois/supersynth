@@ -85,10 +85,15 @@ struct Shared {
     /// Real-time output is running. MIDI input is routed into the engine only then: nothing
     /// would consume it otherwise, and the backlog would all sound at once on `start()`.
     running: AtomicBool,
+    /// `release_resources` was called: the engine is empty and takes no more commands.
+    released: AtomicBool,
 }
 
 impl Shared {
     fn send(&self, time: Option<f64>, cmd: Command) -> Result<()> {
+        if self.released.load(Ordering::Acquire) {
+            return Err(released());
+        }
         let frame = match time {
             Some(t) => (finite(t, "time")?.max(0.0) * self.sample_rate as f64).round() as u64,
             None => 0,
@@ -131,6 +136,10 @@ fn err(msg: impl Into<String>) -> Error {
     Error::new(Status::GenericFailure, msg.into())
 }
 
+fn released() -> Error {
+    err("the engine's resources were released (the synth is closed)")
+}
+
 #[napi]
 impl SynthEngine {
     #[napi(constructor)]
@@ -169,6 +178,7 @@ impl SynthEngine {
                 sample_rate: sample_rate as f32,
                 midi_routes: std::array::from_fn(|_| AtomicU8::new(NO_ROUTE)),
                 running: AtomicBool::new(false),
+                released: AtomicBool::new(false),
             }),
             output: None,
             midi: None,
@@ -215,6 +225,13 @@ impl SynthEngine {
     #[napi(getter)]
     pub fn cpu_load(&self) -> f64 {
         self.shared.status.load_permille.load(Ordering::Relaxed) as f64 / 1000.0
+    }
+
+    /// Peak output level of the last buffers (0–1, falling by half every buffer), in steps of
+    /// 0.001 (-60 dBFS).
+    #[napi(getter)]
+    pub fn peak(&self) -> f64 {
+        self.shared.status.peak_milli.load(Ordering::Relaxed) as f64 / 1000.0
     }
 
     /// Threads rendering audio (the audio thread included).
@@ -477,11 +494,24 @@ impl SynthEngine {
         if self.output.is_some() {
             return Ok(());
         }
-        let out = AudioOutput::start(Arc::clone(&self.engine), Arc::clone(&self.fault), &self.backend, self.sample_rate, self.buffer_size).map_err(err)?;
-        self.output = Some(out);
-        // the render workers follow the audio thread's priority where the system allows it
-        if let Ok(e) = self.engine.lock() {
-            e.set_realtime(true);
+        if self.shared.released.load(Ordering::Acquire) {
+            return Err(released());
+        }
+        // asked for before the stream starts, so the audio thread never waits for this lock:
+        // the render workers take the audio thread's priority when it renders its first buffer
+        let engine = Arc::clone(&self.engine);
+        let set_realtime = |on: bool| {
+            if let Ok(e) = engine.lock() {
+                e.set_realtime(on);
+            }
+        };
+        set_realtime(true);
+        match AudioOutput::start(Arc::clone(&self.engine), Arc::clone(&self.fault), &self.backend, self.sample_rate, self.buffer_size) {
+            Ok(out) => self.output = Some(out),
+            Err(e) => {
+                set_realtime(false);
+                return Err(err(e));
+            }
         }
         self.shared.running.store(true, Ordering::Release);
         Ok(())
@@ -558,8 +588,14 @@ impl SynthEngine {
                             _ => None,
                         };
                         if let Some(c) = cmd {
-                            // (a full queue drops the message: there is no caller to tell)
-                            let _ = shared.send(None, c);
+                            // live input has room of its own in the queue, so events a program
+                            // scheduled ahead never crowd it out; it is applied at the start of
+                            // the next audio buffer
+                            if !shared.released.load(Ordering::Acquire) {
+                                if let Ok(mut ctl) = shared.ctl.lock() {
+                                    let _ = ctl.send_live(c);
+                                }
+                            }
                         }
                     }
                 }
@@ -578,9 +614,12 @@ impl SynthEngine {
 
     /// Stop output and MIDI and let go of everything the engine holds: its instruments and their
     /// models (freed on the loader's reclaim thread), voices and buffers, now rather than when
-    /// the JavaScript object is garbage-collected. The engine stays usable but empty.
+    /// the JavaScript object is garbage-collected. The engine cannot be used afterwards: its
+    /// commands and `start()` fail, `render()` renders silence, and its clock and status keep
+    /// their last values.
     #[napi]
     pub fn release_resources(&mut self) {
+        self.shared.released.store(true, Ordering::Release);
         self.shared.running.store(false, Ordering::Release);
         self.output = None;
         self.midi = None;

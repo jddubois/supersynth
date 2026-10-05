@@ -45,7 +45,7 @@ Six rules hold everywhere:
 | `maxVoices` | `1024` | quietest/oldest voices are stolen beyond this (about 85 kB each; a full organ plenum playing a fast piece keeps several hundred pipes sounding in their release) |
 | `bufferSize` | device default | frames per audio callback |
 | `threads` | `'auto'` | CPU cores rendering audio, the audio thread included (1–16); `'auto'`: one per core but one, at most 8 (3 on a Raspberry Pi 5). Voices, and then the parts' effects, are shared out over the cores; the sound is bit-for-bit the same for any number. Offline `render()` uses them too |
-| `releaseCulling` | `false` | opt-in for machines too slow for a large organ (it changes the sound): `{ floorDb?, belowMixDb?, hold? }` ends notes in their release early: below `floorDb` dBFS, or more than `belowMixDb` dB below both their keyboard's output and the whole output (followed with `hold: 'peak'`, held 1 s then falling 40 dB/s, or `'smooth'`, ~300 ms). Off, every recorded tail plays out in full. Also with `synth.set({ releaseCulling })`. See the README's Performance section for what it saves and changes |
+| `releaseCulling` | `false` | opt-in for machines too slow for a large organ (it changes the sound): `{ floorDb?, belowMixDb?, hold? }` ends notes in their release early: below `floorDb` dBFS (−200 … 0), or more than `belowMixDb` dB (0 … 200) below both their keyboard's output and the whole output (followed with `hold: 'peak'`, held 1 s then falling 40 dB/s, or `'smooth'`, ~300 ms). Off, every recorded tail plays out in full. Also with `synth.set({ releaseCulling })`. See the README's Performance section for what it saves and changes |
 | `modelsDirectory` | none | a directory searched first for `.ssm` models, laid out like `models/` (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`); then supersynth's own models and the installed organ packages |
 
 | Method | |
@@ -53,8 +53,9 @@ Six rules hold everywhere:
 | `add(id \| definition, options)` | add an instrument → `Instrument` (options `{ preset, parameters }`), or an organ → `Organ` (options `{ preset, presets, tremulant, wind, noises, preload }`; its other stops load in the background, see [organ.md](organ.md#loading)) |
 | `ready()` | a promise: every organ added has loaded the models it loads in the background |
 | `instruments()`, `remove(instrument \| organ)` | the instruments and organs added; remove one (its notes stop, its channels — an organ's noise channel too — are freed and cleared, the models nothing else uses are unloaded; using it afterwards throws) |
-| `set({ volume, reverb }, { at })` | master volume and room, see [parameters.md](parameters.md#reverb) |
-| `start()` / `stop()` / `close()` | real-time output; `close()` also releases every instrument, organ and model, and the synth cannot be used afterwards |
+| `set({ volume, reverb, releaseCulling }, { at })` | master volume (0–1) and room, see [parameters.md](parameters.md#reverb); everything is checked before anything changes |
+| `start()` / `stop()` / `close()` | real-time output; `close()` also releases every instrument, organ and model, and the synth cannot be used afterwards. Output alone does not keep Node.js running: a script that plays and then ends exits at once, so wait for the music (`idle()`) |
+| `idle()` | a promise: everything sent so far has played out with real-time output running (no event waiting, no note sounding, the output below −60 dBFS). A held note, or an organ's blower and room noise, keeps it waiting; it resolves at once without output, and when output stops |
 | `render(seconds)` | offline → `{ sampleRate, left, right, duration }` |
 | `renderToFile(path, seconds, { bitDepth, mono, dither })` | offline → WAV: 16-bit (TPDF-dithered; digital silence stays 0) or 24-bit PCM, or 32-bit float |
 | `renderMidi(file, options)` / `playMidi(file, options)` | Standard MIDI Files, see [midi.md](midi.md) |
@@ -105,7 +106,7 @@ Returned by `synth.add`: one instrument on one channel.
 
 A preset is a set of parameters, and optionally layers, applied together; each instrument's
 presets are listed in [instruments.md](instruments.md). Applying one replaces every parameter;
-`preset('default')` returns to the instrument as recorded. `activePreset()` names the preset in
+`preset('default')` returns to the defaults (no adjustments). `activePreset()` names the preset in
 use until a parameter is changed by hand (parameters given with the preset to `synth.add` count
 as part of it):
 

@@ -39,8 +39,14 @@ use params::{MasterParam, PartParam};
 use pool::Pool;
 
 pub const MAX_PARTS: usize = 32;
-/// Most events waiting to be applied at once.
+/// Most events waiting to be applied at once (`Controller::send`).
 pub const QUEUE_CAPACITY: usize = 1 << 15;
+/// Room kept on top of `QUEUE_CAPACITY` for live input (`Controller::send_live`): a program
+/// that fills the queue with events scheduled ahead never locks out a MIDI keyboard, nor makes
+/// it lose a note-off.
+pub const LIVE_RESERVE: usize = 1024;
+/// Events the ring and the engine hold from the controller, at most.
+const SENT_CAPACITY: usize = QUEUE_CAPACITY + LIVE_RESERVE;
 
 // ── instruments ───────────────────────────────────────────────────────────────
 
@@ -291,11 +297,26 @@ impl Controller {
     /// Queue `cmd` for engine frame `time` (0 or a past frame: as soon as possible). Fails,
     /// without queueing, when QUEUE_CAPACITY events are already waiting: an event is never
     /// applied before its time.
-    pub fn send(&mut self, time: u64, mut cmd: Command) -> Result<(), String> {
+    pub fn send(&mut self, time: u64, cmd: Command) -> Result<(), String> {
         self.collect_garbage();
         if self.queue_free() == 0 {
             return Err(format!("supersynth command queue is full ({QUEUE_CAPACITY} events waiting)"));
         }
+        self.push(time, cmd)
+    }
+
+    /// Queue `cmd` from live input (a MIDI keyboard), to apply as soon as possible. It may also
+    /// use the `LIVE_RESERVE` events kept for live input, so it is refused only when that is
+    /// full too (over a thousand live messages waiting for one buffer).
+    pub fn send_live(&mut self, cmd: Command) -> Result<(), String> {
+        self.collect_garbage();
+        if self.status.pending_events.load(Ordering::Acquire) >= SENT_CAPACITY {
+            return Err(format!("supersynth command queue is full ({SENT_CAPACITY} events waiting)"));
+        }
+        self.push(0, cmd)
+    }
+
+    fn push(&mut self, time: u64, mut cmd: Command) -> Result<(), String> {
         self.prepare(&mut cmd);
         let bank_for = match &cmd {
             Command::SetInstrument { part, noise: Some(_), .. } | Command::AddLayer { part, noise: Some(_), .. } => Some(*part),
@@ -616,7 +637,7 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(cfg: EngineConfig) -> (Engine, Controller) {
-        let (tx, rx) = rtrb::RingBuffer::new(QUEUE_CAPACITY);
+        let (tx, rx) = rtrb::RingBuffer::new(SENT_CAPACITY);
         let (gtx, grx) = rtrb::RingBuffer::new(GARBAGE_CAPACITY);
         let status = Arc::new(Status::default());
         let sr = cfg.sample_rate;
@@ -639,7 +660,7 @@ impl Engine {
             rx,
             garbage: gtx,
             status: Arc::clone(&status),
-            heap: BinaryHeap::with_capacity(QUEUE_CAPACITY + INTERNAL_CAPACITY),
+            heap: BinaryHeap::with_capacity(SENT_CAPACITY + INTERNAL_CAPACITY),
             internal_pending: 0,
             seq: 0,
             now: 0,
@@ -814,11 +835,11 @@ impl Engine {
     }
 
     fn drain_queue(&mut self) {
-        // The controller admits at most QUEUE_CAPACITY unapplied events and the engine schedules
+        // The controller admits at most SENT_CAPACITY unapplied events and the engine schedules
         // at most INTERNAL_CAPACITY of its own, so the heap (with room for both reserved) never
         // grows here; should it be full, events wait in the ring rather than being applied
         // before their time.
-        while self.heap.len() < QUEUE_CAPACITY + INTERNAL_CAPACITY {
+        while self.heap.len() < SENT_CAPACITY + INTERNAL_CAPACITY {
             let Ok(ev) = self.rx.pop() else { break };
             self.seq += 1;
             self.heap.push(Pending { time: ev.time, seq: self.seq, cmd: ev.cmd, internal: false });
@@ -949,8 +970,10 @@ impl Engine {
                 if let Some(s) = spare {
                     trash(q, Garbage::Instrument(s));
                 }
+                // kept even when the layer is not added: the controller counts this part as
+                // having a bank from now on, and sends none again
                 match noise {
-                    Some(nb) if added && p.noise.is_none() => p.noise = Some(nb),
+                    Some(nb) if p.noise.is_none() => p.noise = Some(nb),
                     Some(nb) => trash(q, Garbage::Noise(nb)),
                     None => {}
                 }
@@ -2383,6 +2406,29 @@ mod tests {
         render(&mut eng, 24_000 + 100);
         assert_eq!(ctl.queue_free(), 64 + 24_000 + 24_100 - 48_000, "applied events free their places");
         ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 90 }).unwrap();
+    }
+
+    #[test]
+    fn live_input_still_plays_when_the_queue_is_full() {
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(testing::model()))).unwrap();
+        render(&mut eng, 64);
+        for i in 0..QUEUE_CAPACITY as u64 {
+            ctl.send(480_000 + i, Command::NoteOff { part: 0, note: 40 }).unwrap();
+        }
+        assert!(ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 90 }).is_err());
+        ctl.send_live(Command::NoteOn { part: 0, note: 72, velocity: 90 }).unwrap();
+        render(&mut eng, 256);
+        assert_eq!(eng.active_voices(), 1, "a key played on a MIDI keyboard sounds");
+        ctl.send_live(Command::NoteOff { part: 0, note: 72 }).unwrap();
+        render(&mut eng, 256);
+        assert!(eng.voices.iter().filter(|v| v.is_active()).all(|v| v.is_released()), "and its note-off is not lost");
+        for _ in 0..LIVE_RESERVE {
+            ctl.send_live(Command::NoteOff { part: 0, note: 41 }).unwrap();
+        }
+        assert!(ctl.send_live(Command::NoteOff { part: 0, note: 41 }).is_err(), "the reserve is bounded");
+        render(&mut eng, 64);
+        ctl.send_live(Command::NoteOff { part: 0, note: 41 }).unwrap();
     }
 
     #[test]

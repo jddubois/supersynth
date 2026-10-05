@@ -28,7 +28,7 @@ export const FRENCH_HORN: InstrumentDefinition = {
   range: [34, 77],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, distant: { description: 'Distant, at the back of the hall', parameters: { reverbSend: 0.45, brightness: -1 } } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' }, distant: { description: 'Distant, at the back of the hall', parameters: { reverbSend: 0.45, brightness: -1 } } },
 };
 
 /** Trombone. */
@@ -41,7 +41,7 @@ export const TROMBONE: InstrumentDefinition = {
   range: [28, 72],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' } },
 };
 
 /** Tuba. */
@@ -54,7 +54,7 @@ export const TUBA: InstrumentDefinition = {
   range: [22, 60],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' } },
 };
 
 /** Brass Section. */
@@ -71,5 +71,5 @@ export const BRASS: InstrumentDefinition = {
   ],
   range: [22, 84],
   reverb: 'hall',
-  presets: { default: { description: 'As recorded' } },
+  presets: { default: { description: 'No adjustments' } },
 };

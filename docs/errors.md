@@ -8,8 +8,13 @@
 | `AbortError` | `playMidi()` is stopped by its `signal` |
 
 `AudioBackendError`, `MidiError` and `AbortError` extend `SupersynthError`, and so does every
-error from the native engine. A bad note name or note number and a MIDI channel outside 1–16
-throw `RangeError`.
+error from the native engine. A bad note name or note number, a chord above the MIDI range, a
+MIDI channel outside 1–16 and a coupler octave other than −1, 0 or 1 throw `RangeError`.
+
+Instrument parameters, master volume and release culling throw when out of range
+(`PARAMETER_RANGES`). Controller values are clamped instead, since they often come from
+continuous sources: `pitchBend` to −1 … 1, `modulation` and `expression` to 0 … 1, and
+`controlChange` values to 0 … 127.
 
 Every number the API passes to the engine is checked first: a NaN reaching the engine would
 silence it for good, so `piano.pitchBend(NaN)` throws and nothing is sent. A method that sends

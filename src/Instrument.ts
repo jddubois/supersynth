@@ -2,7 +2,7 @@ import { INSTRUMENTS, type InstrumentDefinition, type InstrumentId, type LayerDe
 import { SupersynthError } from './errors.js';
 import type { NativeEngine } from './native.js';
 import { noteNumber, type NoteLike } from './notes.js';
-import { defaultParameter, PARAMETER_DEFAULTS, PARAMETER_NAMES, toNativeParameter, type InstrumentParameters } from './parameters.js';
+import { checkParameter, defaultParameter, PARAMETER_DEFAULTS, PARAMETER_NAMES, toNativeParameter, type InstrumentParameters } from './parameters.js';
 import { playNotes, playSequence, resolveTime, type Keys, type Playable, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
 import type { Synth } from './Synth.js';
 import { clamp, integer, velocity as checkVelocity } from './validate.js';
@@ -181,7 +181,7 @@ export class Instrument implements Playable {
   /**
    * Apply a preset: a name from {@link presets} or a preset object. Replaces every parameter
    * (and the layers, if the preset has its own); `preset('default')` returns to the instrument
-   * as recorded. While the synth's room is automatic and this instrument chose it, the room
+   * with no adjustments. While the synth's room is automatic and this instrument chose it, the room
    * follows the preset's.
    *
    * ```ts
@@ -297,6 +297,6 @@ function checkParameters(parameters: InstrumentParameters): void {
   for (const [k, v] of Object.entries(parameters)) {
     if (v === undefined) continue;
     if (!PARAMETER_NAMES.has(k)) throw new SupersynthError(`Unknown parameter '${k}'. Parameters: ${[...PARAMETER_NAMES].join(', ')}`);
-    toNativeParameter(k as keyof InstrumentParameters, v);
+    checkParameter(k as keyof InstrumentParameters, v);
   }
 }

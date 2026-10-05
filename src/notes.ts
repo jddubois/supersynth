@@ -8,8 +8,8 @@ const LETTERS: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b:
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const ACCIDENTAL = '#{1,2}|b{1,2}|♯{1,2}|♭{1,2}';
 const NOTE_RE = new RegExp(`^\\s*([A-Ga-g])(${ACCIDENTAL})?\\s*(-?\\d+)\\s*$`);
-/** A chord symbol: a note name, then the quality. */
-const CHORD_RE = new RegExp(`^\\s*([A-Ga-g](?:${ACCIDENTAL})?\\s*-?\\d+)(.*)$`);
+/** A chord symbol: a note name with its octave (one digit, or -1), then the quality. */
+const CHORD_RE = new RegExp(`^\\s*([A-Ga-g](?:${ACCIDENTAL})?\\s*(?:-1|\\d))(.*)$`);
 
 /** Convert a note name or number to a MIDI note number (0–127). */
 export function noteNumber(note: NoteLike): number {
@@ -51,7 +51,9 @@ const CHORDS: Record<string, number[]> = {
 
 /**
  * Notes of a chord, e.g. `chord('C4')` → C E G, `chord('A3', 'm7')` → A C E G,
- * or a symbol: `chord('F#3m7b5')`.
+ * or a symbol: `chord('F#3m7b5')`, `chord('G37')` (G3, dominant seventh). A symbol always
+ * has the octave, so `chord('C7')` is a C major triad in octave 7. Throws `RangeError` when a
+ * note of the chord is above the MIDI range.
  */
 export function chord(root: NoteLike, quality?: string): number[] {
   let r: number;
@@ -66,5 +68,7 @@ export function chord(root: NoteLike, quality?: string): number[] {
   }
   const iv = CHORDS[q ?? ''];
   if (!iv) throw new RangeError(`Unknown chord quality '${q}' (known: ${Object.keys(CHORDS).filter(Boolean).join(', ')})`);
-  return iv.map((i) => r + i).filter((n) => n <= 127);
+  const notes = iv.map((i) => r + i);
+  if (notes[notes.length - 1]! > 127) throw new RangeError(`Chord '${typeof root === 'string' ? root : noteName(r)}${quality ?? ''}' goes above the MIDI range`);
+  return notes;
 }

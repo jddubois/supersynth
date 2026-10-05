@@ -14,11 +14,21 @@ await synth.playMidi('song.mid', { instrument: 'harpsichord' }); // real time (s
 ```
 
 Note on/off, sustain (CC64), modulation (CC1), volume (CC7), pan (CC10), expression (CC11),
-reverb send (CC91) and pitch bend are honoured. Channel 10 (GM drums) is skipped unless mapped.
-`byTrack: true` maps by track instead of channel: the keys of `channels` are then 0-based track
-indices (`0` is the first track). An instrument or division is played as it is (an organ
-division with its couplers); an instrument named by id is added for the file and removed when
-the file is done, so a file can be rendered any number of times.
+reverb send (CC91) and pitch bend are honoured. Program changes and other controllers are
+ignored. Channel 10 (GM drums) is skipped unless mapped; with `byTrack` it is not skipped, so
+map or leave out drum tracks yourself. `byTrack: true` maps by track instead of channel: the
+keys of `channels` are then 0-based track indices (`0` is the first track). A channel or track
+without notes gets no instrument.
+
+An instrument or division you pass is played as it is (an organ division with its couplers).
+When the file ends (or is aborted), its notes are released and its sustain pedal, modulation,
+expression and pitch bend are reset, so nothing the file left on carries over; volume, pan and
+reverb send stay as the file set them. An instrument named by id is added for the file and
+removed when the file is done, so a file can be rendered any number of times.
+
+Several events at the same tick are ordered as a player would expect: a note-off that ends a
+note sounding before that tick comes first (a note re-struck at the same tick is not cut), and a
+note that starts and ends at the same tick (a zero-length note) is played and released.
 
 `speed` must be above 0, `tail` 0 or more, and `transpose` a whole number of semitones;
 anything else throws `SupersynthError`.
@@ -50,9 +60,12 @@ throw `MidiError`.
 ```ts
 synth.add('grand-piano').midi(1);           // MIDI channel 1
 synth.add('strings').midi(2);               // MIDI channel 2
+await synth.start();                        // MIDI input plays only while output runs
 await synth.enableMidi('Arturia');          // substring of the device name; omit for the first device
 synth.on('midi', (e) => console.log(e.type, e.channel, e.note, e.velocity));
 ```
+
+An enabled MIDI input keeps Node.js running until `disableMidi()` or `synth.close()`.
 
 Nothing plays from a MIDI keyboard until it is given a channel: `instrument.midi(n)` (or
 `instrument.midi()` for every channel) and `organ.midi({ great: 1, … })`. A channel belongs to
@@ -60,7 +73,9 @@ one instrument or division at a time; giving it to another takes it over, and ca
 again replaces the channels an instrument or organ had.
 
 With `route: true` (default) notes and controllers go straight to the engine, with no
-JavaScript round trip. Set `route: false` to handle everything yourself in the `'midi'` event,
+JavaScript round trip, while real-time output runs. They apply at the start of the next audio
+buffer, so their timing varies by up to one buffer (`bufferSize`). Live input has room of its
+own in the engine's queue: events scheduled ahead by a program never crowd it out. Set `route: false` to handle everything yourself in the `'midi'` event,
 which is emitted for every message either way. `disableMidi()` disconnects.
 
 An organ assigns its divisions to channels with `organ.midi({ great: 1, swell: 2, pedal: 3 })`

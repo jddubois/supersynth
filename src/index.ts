@@ -8,7 +8,7 @@ export type { Playable, PlayOptions, TimeOptions, SequenceStep, SequenceOptions 
 // configurations (also importable on their own from 'supersynth/instruments' and 'supersynth/organs')
 export * from './catalog/index.js';
 export * from './organs/index.js';
-export { PARAMETER_DEFAULTS } from './parameters.js';
+export { PARAMETER_DEFAULTS, PARAMETER_RANGES } from './parameters.js';
 export type { InstrumentParameters, ReverbPreset, ReverbOptions } from './parameters.js';
 export { noteNumber, noteName, noteFrequency, chord } from './notes.js';
 export type { NoteLike } from './notes.js';

@@ -14,6 +14,15 @@ tools/ssm/.venv/bin/pip install -r tools/ssm/requirements.txt
 cd tools/ssm && .venv/bin/python build.py <instrument-id>
 ```
 
+The recordings are not in the repository and nothing downloads them. Get the sample libraries
+named in `instruments.py` and [NOTICE.md](../../NOTICE.md) and place them under `data/samples/`;
+`instruments.py` gives the folder each model reads. Rendering with the engine (`engine.py`)
+needs the Rust `ssrender` binary (`cargo build --release` in `native/`).
+
+`requirements.txt` covers building models. Two evaluation scripts need more, not pinned:
+`discriminate.py` needs scikit-learn and `compare.py` (plots) needs matplotlib. What the
+evaluation scripts measure, and what they do not, is in [docs/models.md](../../docs/models.md#evaluation).
+
 ## Where models go
 
 A model's *name* (`piano`, `organ/great-principal-8`, `organ/friesach/great-principal-8`) maps

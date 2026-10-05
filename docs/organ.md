@@ -1,9 +1,9 @@
 # The church organ
 
-`synth.add('burea')` adds a real church organ: the **Bureå Church organ** (Nils Hammarberg,
+`synth.add('burea')` adds a model of a real church organ: the **Bureå Church organ** (Nils Hammarberg,
 1967, Sweden), every pipe of 40 stops analysed from Lars Palo's GrandOrgue sample set (CC BY-SA).
-Pipes keep their own tuning and voicing, stops keep their natural balance, and the pipes carry
-the church acoustic they were recorded in.
+Each pipe keeps its recorded tuning and level, and the recordings include the church's
+acoustic.
 
 Each organ's models are an npm package of their own (only the VCSL organ ships with supersynth):
 
@@ -55,7 +55,7 @@ Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
 |---|---|
 | `great`, `swell`, `positive`, `pedal`, `divisions()`, `division(name)` | the keyboards |
 | `preset(name \| preset)`, `presets()`, `savePreset(name, preset?)`, `current()`, `activePreset()` | presets, as on an instrument |
-| `set({ tremulant, wind, noises })` | the tremulants (`true`, or by division: `{ swell: true }`); how much the wind sags when many pipes start (0 steady – 1 flexible); the machinery noises |
+| `set({ tremulant, wind, noises })` | the tremulants (`true`, or by division: `{ swell: true }`); how much the wind sags when many pipes start (0 … 4: 0 steady, 1 flexible); the machinery noises |
 | `tremulants()`, `noisesOn()` | the tremulants and whether each is on; which noises are on (`{ blower, ambient, action }`) |
 | `midi(channels, { presets })` | play it from MIDI keyboards |
 | `allNotesOff()`, `stops()`, `definition` | |
@@ -69,9 +69,9 @@ file. A pipe reached from two keyboards (or, through an octave coupler, two keys
 once, until both keys are up. As on a real organ they are not transitive: with Swell to Great
 and Great to Pedal, the pedal plays the great's stops but not the swell's.
 
-Pipes speak as recorded: each key's pipes start after a short random delay (`speech`, up to
-10 ms, different for every pipe and note, as the tracker action and the pipe feet of a real
-organ make them), so unison stops beat and blend instead of starting in lockstep. Where a sample
+Pipes start with their recorded attack, after a short random delay (`speech`, up to 10 ms,
+different for every pipe and note, as the tracker action and the pipe feet of a real organ
+make them), so unison stops beat and blend instead of starting in lockstep. Where a sample
 set recorded a pipe's release after short key presses too (most of Piotr Grabowski's do, after
 0.1–0.6 s), a staccato note ends with that release: the room has not filled yet and the pipe
 had not reached full speech.
