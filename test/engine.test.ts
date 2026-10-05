@@ -404,6 +404,7 @@ describe('configurations', () => {
         if (d.drawn().length) d.play(name === 'pedal' ? 'C2' : ['C4', 'G4'], { duration: 0.4 });
       }
       expect([organ.id, rms(synth.render(0.6).left) > 1e-4]).toEqual([organ.id, true]);
+      synth.close(); // (stops loading its other stops in the background)
     }
   });
 

@@ -59,6 +59,7 @@ Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
 | `tremulants()`, `noisesOn()` | the tremulants and whether each is on; which noises are on (`{ blower, ambient, action }`) |
 | `midi(channels, { presets })` | play it from MIDI keyboards |
 | `allNotesOff()`, `stops()`, `definition` | |
+| `ready` | a promise: every model the organ loads in the background is loaded (see [Loading](#loading)) |
 
 Every change takes `{ at }` or `{ delay }` last, like a note, so registration changes can be
 scheduled with the music: `organ.preset('full', { at: 30 })`, `organ.swell.pull("Schalmei 8'", { at: 12.5 })`.
@@ -74,6 +75,45 @@ organ make them), so unison stops beat and blend instead of starting in lockstep
 set recorded a pipe's release after short key presses too (most of Piotr Grabowski's do, after
 0.1–0.6 s), a staccato note ends with that release: the room has not filled yet and the pipe
 had not reached full speech.
+
+## Loading
+
+An organ's stops are hundreds of megabytes of models once decoded, so `synth.add()` loads only
+what its starting preset needs before it returns (in parallel, on several cores): that preset
+sounds at once. Every other stop's model (and the Forte and noise models) then loads in the
+background, off the JavaScript thread, so drawing stops and changing presets later is instant
+and never stalls a key or a MIDI clock:
+
+```ts
+const organ = synth.add('friesach', { preset: 'plenum' });   // ~0.1 s; the plenum plays now
+organ.great.play('C4');
+await organ.ready;               // optional: every stop is loaded (~0.5 s on a desktop)
+```
+
+A stop drawn before its model has loaded never holds up playing. With real-time output running
+the call returns at once and the stop sounds as soon as its model has loaded (it is moved to the
+front: a few tens of milliseconds on a desktop); `drawn()` lists it meanwhile, and retiring it
+first means it never sounds. Offline, the call waits for that one model only (loaded on the spot
+if no background thread has started it), and `render()` waits for any stop drawn in real time
+that is still loading, so a render always contains exactly what was drawn.
+
+The `preload` option of `synth.add()` chooses what loads in the background:
+
+| `preload` | |
+|---|---|
+| `'all'` | every model of the organ (the default when the organ's models take at most a quarter of the machine's memory decoded) |
+| `'preset'` | only the starting preset's; another stop's model loads when the stop is first drawn, so memory grows only with the stops used (the default on smaller machines) |
+| `false` | nothing in the background: each model, the preset's too, loads on the JavaScript thread when first needed |
+
+Decoded, the largest organs take about 325 MB (Friesach, 44 stops), 265 MB (Bureå, 40) and
+253 MB (Cracow, 40), roughly four times the size of their package; `npm run load-test` measures
+it. A model that fails to load in the background (a damaged file) rejects `organ.ready` with a
+`SupersynthError`, is emitted as the synth's `'error'` event when it has listeners, and drawing
+that stop throws the same error; the other stops play. Removing the organ (or `synth.close()`)
+stops its loading. Unloaded models are freed on a background thread once the engine has let
+go of them, never inside a render or the audio callback. The background threads are the CPU's cores less two (1–6), at a low
+priority so that they yield to the audio and JavaScript threads; `$SUPERSYNTH_LOAD_THREADS` sets
+their number.
 
 ## Noises
 

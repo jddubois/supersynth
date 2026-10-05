@@ -199,15 +199,18 @@ function quantile(sorted: Float64Array, q: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
 }
 
-function runScenario(sc: Scenario): Result {
+async function runScenario(sc: Scenario): Promise<Result> {
   const synth = new Synth({
     sampleRate: SR,
     quality: QUALITY,
     ...(MAX_VOICES ? { maxVoices: MAX_VOICES } : {}),
     ...(THREADS ? { threads: THREADS === 'auto' ? 'auto' : Number(THREADS) } : {}),
   });
+  synth['emulateRealtime'] = true; // the engine is driven here as by real-time output
   const native = synth._native();
   const events = sc.setup(synth).sort((a, b) => a.time - b.time);
+  // every model loaded before the clock starts (background loading would compete for the CPU)
+  await synth.ready();
   native.render(SR / 2); // settle: setup commands, reverb buffers
   const n = Math.ceil((SECONDS * SR) / BUFFER);
   const loads = new Float64Array(n);
@@ -287,7 +290,7 @@ console.log(
 const results: Result[] = [];
 for (const sc of scenarios) {
   if (ONLY && !sc.name.includes(ONLY)) continue;
-  const r = runScenario(sc);
+  const r = await runScenario(sc);
   results.push(r);
   console.log(
     r.name.padEnd(40) +

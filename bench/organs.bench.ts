@@ -64,9 +64,11 @@ function synthOptions() {
 }
 
 /** Render `seconds` buffer by buffer, applying `events` at buffer boundaries (as live input). */
-function run(organ: string, preset: string, synth: Synth, events: Ev[], seconds: number): Row {
+async function run(organ: string, preset: string, synth: Synth, events: Ev[], seconds: number): Promise<Row> {
   const nat = synth._native();
   events.sort((a, b) => a.time - b.time);
+  // every model loaded before the clock starts (background loading would compete for the CPU)
+  await synth.ready();
   nat.render(SR / 2); // settle
   const n = Math.ceil((seconds * SR) / BUFFER);
   const loads = new Float64Array(n);
@@ -101,8 +103,9 @@ function run(organ: string, preset: string, synth: Synth, events: Ev[], seconds:
   };
 }
 
-function chord(id: string, preset: unknown, label: string): Row {
+function chord(id: string, preset: unknown, label: string): Promise<Row> {
   const synth = new Synth(synthOptions());
+  synth['emulateRealtime'] = true; // the engine is driven here as by real-time output
   const o = synth.add(id as OrganId, { preset: preset as never });
   const great = ['C3', 'G3', 'C4', 'E4', 'G4', 'C5'];
   const pedal = ['C2', 'G2'];
@@ -114,8 +117,9 @@ function chord(id: string, preset: unknown, label: string): Row {
 }
 
 const bach = parseMidiFile(readFileSync(path.join(here, '../examples/jsbwv532.mid')));
-function bachRun(id: string, preset: string): Row {
+function bachRun(id: string, preset: string): Promise<Row> {
   const synth = new Synth(synthOptions());
+  synth['emulateRealtime'] = true;
   const o = synth.add(id as OrganId, { preset: preset as never });
   const kb = [o.great, o.swell, o.pedal];
   const ev: Ev[] = [];
@@ -153,13 +157,13 @@ for (const [id, def] of Object.entries(ORGANS)) {
   const [heaviest] = Object.entries(def.presets)
     .map(([name, p]) => [name, divisions.reduce((k, d) => k + (((p as Record<string, unknown[]>)[d]?.length) ?? 0), 0)] as const)
     .sort((a, b) => b[1] - a[1])[0]!;
-  print(chord(id, heaviest, heaviest));
-  print(chord(id, tutti, 'tutti + couplers'));
+  print(await chord(id, heaviest, heaviest));
+  print(await chord(id, tutti, 'tutti + couplers'));
 }
 if (!args.includes('--no-bach')) {
   for (const [id, preset] of [['friesach', 'plenum'], ['cracow', 'plein-jeu']] as const) {
     if (ONLY && id !== ONLY) continue;
-    print(bachRun(id, preset));
+    print(await bachRun(id, preset));
   }
 }
 const worst = rows.reduce((a, b) => (b.p999 > a.p999 ? b : a), rows[0]!);

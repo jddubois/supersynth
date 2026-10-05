@@ -3,9 +3,9 @@
 //! Node.js bindings for supersynth-core.
 
 mod audio;
+mod loader;
 mod midi;
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -15,6 +15,7 @@ use napi_derive::napi;
 
 use audio::backend::{list_available_backends, BackendKind};
 use audio::output::{default_output_rate, render_guarded, AudioOutput, Fault};
+use loader::ModelStore;
 use midi::input::{connect_midi_device, list_midi_devices, MidiInputHandle};
 use midi::message::{MidiMessage, MidiMessageKind};
 
@@ -117,8 +118,7 @@ pub struct SynthEngine {
     shared: Arc<Shared>,
     output: Option<AudioOutput>,
     midi: Option<MidiInputHandle>,
-    models: HashMap<u32, Arc<Model>>,
-    next_model: u32,
+    models: ModelStore,
     sample_rate: u32,
     backend: BackendKind,
     buffer_size: Option<u32>,
@@ -172,8 +172,7 @@ impl SynthEngine {
             }),
             output: None,
             midi: None,
-            models: HashMap::new(),
-            next_model: 1,
+            models: ModelStore::default(),
             sample_rate,
             backend,
             buffer_size: o.buffer_size,
@@ -239,22 +238,64 @@ impl SynthEngine {
         let m = std::panic::catch_unwind(|| Model::from_bytes(data))
             .map_err(|_| err("invalid supersynth model (the parser failed)"))?
             .map_err(err)?;
-        let id = self.next_model;
-        self.next_model += 1;
-        self.models.insert(id, Arc::new(m));
-        Ok(id)
+        Ok(self.models.insert(m))
+    }
+
+    /// Load a model file (.ssm) in the background, on a pool of worker threads. Returns its id
+    /// at once: the model can be used right away, and whatever uses it before it has loaded
+    /// waits for just that model (loading it itself if no worker has started it yet). A file
+    /// that fails to load fails each use with its error.
+    #[napi]
+    pub fn queue_model_file(&mut self, path: String) -> u32 {
+        self.models.queue(path.into())
+    }
+
+    /// Call `callback` once all these models have loaded (or been unloaded): with null, or with
+    /// the first loading error. The wait does not keep Node.js running.
+    #[napi(ts_args_type = "ids: number[], callback: (error: string | null) => void")]
+    pub fn watch_models(&self, env: Env, ids: Vec<u32>, callback: JsFunction) -> Result<()> {
+        let mut tsfn: ThreadsafeFunction<Option<String>, ErrorStrategy::Fatal> =
+            callback.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+        tsfn.unref(&env)?;
+        self.models.when_loaded(
+            &ids,
+            Box::new(move |error| {
+                tsfn.call(error, ThreadsafeFunctionCallMode::NonBlocking);
+            }),
+        );
+        Ok(())
+    }
+
+    /// Load these models next, before the other models queued (those not started yet).
+    #[napi]
+    pub fn hurry_models(&self, ids: Vec<u32>) {
+        for id in ids {
+            self.models.hurry(id);
+        }
+    }
+
+    /// Whether a model is still loading in the background (a use would wait for it).
+    #[napi]
+    pub fn model_loading(&self, id: u32) -> bool {
+        self.models.loading(id)
+    }
+
+    /// Decoded size of a model in bytes, or null while it is still loading.
+    #[napi]
+    pub fn model_bytes(&self, id: u32) -> Option<f64> {
+        self.models.bytes(id).map(|b| b as f64)
     }
 
     /// Release a model (instruments already using it keep their reference).
     #[napi]
     pub fn unload_model(&mut self, id: u32) {
-        self.models.remove(&id);
+        self.models.remove(id);
     }
 
     /// Model metadata as JSON.
     #[napi]
     pub fn model_info(&self, id: u32) -> Result<String> {
-        let m = self.models.get(&id).ok_or_else(|| err(format!("unknown model {id}")))?;
+        let m = self.models.get(id).map_err(err)?;
         let p = &m.params;
         let info = serde_json::json!({
             "name": m.name,
@@ -286,9 +327,10 @@ impl SynthEngine {
     }
 
     fn inst_layer(&self, l: JsLayer) -> Result<InstLayer> {
-        let model = self.models.get(&l.model).ok_or_else(|| err(format!("unknown model {}", l.model)))?;
+        // (waits for a model still loading in the background)
+        let model = self.models.get(l.model).map_err(err)?;
         Ok(InstLayer {
-            model: Arc::clone(model),
+            model,
             transpose: finite_or(l.transpose, 0.0, "transpose")?,
             gain_db: finite_or(l.gain_db, 0.0, "gainDb")?,
             pan: finite_or(l.pan, 0.0, "pan")?,
@@ -532,6 +574,22 @@ impl SynthEngine {
     #[napi]
     pub fn disable_midi(&mut self) {
         self.midi = None;
+    }
+
+    /// Stop output and MIDI and let go of everything the engine holds: its instruments and their
+    /// models (freed on the loader's reclaim thread), voices and buffers, now rather than when
+    /// the JavaScript object is garbage-collected. The engine stays usable but empty.
+    #[napi]
+    pub fn release_resources(&mut self) {
+        self.shared.running.store(false, Ordering::Release);
+        self.output = None;
+        self.midi = None;
+        let (engine, ctl) = Engine::new(EngineConfig { sample_rate: self.sample_rate as f32, max_voices: 8, ..EngineConfig::default() });
+        let old = self.engine.lock().map(|mut e| std::mem::replace(&mut *e, engine));
+        if let Ok(mut c) = self.shared.ctl.lock() {
+            *c = ctl;
+        }
+        drop(old);
     }
 }
 
