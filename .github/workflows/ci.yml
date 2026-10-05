@@ -21,6 +21,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Organ models live in their packages (packages/organ-<id>/models/organ/…)
+        run: |
+          stray=$(find models/organ -name '*.ssm' 2>/dev/null || true)
+          if [ -n "$stray" ]; then
+            echo "::error::Organ models under models/organ/ (they belong in packages/organ-<id>/models/organ/; tools/ssm/paths.py model_path):"
+            echo "$stray"
+            exit 1
+          fi
+
       - name: Audio libraries (ALSA, JACK)
         run: sudo apt-get update && sudo apt-get install -y pkg-config libasound2-dev libjack-jackd2-dev
 

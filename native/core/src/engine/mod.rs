@@ -50,6 +50,70 @@ pub struct InstLayer {
     /// Played when the key is released instead of when it is pressed (damper and jack
     /// noises of pianos and harpsichords).
     pub on_release: bool,
+    /// Longest random delay (ms) before the layer speaks. Organ pipes of different ranks never
+    /// start in the same instant (pallet, channel and pipe foot); starting them together
+    /// would lock their phases and sum unison ranks louder and brighter than they are.
+    pub speech_ms: f32,
+    /// Sounds when its own keyboard's key moves, never through a coupler, and plays to its
+    /// end (key-action noise).
+    pub direct_only: bool,
+}
+
+impl InstLayer {
+    pub fn new(model: Arc<Model>) -> Self {
+        Self {
+            model,
+            transpose: 0.0,
+            gain_db: 0.0,
+            pan: 0.0,
+            key_lo: 0,
+            key_hi: 127,
+            enabled: true,
+            detune_cents: 0.0,
+            on_release: false,
+            speech_ms: 0.0,
+            direct_only: false,
+        }
+    }
+}
+
+/// Organ coupler: the keys of a keyboard also play `part`, `shift` semitones away (±12 for
+/// sub and super octave couplers).
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct Route {
+    pub part: u8,
+    pub shift: i8,
+}
+
+pub const MAX_ROUTES: usize = 16;
+
+/// A keyboard's couplers. `unison_off`: its keys do not play its own division (only what
+/// it is coupled to).
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct Couplers {
+    pub routes: [Route; MAX_ROUTES],
+    pub n: u8,
+    pub unison_off: bool,
+}
+
+impl Couplers {
+    /// Couplers from a list of routes (duplicates dropped, at most [`MAX_ROUTES`]).
+    pub fn new(routes: &[Route], unison_off: bool) -> Self {
+        let mut c = Couplers { unison_off, ..Default::default() };
+        for r in routes {
+            if (c.n as usize) < MAX_ROUTES && !c.routes[..c.n as usize].contains(r) {
+                c.routes[c.n as usize] = *r;
+                c.n += 1;
+            }
+        }
+        c
+    }
+
+    /// Unison couplers to every part in the bit mask `targets` (bit n = part n).
+    pub fn to_parts(targets: u32) -> Self {
+        let r: Vec<Route> = (0..32u8).filter(|t| targets & (1u32 << t) != 0).map(|part| Route { part, shift: 0 }).collect();
+        Self::new(&r, false)
+    }
 }
 
 #[derive(Clone)]
@@ -66,17 +130,7 @@ impl Default for Instrument {
 impl Instrument {
     pub fn single(model: Arc<Model>) -> Self {
         let mut layers = Vec::with_capacity(64);
-        layers.push(InstLayer {
-                model,
-                transpose: 0.0,
-                gain_db: 0.0,
-                pan: 0.0,
-                key_lo: 0,
-                key_hi: 127,
-                enabled: true,
-                detune_cents: 0.0,
-                on_release: false,
-            });
+        layers.push(InstLayer::new(model));
         Self { layers }
     }
 }
@@ -96,9 +150,13 @@ pub enum Command {
     AddLayer { part: u16, layer: Box<InstLayer> },
     SetLayerEnabled { part: u16, layer: u16, enabled: bool },
     SetLayerGain { part: u16, layer: u16, gain_db: f32 },
-    /// Organ couplers: keys pressed on `part` also play every part in the bit mask
-    /// `targets` (bit n = part n). Not transitive; a pipe reached from two keyboards sounds once.
-    SetCouplers { part: u16, targets: u32 },
+    /// Organ couplers: keys pressed on `part` also play the parts its routes name (octave
+    /// shifted for sub/super couplers). Not transitive; a pipe reached from two keyboards (or
+    /// two keys) sounds once.
+    SetCouplers { part: u16, couplers: Couplers },
+    /// (internal) start a layer's voice after its speech delay, if the key that pressed it
+    /// (`press`) is still down
+    StartVoice { part: u16, layer: u16, note: u8, velocity: u8, press: u32 },
     AllNotesOff { part: Option<u16> },
     AllSoundOff,
 }
@@ -201,10 +259,15 @@ struct Part {
     swell_shelf_db: f32,
     sustain: bool,
     held: [bool; 128],
-    /// Organ couplers: parts this part's keys also play (bit mask), and the keys held down on
-    /// this part as a keyboard (velocity, 0 = up).
-    couple: u32,
+    /// Organ couplers: what this part's keys play, and the keys held down on this part as a
+    /// keyboard (velocity, 0 = up).
+    couplers: Couplers,
     keys: [u8; 128],
+    /// note-on count per note: a delayed voice start belongs to the press that scheduled it
+    press: [u32; 128],
+    /// swell box fully closed: broadband level and treble shelf (dB)
+    swell_closed_db: f32,
+    swell_shelf_max_db: f32,
     pedal_hold: [bool; 128],
     last_velocity: [u8; 128],
     eq: Equalizer,
@@ -256,8 +319,11 @@ impl Part {
             swell_shelf_db: 0.0,
             sustain: false,
             held: [false; 128],
-            couple: 0,
+            couplers: Couplers::default(),
             keys: [0; 128],
+            press: [0; 128],
+            swell_closed_db: -9.0,
+            swell_shelf_max_db: -14.0,
             pedal_hold: [false; 128],
             last_velocity: [0; 128],
             eq: Equalizer::new(sr),
@@ -495,7 +561,16 @@ impl Engine {
                 }
             }
             Command::NoteOff { part, note } => self.key_off(part as usize, note),
-            Command::SetCouplers { part, targets } => self.set_couplers(part as usize, targets),
+            Command::SetCouplers { part, couplers } => self.set_couplers(part as usize, couplers),
+            Command::StartVoice { part, layer, note, velocity, press } => {
+                let pi = part as usize;
+                if let Some(p) = self.parts.get(pi) {
+                    let n = note as usize;
+                    if p.press[n] == press && (p.held[n] || p.pedal_hold[n]) {
+                        self.start_voice_now(pi, layer as usize, note, velocity, false);
+                    }
+                }
+            }
             Command::ControlChange { part, controller, value } => self.cc(part as usize, controller, value),
             Command::PitchBend { part, value } => {
                 if let Some(p) = self.parts.get_mut(part as usize) {
@@ -595,65 +670,148 @@ impl Engine {
     // it starts with the first and stops with the last. Without couplers this is exactly a
     // note event on the part.
 
-    /// Parts a key on part `src` plays: `src` first, then its couplers.
-    fn key_order(&self, src: usize) -> impl Iterator<Item = usize> {
-        let couple = self.parts[src].couple;
-        std::iter::once(src).chain((0..MAX_PARTS).filter(move |&t| couple & (1u32 << t) != 0))
+    /// Pipes a key on part `src` plays, as (part, shift): `src` itself first (unless its
+    /// unison is off), then its couplers.
+    fn reach(&self, src: usize) -> ([(usize, i8); MAX_ROUTES + 1], usize) {
+        let c = &self.parts[src].couplers;
+        let mut out = [(0usize, 0i8); MAX_ROUTES + 1];
+        let mut n = 0;
+        if !c.unison_off {
+            out[0] = (src, 0);
+            n = 1;
+        }
+        for r in &c.routes[..c.n as usize] {
+            let t = r.part as usize;
+            if t < self.parts.len() && !(t == src && r.shift == 0) {
+                out[n] = (t, r.shift);
+                n += 1;
+            }
+        }
+        (out, n)
     }
 
-    /// Whether a keyboard other than `src` holds `note` down on part `t`.
-    fn held_elsewhere(&self, t: usize, note: u8, src: usize) -> bool {
-        self.parts.iter().enumerate().any(|(u, p)| u != src && p.keys[note as usize] > 0 && (u == t || p.couple & (1u32 << t) != 0))
+    /// Velocity of the key holding pipe `note` of part `t` down (0: none), ignoring key
+    /// `skip` (part, key).
+    fn reached(&self, t: usize, note: u8, skip: Option<(usize, u8)>) -> u8 {
+        let mut v = 0;
+        for u in 0..self.parts.len() {
+            let (r, nr) = self.reach(u);
+            for &(tt, sh) in &r[..nr] {
+                let k = note as i32 - sh as i32;
+                if tt != t || !(0..128).contains(&k) || skip == Some((u, k as u8)) {
+                    continue;
+                }
+                v = v.max(self.parts[u].keys[k as usize]);
+            }
+        }
+        v
+    }
+
+    /// Every pipe of part `t` held down by some key (velocity, 0 = none).
+    fn reached_all(&self, t: usize, held: &[bool; MAX_PARTS]) -> [u8; 128] {
+        let mut out = [0u8; 128];
+        for (u, &h) in held.iter().enumerate().take(self.parts.len()) {
+            if !h {
+                continue;
+            }
+            let (r, nr) = self.reach(u);
+            for &(tt, sh) in &r[..nr] {
+                if tt != t {
+                    continue;
+                }
+                for (k, &v) in self.parts[u].keys.iter().enumerate() {
+                    let n = k as i32 + sh as i32;
+                    if v > 0 && (0..128).contains(&n) {
+                        out[n as usize] = out[n as usize].max(v);
+                    }
+                }
+            }
+        }
+        out
     }
 
     fn key_on(&mut self, src: usize, note: u8, velocity: u8) {
         if src >= self.parts.len() || note > 127 {
             return;
         }
-        for t in self.key_order(src) {
-            if !self.held_elsewhere(t, note, src) {
-                self.note_on(t, note, velocity);
+        let (r, nr) = self.reach(src);
+        for &(t, sh) in &r[..nr] {
+            let n = note as i32 + sh as i32;
+            if (0..128).contains(&n) && self.reached(t, n as u8, Some((src, note))) == 0 {
+                self.note_on(t, n as u8, velocity);
             }
         }
         self.parts[src].keys[note as usize] = velocity;
+        self.key_noise(src, note, velocity, false);
     }
 
     fn key_off(&mut self, src: usize, note: u8) {
         if src >= self.parts.len() || note > 127 {
             return;
         }
+        let vel = self.parts[src].keys[note as usize];
         self.parts[src].keys[note as usize] = 0;
-        for t in self.key_order(src) {
-            if !self.held_elsewhere(t, note, src) {
-                self.note_off(t, note);
+        let (r, nr) = self.reach(src);
+        for &(t, sh) in &r[..nr] {
+            let n = note as i32 + sh as i32;
+            if (0..128).contains(&n) && self.reached(t, n as u8, Some((src, note))) == 0 {
+                self.note_off(t, n as u8);
+            }
+        }
+        if vel > 0 {
+            self.key_noise(src, note, vel, true);
+        }
+    }
+
+    /// The keyboard's own action noise for a key going down (or up: `release`).
+    fn key_noise(&mut self, src: usize, note: u8, velocity: u8, release: bool) {
+        let n = self.parts[src].inst.as_ref().map(|i| i.layers.len()).unwrap_or(0);
+        for li in 0..n {
+            let ok = self.parts[src].inst.as_ref().map(|i| i.layers[li].direct_only && i.layers[li].on_release == release).unwrap_or(false);
+            if ok {
+                self.start_voice_now(src, li, note, velocity, true);
             }
         }
     }
 
-    /// Change a part's couplers. Keys held on it start or stop the newly (un)coupled parts,
+    /// Change a part's couplers. Keys held on it start or stop the newly (un)coupled pipes,
     /// as on a real organ.
-    fn set_couplers(&mut self, src: usize, targets: u32) {
+    fn set_couplers(&mut self, src: usize, c: Couplers) {
         if src >= self.parts.len() {
             return;
         }
-        let mask = if self.parts.len() >= 32 { u32::MAX } else { (1u32 << self.parts.len()) - 1 };
-        let new = targets & mask & !(1u32 << src);
-        let old = self.parts[src].couple;
-        self.parts[src].couple = new;
-        for note in 0..128u8 {
-            let vel = self.parts[src].keys[note as usize];
-            if vel == 0 {
-                continue;
+        if self.parts[src].keys.iter().all(|&v| v == 0) {
+            self.parts[src].couplers = c;
+            return;
+        }
+        let mut held = [false; MAX_PARTS];
+        for (u, p) in self.parts.iter().enumerate() {
+            held[u] = p.keys.iter().any(|&v| v > 0);
+        }
+        // parts whose pipes can change: reached from `src` before or after
+        let mut tg = [usize::MAX; 2 * (MAX_ROUTES + 1)];
+        let mut nt = 0;
+        let (r0, n0) = self.reach(src);
+        let old = self.parts[src].couplers;
+        self.parts[src].couplers = c;
+        let (r1, n1) = self.reach(src);
+        for &(t, _) in r0[..n0].iter().chain(r1[..n1].iter()) {
+            if !tg[..nt].contains(&t) {
+                tg[nt] = t;
+                nt += 1;
             }
-            for t in 0..self.parts.len() {
-                let bit = 1u32 << t;
-                if (old ^ new) & bit == 0 || self.held_elsewhere(t, note, src) {
-                    continue;
-                }
-                if new & bit != 0 {
-                    self.note_on(t, note, vel);
-                } else {
-                    self.note_off(t, note);
+        }
+        for &t in &tg[..nt] {
+            self.parts[src].couplers = old;
+            let before = self.reached_all(t, &held);
+            self.parts[src].couplers = c;
+            let after = self.reached_all(t, &held);
+            for n in 0..128u8 {
+                let (b, a) = (before[n as usize], after[n as usize]);
+                if b == 0 && a > 0 {
+                    self.note_on(t, n, a);
+                } else if b > 0 && a == 0 {
+                    self.note_off(t, n);
                 }
             }
         }
@@ -674,6 +832,7 @@ impl Engine {
                     p.held[note as usize] = true;
                     p.pedal_hold[note as usize] = false;
                     p.last_velocity[note as usize] = velocity;
+                    p.press[note as usize] = p.press[note as usize].wrapping_add(1);
                 }
                 let nlayers = self.parts[pi].inst.as_ref().map(|i| i.layers.len()).unwrap_or(0);
                 for li in 0..nlayers {
@@ -701,6 +860,7 @@ impl Engine {
             p.held[note as usize] = true;
             p.pedal_hold[note as usize] = false;
             p.last_velocity[note as usize] = velocity;
+            p.press[note as usize] = p.press[note as usize].wrapping_add(1);
         }
         let nlayers = self.parts[pi].inst.as_ref().map(|i| i.layers.len()).unwrap_or(0);
         for li in 0..nlayers {
@@ -714,7 +874,7 @@ impl Engine {
 
     /// Start the release-triggered layers of a part for a note that was just damped.
     fn trigger_release_layers(&mut self, pi: usize, note: u8) {
-        let n = self.parts[pi].inst.as_ref().map(|i| i.layers.iter().filter(|l| l.on_release).count()).unwrap_or(0);
+        let n = self.parts[pi].inst.as_ref().map(|i| i.layers.iter().filter(|l| l.on_release && !l.direct_only).count()).unwrap_or(0);
         if n == 0 {
             return;
         }
@@ -726,11 +886,33 @@ impl Engine {
     }
 
     fn start_layer_voice_t(&mut self, pi: usize, li: usize, note: u8, velocity: u8, release_trigger: bool) {
+        let speech = {
+            let Some(layer) = self.parts[pi].inst.as_ref().and_then(|i| i.layers.get(li)) else { return };
+            if layer.direct_only || layer.on_release != release_trigger {
+                return;
+            }
+            layer.speech_ms
+        };
+        if speech > 0.0 && !release_trigger && self.heap.len() < QUEUE_CAPACITY {
+            let d = (self.rng.uniform() * speech * 1e-3 * self.sr) as u64;
+            if d > 0 {
+                self.seq += 1;
+                let press = self.parts[pi].press[note as usize];
+                let cmd = Command::StartVoice { part: pi as u16, layer: li as u16, note, velocity, press };
+                self.heap.push(Pending { time: self.now + d, seq: self.seq, cmd });
+                return;
+            }
+        }
+        self.start_voice_now(pi, li, note, velocity, release_trigger);
+    }
+
+    /// Start a voice for layer `li` now. `one_shot` voices are not released by their key.
+    fn start_voice_now(&mut self, pi: usize, li: usize, note: u8, velocity: u8, one_shot: bool) {
         let (model, pitch, pan, sp) = {
             let p = &self.parts[pi];
             let Some(inst) = p.inst.as_ref() else { return };
             let Some(layer) = inst.layers.get(li) else { return };
-            if !layer.enabled || note < layer.key_lo || note > layer.key_hi || layer.on_release != release_trigger {
+            if !layer.enabled || note < layer.key_lo || note > layer.key_hi {
                 return;
             }
             let pitch = note as f32 + p.transpose + layer.transpose + (p.tune_cents + layer.detune_cents) / 100.0;
@@ -747,7 +929,7 @@ impl Engine {
         v.part = pi;
         v.layer_id = li as u32;
         v.age = age;
-        v.one_shot = release_trigger;
+        v.one_shot = one_shot;
     }
 
     fn retarget_layer_voice(&mut self, slot: usize, pi: usize, li: usize, note: u8, velocity: u8) {
@@ -944,6 +1126,8 @@ impl Engine {
             DriveTone => p.drive_params.2 = v,
             DriveLevel => p.drive_params.3 = v,
             SwellBox => p.swell_box = v >= 0.5,
+            SwellClosed => p.swell_closed_db = v.clamp(-60.0, 0.0),
+            SwellShelf => p.swell_shelf_max_db = v.clamp(-40.0, 0.0),
             Wind => p.wind = v.clamp(0.0, 4.0),
             Leslie => {
                 p.leslie_on = v >= 1.0;
@@ -1056,7 +1240,7 @@ impl Engine {
                 mod_vibrato: p.mod_wheel * p.mod_depth_cents,
                 expression_gain: if p.swell_box {
                     // closed shutters: about −9 dB overall (plus the shelf below), not silence
-                    db_to_amp(-9.0 * (1.0 - p.expression_smoothed)) * trem_g * wind_g
+                    db_to_amp(p.swell_closed_db * (1.0 - p.expression_smoothed)) * trem_g * wind_g
                 } else {
                     p.expression_smoothed * trem_g * wind_g
                 },
@@ -1128,7 +1312,7 @@ impl Engine {
             }
             if p.swell_box {
                 // shutters absorb treble far more than bass: up to −14 dB above ~700 Hz
-                let target = -14.0 * (1.0 - p.expression_smoothed);
+                let target = p.swell_shelf_max_db * (1.0 - p.expression_smoothed);
                 if (target - p.swell_shelf_db).abs() > 0.05 {
                     p.swell_shelf_db = target;
                     let c = crate::dsp::biquad::Coeffs::high_shelf(700.0, target, self.sr);
@@ -1261,7 +1445,7 @@ mod tests {
         ctl.send(0, Command::SetInstrument { part: 0, instrument: Box::new(Instrument::single(a)) }).unwrap();
         ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
         render(&mut eng, 24000);
-        let layer = InstLayer { model: b, transpose: 12.0, gain_db: 0.0, pan: 0.0, key_lo: 0, key_hi: 127, enabled: true, detune_cents: 0.0, on_release: false };
+        let layer = InstLayer { transpose: 12.0, ..InstLayer::new(b) };
         ctl.send(0, Command::AddLayer { part: 0, layer: Box::new(layer) }).unwrap();
         render(&mut eng, 4800);
         assert_eq!(eng.active_voices(), 2);
@@ -1299,7 +1483,7 @@ mod tests {
     #[test]
     fn coupled_division_sounds_from_any_note_source() {
         let Some((mut eng, mut ctl)) = two_divisions() else { return };
-        ctl.send(0, Command::SetCouplers { part: 0, targets: 1 << 1 }).unwrap();
+        ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::to_parts(1 << 1) }).unwrap();
         ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
         render(&mut eng, 4800);
         assert_eq!((speaking(&eng, 0), speaking(&eng, 1)), (1, 1), "the great key plays the swell too");
@@ -1315,7 +1499,7 @@ mod tests {
     #[test]
     fn a_pipe_reached_from_two_keyboards_sounds_until_both_keys_are_up() {
         let Some((mut eng, mut ctl)) = two_divisions() else { return };
-        ctl.send(0, Command::SetCouplers { part: 0, targets: 1 << 1 }).unwrap();
+        ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::to_parts(1 << 1) }).unwrap();
         ctl.send(0, Command::NoteOn { part: 1, note: 60, velocity: 100 }).unwrap();
         ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
         render(&mut eng, 4800);
@@ -1334,11 +1518,125 @@ mod tests {
         ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
         ctl.send(0, Command::NoteOn { part: 0, note: 64, velocity: 100 }).unwrap();
         render(&mut eng, 4800);
-        ctl.send(0, Command::SetCouplers { part: 0, targets: 1 << 1 }).unwrap();
+        ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::to_parts(1 << 1) }).unwrap();
         render(&mut eng, 4800);
         assert_eq!(speaking(&eng, 1), 2, "coupling in starts the held keys on the swell");
-        ctl.send(0, Command::SetCouplers { part: 0, targets: 0 }).unwrap();
+        ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::default() }).unwrap();
         render(&mut eng, 4800);
         assert_eq!((speaking(&eng, 0), speaking(&eng, 1)), (2, 0));
+    }
+
+    fn notes(eng: &Engine, part: usize) -> Vec<u8> {
+        let mut v: Vec<u8> = eng.voices.iter().filter(|v| v.is_active() && v.part == part && !v.is_released()).map(|v| v.note).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn octave_couplers_play_the_octave_and_share_pipes() {
+        let Some((mut eng, mut ctl)) = two_divisions() else { return };
+        let r = |part, shift| Route { part, shift };
+        // swell to great 4' (super octave) and the great's own super octave
+        ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::new(&[r(1, 12), r(0, 12)], false) }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((notes(&eng, 0), notes(&eng, 1)), (vec![60, 72], vec![72]));
+        // c'' reaches pipe 72 directly: it sounds once and stays while either key is down
+        ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((notes(&eng, 0), notes(&eng, 1)), (vec![60, 72, 84], vec![72, 84]));
+        ctl.send(0, Command::NoteOff { part: 0, note: 60 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((notes(&eng, 0), notes(&eng, 1)), (vec![72, 84], vec![84]));
+        // coupling off stops what only the coupler held
+        ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::default() }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((notes(&eng, 0), notes(&eng, 1)), (vec![72], vec![]));
+    }
+
+    #[test]
+    fn unison_off_plays_only_the_coupled_division() {
+        let Some((mut eng, mut ctl)) = two_divisions() else { return };
+        ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::new(&[Route { part: 1, shift: -12 }], true) }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((notes(&eng, 0), notes(&eng, 1)), (vec![], vec![48]));
+        // unison back on while the key is held: the great's own pipe starts
+        ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::new(&[Route { part: 1, shift: -12 }], false) }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((notes(&eng, 0), notes(&eng, 1)), (vec![60], vec![48]));
+        ctl.send(0, Command::NoteOff { part: 0, note: 60 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!((notes(&eng, 0), notes(&eng, 1)), (vec![], vec![]));
+    }
+
+    #[test]
+    fn speech_delay_starts_pipes_later_and_not_after_a_short_press() {
+        let Some(a) = model("organ/great-principal-8") else { return };
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        let layer = InstLayer { speech_ms: 20.0, ..InstLayer::new(a) };
+        let mut inst = Instrument::default();
+        inst.layers.push(layer);
+        ctl.send(0, Command::SetInstrument { part: 0, instrument: Box::new(inst) }).unwrap();
+        let mut started = Vec::new();
+        for _ in 0..40 {
+            let t0 = eng.now();
+            ctl.send(t0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+            let mut at = None;
+            for f in 0..1100 {
+                render(&mut eng, 1);
+                if at.is_none() && speaking(&eng, 0) == 1 {
+                    at = Some(f);
+                }
+            }
+            let at = at.expect("the pipe speaks within the delay");
+            assert!(at <= 960, "within 20 ms: {at}");
+            started.push(at);
+            ctl.send(eng.now(), Command::NoteOff { part: 0, note: 60 }).unwrap();
+            render(&mut eng, 48000);
+        }
+        let spread = started.iter().max().unwrap() - started.iter().min().unwrap();
+        assert!(spread > 400, "delays vary from note to note: {started:?}");
+        // a key let go before the pipe speaks never starts it
+        for _ in 0..10 {
+            let t0 = eng.now();
+            ctl.send(t0, Command::NoteOn { part: 0, note: 62, velocity: 100 }).unwrap();
+            ctl.send(t0 + 1, Command::NoteOff { part: 0, note: 62 }).unwrap();
+            render(&mut eng, 2000);
+            assert_eq!(speaking(&eng, 0), 0, "no pipe starts after its key is up");
+        }
+    }
+
+    #[test]
+    fn key_noise_plays_from_its_own_keyboard_only() {
+        let Some((mut eng, mut ctl)) = two_divisions() else { return };
+        let Some(noise) = model("organ/great-principal-8") else { return };
+        let layer = InstLayer { direct_only: true, ..InstLayer::new(noise) };
+        ctl.send(0, Command::AddLayer { part: 1, layer: Box::new(layer) }).unwrap();
+        ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::to_parts(1 << 1) }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 480);
+        let on1 = |eng: &Engine| eng.voices.iter().filter(|v| v.is_active() && v.part == 1).count();
+        assert_eq!(on1(&eng), 1, "coupled: the swell pipe, no swell key noise");
+        ctl.send(0, Command::NoteOn { part: 1, note: 64, velocity: 100 }).unwrap();
+        render(&mut eng, 480);
+        assert_eq!(on1(&eng), 3, "played on the swell: pipe and key noise");
+        ctl.send(0, Command::NoteOff { part: 1, note: 64 }).unwrap();
+        render(&mut eng, 480);
+        let noise_on = eng.voices.iter().filter(|v| v.is_active() && v.part == 1 && v.layer_id == 1 && !v.is_released()).count();
+        assert_eq!(noise_on, 1, "the key noise plays on after the key is up");
+    }
+
+    #[test]
+    fn a_stop_drawn_on_a_held_note_speaks_after_its_delay() {
+        let Some((mut eng, mut ctl)) = two_divisions() else { return };
+        let Some(b) = model("organ/swell-rohrflute-8") else { return };
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        let layer = InstLayer { speech_ms: 12.0, enabled: false, ..InstLayer::new(b) };
+        ctl.send(eng.now(), Command::AddLayer { part: 0, layer: Box::new(layer) }).unwrap();
+        ctl.send(eng.now(), Command::SetLayerEnabled { part: 0, layer: 1, enabled: true }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!(speaking(&eng, 0), 2);
     }
 }

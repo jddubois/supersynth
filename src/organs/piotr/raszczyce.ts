@@ -1,4 +1,3 @@
-import { CHURCH_DIVISIONS } from '../defaults.js';
 import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/raszczyce/<id>.ssm.
@@ -100,5 +99,7 @@ export const RASZCZYCE_ORGAN: OrganDefinition = {
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'principal-chorus',
-  divisions: CHURCH_DIVISIONS,
+  divisions: { great: { pan: 0 }, swell: { pan: 0.15 }, positive: { pan: -0.15 }, pedal: { pan: 0 } },
+  tremulant: [],
+  wind: 0,
 };

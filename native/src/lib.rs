@@ -21,7 +21,7 @@ use midi::message::{MidiMessage, MidiMessageKind};
 /// A MIDI channel routed to no part: its messages only reach the JavaScript callback.
 const NO_ROUTE: u8 = 255;
 use supersynth_core::engine::params::{MasterParam, PartParam};
-use supersynth_core::engine::{Command, Controller, Engine, EngineConfig, InstLayer, Instrument, Status as EngineStatus};
+use supersynth_core::engine::{Command, Controller, Couplers, Engine, EngineConfig, InstLayer, Instrument, Route, Status as EngineStatus, MAX_PARTS, MAX_ROUTES};
 use supersynth_core::fx::reverb::ReverbParams;
 use supersynth_core::model::{Kind, Model, ReleaseMode};
 
@@ -52,6 +52,33 @@ pub struct JsLayer {
     pub detune_cents: Option<f64>,
     /// Play this layer when the key is released (damper / jack noises).
     pub on_release: Option<bool>,
+    /// Longest random delay before the layer speaks, ms (organ pipes).
+    pub speech_ms: Option<f64>,
+    /// Sound only when this part's own key moves, never through a coupler (key-action noise).
+    pub direct_only: Option<bool>,
+}
+
+/// One organ coupler: also play `part`, `shift` semitones away (±12: octave couplers).
+#[napi(object)]
+pub struct JsCoupler {
+    pub part: u32,
+    pub shift: Option<i32>,
+}
+
+fn inst_layer(model: &Arc<Model>, l: &JsLayer) -> InstLayer {
+    InstLayer {
+        model: Arc::clone(model),
+        transpose: l.transpose.unwrap_or(0.0) as f32,
+        gain_db: l.gain_db.unwrap_or(0.0) as f32,
+        pan: l.pan.unwrap_or(0.0) as f32,
+        key_lo: l.key_lo.unwrap_or(0).min(127) as u8,
+        key_hi: l.key_hi.unwrap_or(127).min(127) as u8,
+        enabled: l.enabled.unwrap_or(true),
+        detune_cents: l.detune_cents.unwrap_or(0.0) as f32,
+        on_release: l.on_release.unwrap_or(false),
+        speech_ms: l.speech_ms.unwrap_or(0.0).clamp(0.0, 200.0) as f32,
+        direct_only: l.direct_only.unwrap_or(false),
+    }
 }
 
 // ── engine handle ────────────────────────────────────────────────────────────
@@ -207,17 +234,7 @@ impl SynthEngine {
         let mut inst = Instrument::default();
         for l in layers {
             let model = self.models.get(&l.model).ok_or_else(|| err(format!("unknown model {}", l.model)))?;
-            inst.layers.push(InstLayer {
-                model: Arc::clone(model),
-                transpose: l.transpose.unwrap_or(0.0) as f32,
-                gain_db: l.gain_db.unwrap_or(0.0) as f32,
-                pan: l.pan.unwrap_or(0.0) as f32,
-                key_lo: l.key_lo.unwrap_or(0).min(127) as u8,
-                key_hi: l.key_hi.unwrap_or(127).min(127) as u8,
-                enabled: l.enabled.unwrap_or(true),
-                detune_cents: l.detune_cents.unwrap_or(0.0) as f32,
-                on_release: l.on_release.unwrap_or(false),
-            });
+            inst.layers.push(inst_layer(model, &l));
         }
         self.shared.send(time, Command::SetInstrument { part: part as u16, instrument: Box::new(inst) })
     }
@@ -292,17 +309,7 @@ impl SynthEngine {
     #[napi]
     pub fn add_layer(&self, part: u32, layer: JsLayer, time: Option<f64>) -> Result<()> {
         let model = self.models.get(&layer.model).ok_or_else(|| err(format!("unknown model {}", layer.model)))?;
-        let l = InstLayer {
-            model: Arc::clone(model),
-            transpose: layer.transpose.unwrap_or(0.0) as f32,
-            gain_db: layer.gain_db.unwrap_or(0.0) as f32,
-            pan: layer.pan.unwrap_or(0.0) as f32,
-            key_lo: layer.key_lo.unwrap_or(0).min(127) as u8,
-            key_hi: layer.key_hi.unwrap_or(127).min(127) as u8,
-            enabled: layer.enabled.unwrap_or(true),
-            detune_cents: layer.detune_cents.unwrap_or(0.0) as f32,
-            on_release: layer.on_release.unwrap_or(false),
-        };
+        let l = inst_layer(model, &layer);
         self.shared.send(time, Command::AddLayer { part: part as u16, layer: Box::new(l) })
     }
 
@@ -317,11 +324,20 @@ impl SynthEngine {
     }
 
     /// Organ couplers: keys pressed on `part` (from any source: API, MIDI input, MIDI files)
-    /// also play the `targets` parts. An empty list releases all of its couplers.
+    /// also play the `targets` parts, octave-shifted by their `shift`. An empty list releases
+    /// all of its couplers. `unison_off`: the keys do not play `part` itself.
     #[napi]
-    pub fn set_couplers(&self, part: u32, targets: Vec<u32>, time: Option<f64>) -> Result<()> {
-        let mask = targets.iter().filter(|&&t| t < 32).fold(0u32, |m, &t| m | 1 << t);
-        self.shared.send(time, Command::SetCouplers { part: part as u16, targets: mask })
+    pub fn set_couplers(&self, part: u32, targets: Vec<JsCoupler>, unison_off: Option<bool>, time: Option<f64>) -> Result<()> {
+        if targets.len() > MAX_ROUTES {
+            return Err(err(format!("at most {MAX_ROUTES} couplers per keyboard")));
+        }
+        let routes: Vec<Route> = targets
+            .iter()
+            .filter(|t| t.part < MAX_PARTS as u32)
+            .map(|t| Route { part: t.part as u8, shift: t.shift.unwrap_or(0).clamp(-48, 48) as i8 })
+            .collect();
+        let couplers = Couplers::new(&routes, unison_off.unwrap_or(false));
+        self.shared.send(time, Command::SetCouplers { part: part as u16, couplers })
     }
 
     /// Part that MIDI input on `channel` (1–16) plays; 255 (or more) routes it to no part.

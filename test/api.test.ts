@@ -334,6 +334,62 @@ describe('removed instruments', () => {
     expect(() => synth.add('flute')).toThrow(/closed/);
   });
 
+  test("removing an organ with its noises on frees the noise part and the noise models too", () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const organ = synth.add('skrzatusz', { noises: true });
+    expect(organ.noisesOn()).toEqual({ blower: true, ambient: true, action: true });
+    const channels = organ._channels();
+    expect(channels).toHaveLength(5); // four divisions and the noise part
+    expect(synth._loadedModels()).toContain('organ/skrzatusz/noise-blower');
+    const flutes = [...Array(27)].map(() => synth.add('flute'));
+    expect(() => synth.add('flute')).toThrow(/32 channels/);
+    synth.remove(organ);
+    expect(synth._loadedModels()).toEqual(['flute']);
+    // every channel of the organ, the noise part included, is free (and silent) again
+    const more = channels.map(() => synth.add('flute'));
+    expect(more.map((f) => f.channel).sort((a, b) => a - b)).toEqual([...channels].sort((a, b) => a - b));
+    expect(() => organ.set({ noises: false })).toThrow(/removed/);
+    for (const f of [...flutes, ...more]) synth.remove(f);
+    synth.render(0.5);
+    expect(rms(synth.render(0.5).left)).toBeLessThan(1e-6);
+  });
+
+  test('an organ whose noise part finds no free channel is not added, and leaves nothing behind', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const flutes = [...Array(28)].map(() => synth.add('flute'));
+    expect(() => synth.add('skrzatusz', { noises: true })).toThrow(/32 channels/);
+    expect(synth.instruments()).toEqual(flutes);
+    expect(synth._loadedModels()).toEqual(['flute']);
+    // without its noises it fits
+    const organ = synth.add('skrzatusz');
+    expect(organ._channels()).toHaveLength(4);
+  });
+
+  test('octave couplers and unison off: checked, reported, and refused once the organ is removed', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const organ = synth.add('burea', { preset: 'flutes' });
+    organ.great.couple([{ division: 'swell', octave: 1 }, 'swell']);
+    organ.swell.couple({ division: 'great', octave: -1 }).unison(false); // the swell (no stops) plays the great an octave down
+    expect(organ.great.coupled()).toEqual([{ division: 'swell', octave: 1 }, 'swell']);
+    expect(organ.current()).toMatchObject({ couple: { swell: [{ division: 'great', octave: -1 }] }, unisonOff: ['swell'] });
+    expect(() => organ.great.couple({ division: 'swell', octave: 2 as 1 })).toThrow(RangeError);
+    expect(() => organ.great.couple('nave' as 'swell')).toThrow(SupersynthError);
+    expect(() => organ.preset({ couple: { great: [{ division: 'nave' as 'swell', octave: 1 }] } })).toThrow(SupersynthError);
+    expect(organ.great.coupled()).toHaveLength(2); // nothing changed by the refused calls
+    organ.great.uncouple({ division: 'swell', octave: 1 });
+    expect(organ.great.coupled()).toEqual(['swell']);
+    organ.swell.play('C4', { duration: 0.3 });
+    expect(rms(synth.render(0.4).left)).toBeGreaterThan(1e-4);
+    synth.remove(organ);
+    for (const f of [
+      () => organ.great.couple({ division: 'swell', octave: 1 }),
+      () => organ.great.uncouple('swell'),
+      () => organ.swell.unison(true),
+      () => organ.great.forte(true),
+      () => organ.set({ tremulant: { swell: true } }),
+    ]) expect(f).toThrow(/removed/);
+  });
+
   test('a channel freed by remove() comes back clean', () => {
     const level = (setup: (f: Instrument) => void) => {
       const synth = new Synth({ sampleRate: 22050, reverb: false });

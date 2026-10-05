@@ -51,6 +51,8 @@ pub enum PartParam {
     DriveLevel,
     Leslie,
     SwellBox,
+    SwellClosed,
+    SwellShelf,
     Wind,
 }
 
@@ -105,6 +107,8 @@ impl PartParam {
         ("driveLevel", PartParam::DriveLevel),
         ("leslie", PartParam::Leslie),
         ("swellBox", PartParam::SwellBox),
+        ("swellClosed", PartParam::SwellClosed),
+        ("swellShelf", PartParam::SwellShelf),
         ("wind", PartParam::Wind),
     ];
 

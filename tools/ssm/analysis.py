@@ -1342,3 +1342,48 @@ def measure_release(grid, amps_db, noise_db, rel_start):
     yn = 10 * np.log10(np.sum(10 ** (noise_db[sel] / 10), axis=1) + 1e-20)
     pn = np.polyfit(tt, yn, 1)
     return rates, max(0.0, -pn[0])
+
+
+def append_release(z: Zone, a: Zone, max_hold_s: float) -> bool:
+    """Add the recorded release of `a` (the same pipe, released after a shorter key press) to
+    zone `z` as an alternative release: its frames from the release onwards are appended to
+    `z`'s, laid out like `z`'s partials (harmonics by number, free partials by frequency),
+    and `z.meta['alt_rel']` records (longest key press, first frame). False when either zone
+    has no recorded release."""
+    rz, ra = z.meta.get('rel_frame'), a.meta.get('rel_frame')
+    if rz is None or ra is None or ra + 4 >= len(a.times):
+        return False
+    seg = slice(ra, len(a.times))
+    n = len(a.times) - ra
+    step = float(z.times[-1] - z.times[-2]) if len(z.times) > 1 else 0.01
+    times = a.times[seg] - a.times[ra] + z.times[-1] + step
+    K = z.amps_db.shape[1]
+    kh_z, kh_a = int(z.meta.get('harmonic', K)), int(a.meta.get('harmonic', a.amps_db.shape[1]))
+    amps = np.full((n, K), -200.0)
+    h = min(kh_z, kh_a)
+    amps[:, :h] = a.amps_db[seg, :h]
+    # free partials (mixtures): the one of `a` at the same frequency, within 0.3 %
+    ra_free = np.asarray(a.ratios[kh_a:], dtype=float) * a.f0
+    for j in range(kh_z, K):
+        if len(ra_free):
+            d = np.abs(ra_free / (float(z.ratios[j]) * z.f0) - 1)
+            i = int(np.argmin(d))
+            if d[i] < 3e-3:
+                amps[:, j] = a.amps_db[seg, kh_a + i]
+    pitch = a.pitch_cents[seg] + 1200 * math.log2(a.f0 / z.f0)
+    z.times = np.concatenate([z.times, times])
+    z.amps_db = np.concatenate([z.amps_db, amps])
+    z.pitch_cents = np.concatenate([z.pitch_cents, pitch])
+    z.noise_db = np.concatenate([z.noise_db, a.noise_db[seg]])
+    st_z, st_a = z.meta.get('stereo_t'), a.meta.get('stereo_t')
+    if st_z is not None:
+        out = []
+        for i, cz in enumerate(st_z):
+            add = np.zeros((n, cz.shape[1]))
+            if st_a is not None and i < len(st_a):
+                m = min(cz.shape[1], st_a[i].shape[1])
+                add[:, :m] = st_a[i][seg, :m]
+            out.append(np.concatenate([cz, add]))
+        z.meta['stereo_t'] = tuple(out)
+    z.meta.setdefault('alt_rel', []).append((round(float(max_hold_s), 4), len(z.times) - n))
+    return True

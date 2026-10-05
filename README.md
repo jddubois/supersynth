@@ -61,7 +61,7 @@ Each comes with presets (`synth.add('grand-piano', { preset: 'felt' })`); `INSTR
 - **Every change can be scheduled**: notes, controllers, parameters, presets, stops, couplers,
   volume and room all take `{ at }` or `{ delay }` last, so a whole piece renders in one go.
 - **`set(settings)`** changes some settings and keeps the rest — `synth.set({ volume, reverb })`,
-  `instrument.set({ brightness })`, `organ.set({ tremulant, wind })`, `division.set({ stops })`.
+  `instrument.set({ brightness })`, `organ.set({ tremulant, wind, noises })`, `division.set({ stops })`.
 - Instruments and organs share one **preset** API: `preset(name | object)`, `presets()`,
   `savePreset(name)`, `current()`, `activePreset()`.
 - **MIDI channels** are 1–16, and a MIDI keyboard plays only what you give a channel:
@@ -156,8 +156,10 @@ organ.pedal.play('C2', { duration: 4 });
 organ.great.pull("Trumpet 8'");           // draw a stop, even while notes are held
 organ.swell.pull(["Salicional 8'", "Voix céleste 8'"]);
 organ.great.couple('swell');              // Swell to Great
+organ.great.couple({ division: 'swell', octave: 1 });   // Swell to Great 4'
 organ.swell.expression(0.4);              // swell pedal
-organ.set({ tremulant: true });
+organ.set({ tremulant: { swell: true } });
+organ.set({ noises: true });              // blower, room, key and stop action (Piotr Grabowski's organs)
 
 organ.preset('celeste', { at: 8 });       // plenum, flutes, cornet, trumpet, krummhorn, celeste, full, …
 organ.preset({ great: ["Principal 8'"], pedal: ["Subbass 16'"], couple: { pedal: ['great'] } });

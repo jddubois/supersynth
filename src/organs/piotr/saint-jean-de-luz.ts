@@ -15,7 +15,7 @@ const STOPS: StopDefinition[] = [
 
   { id: 'swell-flute-8', model: 'organ/saint-jean-de-luz/swell-flute-8', name: "Flûte 8'", division: 'swell', family: 'flute', transpose: 0 },
   { id: 'swell-flute-4', model: 'organ/saint-jean-de-luz/swell-flute-4', name: "Flûte 4'", division: 'swell', family: 'flute', transpose: 12 },
-  { id: 'swell-plein-jeu-iii', model: 'organ/saint-jean-de-luz/swell-plein-jeu-iii', name: "Plein-jeu III", division: 'swell', family: 'mixture', transpose: 0 },
+  { id: 'swell-plein-jeu-iii', model: 'organ/saint-jean-de-luz/swell-plein-jeu-iii', name: "Plein-jeu III", division: 'swell', family: 'mixture', transpose: 0, keys: [36, 91] },
   { id: 'swell-trompette-8', model: 'organ/saint-jean-de-luz/swell-trompette-8', name: "Trompette 8'", division: 'swell', family: 'reed', transpose: 0 },
 
   { id: 'pedal-soubasse-16', model: 'organ/saint-jean-de-luz/pedal-soubasse-16', name: "Soubasse 16'", division: 'pedal', family: 'flute', transpose: -12 },
@@ -59,6 +59,25 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Soubasse 16'", "Bourdon 8'", "Flûte 8'", "Flûte 4'", "Flûte 2'"],
     couple: { great: ['swell'], pedal: ['great', 'swell'] },
   },
+  'grand-choeur-octaves': {
+    description: "Grand chœur with the Récit coupled at 16', 8' and 4' to the Grand Orgue and in octaves on itself — the full romantic sound",
+    great: ["Bourdon 16'", "Flûte harmonique 8'", "Bourdon 8'", "Prestant 4'", "Quinte 2 2/3'", "Doublette 2'", "Tierce 1 3/5'"],
+    swell: ["Flûte 8'", "Flûte 4'", 'Plein-jeu III', "Trompette 8'"],
+    pedal: ["Soubasse 16'", "Bourdon 8'", "Flûte 8'", "Flûte 4'", "Flûte 2'"],
+    couple: {
+      great: ['swell', { division: 'swell', octave: -1 }, { division: 'swell', octave: 1 }],
+      swell: [{ division: 'swell', octave: -1 }, { division: 'swell', octave: 1 }],
+      pedal: ['great', 'swell'],
+    },
+  },
+  'recit-annulation': {
+    description: "The Récit (Flûte 8' + Trompette 8') played from the Grand Orgue alone, with its 4' coupler: Annulation GO",
+    great: ["Bourdon 8'"],
+    swell: ["Flûte 8'", "Trompette 8'"],
+    pedal: ["Soubasse 16'"],
+    couple: { great: ['swell', { division: 'swell', octave: 1 }] },
+    unisonOff: ['great'],
+  },
   cornet: {
     description: "Cornet décomposé on the Grand Orgue (8' 4' 2 2/3' 2' 1 3/5') against the Récit flutes",
     great: ["Bourdon 8'", "Prestant 4'", "Quinte 2 2/3'", "Doublette 2'", "Tierce 1 3/5'"],
@@ -94,6 +113,7 @@ export const SAINT_JEAN_DE_LUZ_ORGAN: OrganDefinition = {
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'fonds',
-  divisions: { great: { pan: -0.1, swellBox: true }, swell: { pan: 0.1, swellBox: true }, positive: { pan: 0 }, pedal: { pan: 0 } },
-  tremulant: { division: 'great', depth: 1.55, pitch: 8.7, rate: 2.93 },
+  divisions: { great: { pan: -0.1, swellBox: { closed: -8 } }, swell: { pan: 0.1, swellBox: { closed: -8 } }, positive: { pan: 0 }, pedal: { pan: 0 } },
+  tremulant: { division: 'great', name: 'Tremulant 2 Division', depth: 1.55, pitch: 8.7, rate: 2.93 },
+  wind: 0,
 };

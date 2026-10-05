@@ -101,11 +101,38 @@ export function resolveModelFile(name: string, modelsDirectory?: string, findPac
   throw new SupersynthError(`Instrument model '${name}' not found. Looked in:\n  ${tried.join('\n  ')}`);
 }
 
+/** The models an organ definition names besides its stops' own: Forte models and machinery
+ *  noises. */
+interface OrganModels {
+  stops: readonly { id: string; model?: string; forte?: string }[];
+  noises?: {
+    keys?: Partial<Record<string, { down?: string; up?: string }>>;
+    stops?: string;
+    blower?: { model: string };
+    ambient?: { model: string };
+  };
+}
+
+/** @internal Every model an organ may load: each stop's (the same rule as `stopModel` in
+ *  Organ.ts: `stop.model`, else `organ/<stop id>`), its Forte model, and the noise models. */
+export function organModels(organ: OrganModels): string[] {
+  const names = new Set<string>();
+  for (const stop of organ.stops) {
+    names.add(stop.model ?? `organ/${stop.id}`);
+    if (stop.forte) names.add(stop.forte);
+  }
+  const nz = organ.noises;
+  if (nz) {
+    for (const k of Object.values(nz.keys ?? {})) for (const m of [k?.down, k?.up]) if (m) names.add(m);
+    for (const m of [nz.stops, nz.blower?.model, nz.ambient?.model]) if (m) names.add(m);
+  }
+  return [...names];
+}
+
 /**
- * @internal Checks that every stop of an organ has its model, so a missing organ package is
- * reported by `synth.add()` before any channel is taken. Stops use the same rule as `stopModel`
- * in Organ.ts (`stop.model`, else `organ/<stop id>`).
+ * @internal Checks that every model of an organ (stops, Forte, noises) is there, so a missing
+ * organ package is reported by `synth.add()` before any channel is taken.
  */
-export function assertOrganModels(organ: { stops: readonly { id: string; model?: string }[] }, modelsDirectory?: string): void {
-  for (const stop of organ.stops) resolveModelFile(stop.model ?? `organ/${stop.id}`, modelsDirectory);
+export function assertOrganModels(organ: OrganModels, modelsDirectory?: string): void {
+  for (const name of organModels(organ)) resolveModelFile(name, modelsDirectory);
 }
