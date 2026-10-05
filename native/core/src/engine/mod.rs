@@ -319,6 +319,8 @@ struct Part {
     wind_p: f32,
     wind_v: f32,
     gain_smoothed: f32,
+    /// reverb send level reached at the end of the last block (ramped like the gain)
+    send_smoothed: f32,
 }
 
 impl Part {
@@ -369,6 +371,7 @@ impl Part {
             wind_p: 0.0,
             wind_v: 0.0,
             gain_smoothed: 1.0,
+            send_smoothed: 0.0,
         }
     }
 
@@ -387,6 +390,7 @@ impl Part {
         }
         self.expression_smoothed = self.expression;
         self.gain_smoothed = db_to_amp(self.volume_db);
+        self.send_smoothed = self.reverb_send();
         self.trem_phase = 0.0;
         self.wind_avg = 0.0;
         self.wind_p = 0.0;
@@ -447,6 +451,8 @@ pub struct Engine {
     limiter: Limiter,
     master_db: f32,
     master_gain_smoothed: f32,
+    /// reverb return gain reached at the end of the last block
+    return_smoothed: f32,
     peak: f32,
     // scratch
     part_l: Box<[f32; BLOCK]>,
@@ -494,6 +500,7 @@ impl Engine {
             limiter,
             master_db: -6.0,
             master_gain_smoothed: db_to_amp(-6.0),
+            return_smoothed: 1.0,
             peak: 0.0,
             part_l: Box::new([0.0; BLOCK]),
             part_r: Box::new([0.0; BLOCK]),
@@ -1381,10 +1388,12 @@ impl Engine {
             let target = db_to_amp(p.volume_db);
             let g0 = p.gain_smoothed;
             let dg = (target - g0) / n as f32;
-            let send = p.reverb_send();
-            let mut g = g0;
+            let send_target = p.reverb_send();
+            let ds = (send_target - p.send_smoothed) / n as f32;
+            let (mut g, mut send) = (g0, p.send_smoothed);
             for i in 0..n {
                 g += dg;
+                send += ds;
                 let l = self.part_l[i] * g;
                 let r = self.part_r[i] * g;
                 self.mix_l[i] += l;
@@ -1393,6 +1402,7 @@ impl Engine {
                 self.send_r[i] += r * send;
             }
             p.gain_smoothed = target;
+            p.send_smoothed = send_target;
         }
 
         // reverb send/return
@@ -1403,17 +1413,20 @@ impl Engine {
             self.reverb.reset();
             self.recoveries += 1;
         }
-        let ret = db_to_amp(self.reverb_return_db);
+        let ret_target = db_to_amp(self.reverb_return_db);
+        let dr = (ret_target - self.return_smoothed) / n as f32;
         let target = db_to_amp(self.master_db);
         let g0 = self.master_gain_smoothed;
         let dg = (target - g0) / n as f32;
-        let mut g = g0;
+        let (mut g, mut ret) = (g0, self.return_smoothed);
         for i in 0..n {
             g += dg;
+            ret += dr;
             out_l[i] = (self.mix_l[i] + self.send_l[i] * ret) * g;
             out_r[i] = (self.mix_r[i] + self.send_r[i] * ret) * g;
         }
         self.master_gain_smoothed = target;
+        self.return_smoothed = ret_target;
         if !all_finite(out_l) || !all_finite(out_r) {
             out_l.fill(0.0);
             out_r.fill(0.0);
@@ -1700,6 +1713,34 @@ mod tests {
         let (l, r) = render(&mut eng, 9600);
         assert!(l.iter().chain(&r).all(|v| v.is_finite()));
         assert!(rms(&l[4800..]) > 1e-4 && rms(&r[4800..]) > 1e-4);
+    }
+
+    #[test]
+    fn reverb_return_changes_are_ramped() {
+        // three identical engines: return at 0 dB, switched off at frame T, and off throughout;
+        // the reverb's share of the output follows the return level sample by sample
+        const T: u64 = 9600;
+        let run = |ret0: f32, ret1: Option<f32>| {
+            let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+            ctl.send(0, Command::set_instrument(0, Instrument::single(testing::model()))).unwrap();
+            ctl.send(0, Command::SetPartParam { part: 0, param: PartParam::ReverbSend, value: 1.0 }).unwrap();
+            ctl.send(0, Command::SetMasterParam { param: MasterParam::ReverbReturn, value: ret0 }).unwrap();
+            ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+            if let Some(r) = ret1 {
+                ctl.send(T, Command::SetMasterParam { param: MasterParam::ReverbReturn, value: r }).unwrap();
+            }
+            let la = eng.limiter.latency();
+            (render(&mut eng, T as usize + 1024).0, la)
+        };
+        let ((a, la), (b, _), (c, _)) = (run(0.0, None), run(0.0, Some(-120.0)), run(-120.0, None));
+        let t0 = T as usize + la;
+        for k in [0usize, 16, 32, 48] {
+            let t = t0 + k;
+            let ratio = (b[t] - c[t]) / (a[t] - c[t]);
+            let want = 1.0 - (k + 1) as f32 / 64.0;
+            assert!((ratio - want).abs() < 0.02, "return at {k} samples into the change: {ratio:.3}, want {want:.3}");
+        }
+        assert!(b[t0 + 100..].iter().zip(&c[t0 + 100..]).all(|(x, y)| (x - y).abs() < 1e-5));
     }
 
     #[test]
