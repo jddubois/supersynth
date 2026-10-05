@@ -922,6 +922,7 @@ name = "supersynth-native"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "libc",
  "midir",
  "napi",
  "napi-build",
