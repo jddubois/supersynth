@@ -8,6 +8,7 @@
 //!   --set name=value      part parameter (repeatable), e.g. --set brightness=1.5
 //!   --mono                write a mono file
 //!   --bench               report real-time factor
+//!   --threads N           rendering threads (default: one per core but one)
 //! ```
 
 use std::sync::Arc;
@@ -32,6 +33,7 @@ fn main() {
     let mut notes: Vec<(u8, u8, f32, f32)> = vec![];
     let mut mono = false;
     let mut bench = false;
+    let mut threads = supersynth_core::engine::default_threads();
     let mut i = 3;
     while i < args.len() {
         match args[i].as_str() {
@@ -52,6 +54,10 @@ fn main() {
                 sets.push((k.to_string(), v.parse().unwrap()));
                 i += 1;
             }
+            "--threads" => {
+                threads = args[i + 1].parse().unwrap();
+                i += 1;
+            }
             "--mono" => mono = true,
             "--bench" => bench = true,
             s => {
@@ -68,7 +74,7 @@ fn main() {
         .filter(|r| *r != "off")
         .and_then(ReverbParams::preset)
         .unwrap_or_else(|| ReverbParams::preset("hall").unwrap());
-    let (mut eng, mut ctl) = Engine::new(EngineConfig { sample_rate: sr, max_voices: 256, reverb: rp });
+    let (mut eng, mut ctl) = Engine::new(EngineConfig { sample_rate: sr, max_voices: 256, reverb: rp, threads });
     ctl.send(0, Command::set_instrument(0, Instrument::single(model))).unwrap();
     ctl.send(0, Command::SetMasterParam { param: MasterParam::Volume, value: 0.0 }).unwrap();
     if reverb.as_deref().map(|r| r == "off").unwrap_or(true) {

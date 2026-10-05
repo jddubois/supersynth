@@ -14,11 +14,21 @@
 
 use serde::Deserialize;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ZoneStereo {
     pub l: Vec<f32>,
     pub r: Vec<f32>,
     pub ph: Vec<f32>,
+    /// `ph[i].cos()` and `ph[i].sin()` (computed once, not per block)
+    pub cos: Vec<f32>,
+    pub sin: Vec<f32>,
+}
+
+// (the stored fields only: model fingerprints are taken from this text)
+impl std::fmt::Debug for ZoneStereo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ZoneStereo").field("l", &self.l).field("r", &self.r).field("ph", &self.ph).finish()
+    }
 }
 
 /// Time-varying stereo image of the harmonics (frames × `k`, frame-major): inter-channel
@@ -117,13 +127,66 @@ pub struct Layer {
 /// The first milliseconds of the real recording, used for sharp onsets (hammer,
 /// pluck, mallet) that a windowed analysis would smear. Playback crossfades into
 /// the additive model between `fade.0` and `fade.1` seconds.
-#[derive(Clone, Debug)]
+///
+/// Kept as the file stores it, 16-bit samples and a scale: sample `i` is `data[i] as f32 *
+/// k` (exactly the value a decoded `f32` copy would hold, at half the memory).
+#[derive(Clone)]
 pub struct Transient {
-    pub data: Vec<f32>,
+    pub data: Vec<i16>,
     /// right channel of a stereo recording (`data` is then the left channel)
-    pub data_r: Option<Vec<f32>>,
+    pub data_r: Option<Vec<i16>>,
+    /// scale of `data` and of `data_r`
+    pub k: f32,
+    pub k_r: f32,
     pub rate: f32,
     pub fade: (f32, f32),
+}
+
+impl Transient {
+    /// Samples (per channel).
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    /// Left (or mono) sample `i`.
+    #[inline]
+    pub fn left(&self, i: usize) -> f32 {
+        self.data[i] as f32 * self.k
+    }
+
+    /// Right sample `i` (the left one for a mono recording).
+    #[inline]
+    pub fn right(&self, i: usize) -> f32 {
+        match &self.data_r {
+            Some(r) => r[i] as f32 * self.k_r,
+            None => self.left(i),
+        }
+    }
+}
+
+/// Samples as their decoded values (the `Debug` text of a `Vec<f32>` of them).
+struct Decoded<'a>(&'a [i16], f32);
+
+impl std::fmt::Debug for Decoded<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0.iter().map(|&x| x as f32 * self.1)).finish()
+    }
+}
+
+// (as if the samples were decoded to `f32`: model fingerprints are taken from this text)
+impl std::fmt::Debug for Transient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Transient")
+            .field("data", &Decoded(&self.data, self.k))
+            .field("data_r", &self.data_r.as_deref().map(|r| Decoded(r, self.k_r)))
+            .field("rate", &self.rate)
+            .field("fade", &self.fade)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -819,10 +882,13 @@ impl Model {
                 },
                 stereo: hz.stereo.as_ref().filter(|st| st.l.len() == st.r.len() && st.l.len() == st.ph.len()).map(|st| {
                     let g = |q: &u8| *q as f32 / 255.0 * std::f32::consts::SQRT_2;
+                    let ph: Vec<f32> = st.ph.iter().map(|&q| q as f32 / 255.0 * std::f32::consts::TAU - std::f32::consts::PI).collect();
                     ZoneStereo {
                         l: st.l.iter().map(g).collect(),
                         r: st.r.iter().map(g).collect(),
-                        ph: st.ph.iter().map(|&q| q as f32 / 255.0 * std::f32::consts::TAU - std::f32::consts::PI).collect(),
+                        cos: ph.iter().map(|p| p.cos()).collect(),
+                        sin: ph.iter().map(|p| p.sin()).collect(),
+                        ph,
                     }
                 }),
                 pulse: if hz.pulse.len() == PULSE_BINS {
@@ -832,9 +898,8 @@ impl Model {
                 },
                 transient: match &hz.transient {
                     Some(t) if t.n > 4 && t.rate > 0.0 => {
-                        let decode = |o: usize, scale: f32| -> Result<Vec<f32>, String> {
+                        let decode = |o: usize| -> Result<Vec<i16>, String> {
                             let b = slice(blob, o, dims(&[t.n, 2], "transient")?, "transient")?;
-                            let k = scale / 32767.0;
                             Ok(if t.enc.as_deref() == Some("dp16") {
                                 // first differences, low byte plane then high byte plane
                                 let (lo, hi) = b.split_at(t.n);
@@ -843,20 +908,22 @@ impl Model {
                                     .zip(hi)
                                     .map(|(&l, &h)| {
                                         acc = acc.wrapping_add(i16::from_le_bytes([l, h]));
-                                        acc as f32 * k
+                                        acc
                                     })
                                     .collect()
                             } else {
-                                b.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 * k).collect()
+                                b.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect()
                             })
                         };
                         let data_r = match t.o_r {
-                            Some(o) => Some(decode(o, t.scale_r.unwrap_or(t.scale))?),
+                            Some(o) => Some(decode(o)?),
                             None => None,
                         };
                         Some(Transient {
                             data_r,
-                            data: decode(t.o, t.scale)?,
+                            data: decode(t.o)?,
+                            k: t.scale / 32767.0,
+                            k_r: t.scale_r.unwrap_or(t.scale) / 32767.0,
                             rate: t.rate,
                             fade: (t.fade.0.max(0.0), t.fade.1.max(t.fade.0 + 1e-3)),
                         })
@@ -940,7 +1007,7 @@ impl Model {
             .zones
             .iter()
             .map(|z| {
-                let st = z.stereo.as_ref().map_or(0, |s| b(&s.l) + b(&s.r) + b(&s.ph));
+                let st = z.stereo.as_ref().map_or(0, |s| b(&s.l) + b(&s.r) + b(&s.ph) + b(&s.cos) + b(&s.sin));
                 let im = z.image.as_ref().map_or(0, |i| b(&i.row) + b(&i.ild) + b(&i.iph) + b(&i.lph));
                 let tr = z.transient.as_ref().map_or(0, |t| b(&t.data) + t.data_r.as_deref().map_or(0, b));
                 b(&z.ratios)

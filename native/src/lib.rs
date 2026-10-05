@@ -22,7 +22,11 @@ use midi::message::{MidiMessage, MidiMessageKind};
 /// A MIDI channel routed to no part: its messages only reach the JavaScript callback.
 const NO_ROUTE: u8 = 255;
 use supersynth_core::engine::params::{MasterParam, PartParam};
-use supersynth_core::engine::{Command, Controller, Couplers, Engine, EngineConfig, InstLayer, Instrument, Route, Status as EngineStatus, MAX_PARTS, MAX_ROUTES};
+use supersynth_core::engine::pool::MAX_THREADS;
+use supersynth_core::engine::{
+    default_threads, Command, Controller, Couplers, Engine, EngineConfig, InstLayer, Instrument, Route, Status as EngineStatus, DEFAULT_MAX_VOICES, MAX_PARTS,
+    MAX_ROUTES,
+};
 use supersynth_core::fx::reverb::ReverbParams;
 use supersynth_core::model::{Kind, Model, ReleaseMode};
 
@@ -33,12 +37,15 @@ pub struct JsEngineOptions {
     /// Sample rate in Hz. Default: the output device's rate (or 48000 without a device).
     pub sample_rate: Option<u32>,
     pub backend: Option<String>,
-    /// Maximum simultaneously sounding voices (default 192).
+    /// Maximum simultaneously sounding voices (default 1024).
     pub max_voices: Option<u32>,
     /// Reverb preset name (default "hall").
     pub reverb: Option<String>,
     /// Audio buffer size in frames (default: device default).
     pub buffer_size: Option<u32>,
+    /// Threads rendering audio, the audio thread included (default 0 = one per core but one,
+    /// at most 8). The output is the same for any number.
+    pub threads: Option<u32>,
 }
 
 #[napi(object)]
@@ -117,6 +124,7 @@ pub struct SynthEngine {
     buffer_size: Option<u32>,
     /// Set when rendering panicked (see `faulted`).
     fault: Arc<Fault>,
+    threads: u32,
 }
 
 fn err(msg: impl Into<String>) -> Error {
@@ -133,6 +141,7 @@ impl SynthEngine {
             max_voices: None,
             reverb: None,
             buffer_size: None,
+            threads: None,
         });
         let backend = BackendKind::parse(o.backend.as_deref().unwrap_or(""));
         let sample_rate = o.sample_rate.unwrap_or_else(|| default_output_rate(&backend).unwrap_or(48000));
@@ -143,10 +152,15 @@ impl SynthEngine {
         let reverb = ReverbParams::preset(&reverb_name).ok_or_else(|| err(format!("unknown reverb preset '{reverb_name}'")))?;
         let (engine, ctl) = Engine::new(EngineConfig {
             sample_rate: sample_rate as f32,
-            max_voices: o.max_voices.unwrap_or(192).clamp(8, 2048) as usize,
+            max_voices: o.max_voices.map(|v| v as usize).unwrap_or(DEFAULT_MAX_VOICES).clamp(8, 4096),
             reverb,
+            threads: match o.threads {
+                None | Some(0) => default_threads(),
+                Some(t) => (t as usize).clamp(1, MAX_THREADS),
+            },
         });
         let status = Arc::clone(&ctl.status);
+        let threads = engine.threads() as u32;
         Ok(Self {
             engine: Arc::new(Mutex::new(engine)),
             shared: Arc::new(Shared {
@@ -163,6 +177,7 @@ impl SynthEngine {
             backend,
             buffer_size: o.buffer_size,
             fault: Arc::new(Fault::default()),
+            threads,
         })
     }
 
@@ -200,6 +215,12 @@ impl SynthEngine {
     #[napi(getter)]
     pub fn cpu_load(&self) -> f64 {
         self.shared.status.load_permille.load(Ordering::Relaxed) as f64 / 1000.0
+    }
+
+    /// Threads rendering audio (the audio thread included).
+    #[napi(getter)]
+    pub fn threads(&self) -> u32 {
+        self.threads
     }
 
     #[napi(getter)]
@@ -458,6 +479,10 @@ impl SynthEngine {
         }
         let out = AudioOutput::start(Arc::clone(&self.engine), Arc::clone(&self.fault), &self.backend, self.sample_rate, self.buffer_size).map_err(err)?;
         self.output = Some(out);
+        // the render workers follow the audio thread's priority where the system allows it
+        if let Ok(e) = self.engine.lock() {
+            e.set_realtime(true);
+        }
         self.shared.running.store(true, Ordering::Release);
         Ok(())
     }
@@ -466,6 +491,9 @@ impl SynthEngine {
     pub fn stop(&mut self) {
         self.shared.running.store(false, Ordering::Release);
         self.output = None;
+        if let Ok(e) = self.engine.lock() {
+            e.set_realtime(false);
+        }
     }
 
     /// Render `frames` of audio offline. Returns interleaved stereo (L, R, L, R…).

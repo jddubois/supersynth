@@ -4,6 +4,7 @@ pub mod biquad;
 pub mod denormal;
 pub mod fft;
 pub mod noise;
+pub mod simd;
 
 /// Processing block size (frames). Parameters are updated once per block and
 /// ramped linearly across it; events are split to sample accuracy.

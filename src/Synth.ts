@@ -26,6 +26,27 @@ export interface SynthSettings {
   volume?: number;
   /** The room: a reverb preset, detailed options, or `false` for no reverb. */
   reverb?: ReverbPreset | ReverbOptions | false;
+  /** Opt-in, for machines too slow for a large organ: end notes in their release (the
+   *  recorded pipe and room tail) early, once they are quiet. `false` (the default) plays every
+   *  tail out in full. See {@link ReleaseCulling}. */
+  releaseCulling?: ReleaseCulling | false;
+}
+
+/**
+ * When to end a released note early ({@link SynthSettings.releaseCulling}). This trades sound
+ * for CPU: measured on BWV 532 on the Friesach plenum (hall reverb), `floorDb: -80` halves the
+ * voices (mean 671 → 334) and changes third-octave band levels by at most 1.8 dB (p99 0.18 dB);
+ * on the smaller Bureå organ the savings are smaller and single bands of the room tail change
+ * by up to 15 dB.
+ */
+export interface ReleaseCulling {
+  /** End a released note once its output is below this level (dBFS, e.g. -90 … -70). */
+  floorDb?: number;
+  /** End a released note once it is this many dB below the current output level (e.g. 40) and
+   *  below `belowMixFloorDb`: tails under the music end, tails in pauses and at the end play on. */
+  belowMixDb?: number;
+  /** @default -100 */
+  belowMixFloorDb?: number;
 }
 
 export interface SynthOptions extends Omit<SynthSettings, 'reverb'> {
@@ -38,10 +59,15 @@ export interface SynthOptions extends Omit<SynthSettings, 'reverb'> {
   reverb?: ReverbPreset | ReverbOptions | false | 'auto';
   /** Master volume, 0–1 (linear). @default 0.5 */
   volume?: number;
-  /** Maximum sounding voices before the quietest are stolen. @default 192 */
+  /** Maximum sounding voices before the quietest are stolen (each takes about 85 kB). An organ
+   *  plenum in a fast piece keeps hundreds of pipes sounding in their release. @default 1024 */
   maxVoices?: number;
   /** Audio buffer size in frames (smaller = lower latency, more CPU risk). Default: device default. */
   bufferSize?: number;
+  /** CPU cores rendering audio, the audio thread included (1–16), or `'auto'`: one per core
+   *  but one, at most 8 (3 on a Raspberry Pi 5). Voices are spread over the cores; the sound is
+   *  exactly the same for any number. Offline rendering uses them too. @default 'auto' */
+  threads?: number | 'auto';
   /** Directory searched first for `.ssm` models, laid out like the package's `models/`
    *  (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`). Default: the models shipped
    *  with supersynth and the installed organ packages (`@supersynth/organ-<id>`). */
@@ -132,6 +158,7 @@ export class Synth extends EventEmitter {
         ...(options.backend ? { backend: options.backend } : {}),
         ...(options.maxVoices !== undefined ? { maxVoices: integer(options.maxVoices, 1, 1e6, 'maxVoices') } : {}),
         ...(options.bufferSize !== undefined ? { bufferSize: integer(options.bufferSize, 1, 1e7, 'bufferSize') } : {}),
+        ...(options.threads !== undefined && options.threads !== 'auto' ? { threads: integer(options.threads, 1, 16, 'threads') } : {}),
         reverb: reverbPreset,
       }));
     } catch (e) {
@@ -142,6 +169,7 @@ export class Synth extends EventEmitter {
     this.reverbMode = options.reverb === undefined || options.reverb === 'auto' ? 'auto' : 'set';
     this.set({
       volume: options.volume ?? 0.5,
+      ...(options.releaseCulling ? { releaseCulling: options.releaseCulling } : {}),
       ...(options.reverb !== undefined && options.reverb !== 'auto' ? { reverb: options.reverb } : {}),
     });
   }
@@ -165,6 +193,11 @@ export class Synth extends EventEmitter {
   /** Fraction of real time the last audio buffer took to render (0.1 = 10 % of a core). */
   get cpuLoad(): number {
     return this.engine.cpuLoad;
+  }
+
+  /** Threads rendering audio, the audio thread included (see {@link SynthOptions.threads}). */
+  get threads(): number {
+    return this.engine.threads;
   }
 
   get isRunning(): boolean {
@@ -257,7 +290,7 @@ export class Synth extends EventEmitter {
       const v = (opts as Record<string, unknown> | undefined)?.[k];
       if (v !== undefined) finite(v, `reverb.${k}`);
     }
-    this._reserve(2 + Object.keys(REVERB_FIELDS).length * 2);
+    this._reserve(5 + Object.keys(REVERB_FIELDS).length * 2);
     if (reverb !== undefined) {
       this.reverbMode = 'set';
       if (reverb === false) {
@@ -275,6 +308,13 @@ export class Synth extends EventEmitter {
       }
     }
     if (volume !== undefined) n.setMasterParam('volume', volume <= 0 ? -120 : 20 * Math.log10(volume), t);
+    const rc = settings.releaseCulling;
+    if (rc !== undefined) {
+      const on = rc === false ? {} : rc;
+      n.setMasterParam('releaseFloor', on.floorDb === undefined ? -200 : clamp(on.floorDb, -200, 0, 'releaseCulling.floorDb'), t);
+      n.setMasterParam('releaseBelowMix', on.belowMixDb === undefined ? 0 : clamp(on.belowMixDb, 0, 200, 'releaseCulling.belowMixDb'), t);
+      n.setMasterParam('releaseBelowMixFloor', on.belowMixFloorDb === undefined ? -100 : clamp(on.belowMixFloorDb, -200, 0, 'releaseCulling.belowMixFloorDb'), t);
+    }
     return this;
   }
 

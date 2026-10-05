@@ -225,21 +225,58 @@ Append `-- out.wav` to the first four to render to a file instead of the speaker
 
 ## Performance
 
-The engine runs on its own audio thread, outside Node's event loop and garbage collector; the API
-talks to it through a lock-free queue. Measured with `npm run bench` on one core of a 2.1 GHz Xeon
-cloud VM (48 kHz stereo including reverb; single-core speed in the range of a Raspberry Pi 5,
-about a third of an Apple M1 core):
+The engine runs outside Node's event loop and garbage collector; the API talks to it through a
+lock-free queue. Each audio block is rendered on several cores (`threads`, default: one per core
+but one, so 3 on a Raspberry Pi 5): new notes are set up and voices rendered on every core, then
+each part's noise and effects; the result is bit-for-bit the same for any number of threads. The
+voice code is vectorised (NEON on ARM; SSE2, SSE4.1 or AVX2 on x86-64, chosen at run time),
+without changing a single output sample.
 
-| Scenario | CPU |
-|---|---|
-| 16 held piano notes with pedal | 12.0 % |
-| 8-note string-orchestra chord | 16.7 % |
-| Organ plenum chord + pedal (25 pipes) | 18.1 % |
-| Full organ, all couplers (116 pipes) | 98 % |
+`npm run bench` (offline, 2.1 GHz Xeon cloud VM with AVX2; share of one core needed in real time,
+and with 3 threads the share of real time that passes):
 
-Voices render on one core, at roughly 0.8 % of such a core per sounding pipe. Small and medium
-registrations fit comfortably on a Raspberry Pi 5; a full organ with every coupler needs about one
-whole core there.
+| Scenario | 0.2.0 | now, 1 thread | now, 3 threads (wall clock) |
+|---|---|---|---|
+| 16 held piano notes with pedal | 40 % | 18 % | 11 % |
+| 8-note string-orchestra chord | 54 % | 26 % | 15 % |
+| Bureå plenum chord + pedal (25 pipes) | 30 % | 26 % | 16 % |
+| Bureå full organ, all couplers (116 pipes) | 118 % | 95 % | 48 % |
+
+Playing live is what counts: `npm run live-test` and `npm run bench:organs` play the engine as a
+performer does, one 128-frame buffer (2.67 ms) at a time with keys arriving at buffer boundaries,
+and time every buffer. The Raspberry Pi estimate below takes this VM's SSE4.1 code (4 lanes, as
+NEON) at 3 threads and a CPU 1.7× slower; `--repeat 3` keeps each buffer's fastest of three runs,
+since a shared VM adds random stalls of its own (an engine rendering nothing shows 36 % p99.9 here).
+A buffer must finish within its 2.67 ms: below 59 % here leaves the Pi on time.
+
+Live play (`live-test`, 3 threads, SSE4.1, `--repeat 3`): piano BWV 532 with pedal 13 % mean / 24 %
+worst 0.1 %, fortissimo piano chords 35 / 53 %, strings 20 / 36 %, BWV 532 on the Bureå plenum
+31 / 57 %: all on time on a Pi 5 by this estimate (0.2.0, one thread: 154 / 396 / 82 / 297 % worst,
+with dropouts even on this VM).
+
+| Organ, 6-note chord + 2 pedal notes (`bench:organs`) | voices | mean | worst 0.1 % | Pi 5 (est.) |
+|---|---|---|---|---|
+| green-positiv, harmonium, ledziny (tutti + couplers) | 31–70 | 12–21 % | 20–31 % | fits |
+| strassburg, saint-jean-de-luz, skrzatusz, melcer, lipiny, dluga-koscielna, azzio, vcsl | 54–158 | 23–37 % | 35–54 % | fits |
+| giubiasco, raszczyce | 124–133 | 38–41 % | 56–65 % | about at the limit |
+| szczecinek, friesach grand-choeur, cracow grand-choeur | 162–220 | 56–62 % | 75–95 % | no: needs a faster machine or `releaseCulling` |
+| Bureå full / tutti, Friesach and Cracow tutti + couplers | 130–285 | 55–89 % | 93–140 % | no |
+
+The decisive load for a large organ is a fast piece on a plenum: every pipe plays its recorded
+release (the pipe and several seconds of the church), so BWV 532 on the Friesach plenum keeps up to
+1007 pipes sounding at once (mean 671) and needs about 3.8 cores of this VM — more than a Pi 5 has.
+`maxVoices` defaults to 1024 so that none of them is cut. On a small machine, `releaseCulling` ends
+quiet tails early (opt-in, it changes the sound): with `{ floorDb: -80 }` BWV 532 on the Friesach
+plenum needs half the voices (mean 334, peak 529) and the band levels change by at most 1.8 dB
+under the church reverb; on smaller organs it saves less and changes the room tail more.
+
+Recommended on a Raspberry Pi 5: 64-bit OS, `threads: 'auto'` (or 4 if nothing else runs),
+`bufferSize: 256` (5.3 ms) for organs, the default `quality: 'high'` for the piano, strings,
+winds and the smaller organs; for the large organs (Friesach, Cracow, Szczecinek, Bureå) at full
+registration, `releaseCulling: { floorDb: -80 }` and if needed `quality: 'balanced'`. Check with
+`npm run live-test -- --repeat 3` and `npm run bench:organs` on the Pi itself; real-time output
+asks for real-time scheduling for the render threads (granted where the user's real-time
+priority limit allows it, as for JACK).
 
 Models load off the JavaScript thread. Adding an organ waits only for its starting preset's
 stops (loaded in parallel); the others load in the background, so drawing a stop never stalls
@@ -256,7 +293,8 @@ native/src/                    bindings, CPAL audio output, MIDI input
 native/core/                   supersynth-core (pure Rust)
   ├── model/                   .ssm spectral model format
   ├── voice/                   spectral voice (oscillator bank, transients), pooled FFT noise
-  ├── engine/                  lock-free command queue, sample-accurate scheduling, parts, mixing
+  ├── engine/                  lock-free command queue, sample-accurate scheduling, parts, mixing,
+  │                            worker pool rendering each block on several cores
   └── fx/                      FDN reverb, EQ, chorus, drive, rotary speaker, limiter
 tools/ssm/                     Python analysis: recordings → models; evaluation; blind tests
 models/                        the analysed instruments shipped with supersynth (CC0)

@@ -54,6 +54,50 @@ describe('Synth offline rendering', () => {
     expect(first).toBeLessThan(24000 + 200);
   });
 
+  test('the sound is exactly the same on any number of threads', () => {
+    const play = (threads: number | 'auto') => {
+      const synth = new Synth({ sampleRate: 48000, threads });
+      const organ = synth.add('burea', { preset: 'full' });
+      const piano = synth.add('grand-piano');
+      organ.great.play(['C3', 'G3', 'C4', 'E4', 'G4', 'C5'], { duration: 0.6 });
+      organ.pedal.play(['C2'], { duration: 0.6 });
+      piano.play(['E5', 'G5'], { at: 0.2, duration: 0.3 });
+      const out = synth.render(1.2);
+      const used = synth.threads;
+      synth.close();
+      return { out, used };
+    };
+    const one = play(1);
+    expect(one.used).toBe(1);
+    expect(rms(one.out.left)).toBeGreaterThan(1e-3);
+    for (const t of [2, 4, 'auto'] as const) {
+      const { out, used } = play(t);
+      if (t !== 'auto') expect(used).toBe(t);
+      expect(Buffer.from(out.left.buffer).equals(Buffer.from(one.out.left.buffer))).toBe(true);
+      expect(Buffer.from(out.right.buffer).equals(Buffer.from(one.out.right.buffer))).toBe(true);
+    }
+    expect(() => new Synth({ threads: 0 })).toThrow(SupersynthError);
+  });
+
+  test('release culling is off by default and ends quiet tails early when asked', () => {
+    const voicesAfterRelease = (releaseCulling?: { floorDb: number }) => {
+      const synth = new Synth({ sampleRate: 48000, ...(releaseCulling ? { releaseCulling } : {}) });
+      const organ = synth.add('burea', { preset: 'plenum' });
+      organ.great.play(['C3', 'E3', 'G3', 'C4'], { duration: 0.5 });
+      synth.render(2);
+      const v = synth.activeVoices;
+      synth.close();
+      return v;
+    };
+    const full = voicesAfterRelease();
+    expect(full).toBeGreaterThan(0);
+    expect(voicesAfterRelease({ floorDb: -60 })).toBeLessThan(full);
+    const synth = new Synth({ sampleRate: 48000 });
+    expect(() => synth.set({ releaseCulling: { floorDb: Number.NaN } })).toThrow(SupersynthError);
+    synth.set({ releaseCulling: false });
+    synth.close();
+  });
+
   test('many notes are limited below full scale', () => {
     const synth = new Synth({ sampleRate: 48000, volume: 1 });
     const p = synth.add('strings');
