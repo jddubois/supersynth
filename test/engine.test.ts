@@ -352,6 +352,51 @@ describe('configurations', () => {
     expect(rms(synth.render(0.5).left)).toBeGreaterThan(1e-4);
   });
 
+  /** Lowest and highest note recorded in a model, rounded. */
+  const recorded = (model: string): [number, number] => {
+    const notes = (header(model).zones as { note: number }[]).map((z) => z.note);
+    return [Math.round(Math.min(...notes)), Math.round(Math.max(...notes))];
+  };
+  /** How far (semitones) a model may be played beyond its recordings. */
+  const REACH = 5;
+
+  test("an instrument's range is covered by its models' recordings", () => {
+    const off: string[] = [];
+    for (const def of Object.values(INSTRUMENTS) as InstrumentDefinition[]) {
+      const sets = { layers: def.layers, ...Object.fromEntries(Object.entries(def.presets).map(([k, p]) => [k, p.layers])) };
+      for (const [set, layers] of Object.entries(sets)) {
+        for (const l of layers ?? []) {
+          if (l.trigger === 'release') continue;
+          const lo = Math.max(def.range[0], l.keyLow ?? 0) + (l.transpose ?? 0);
+          const hi = Math.min(def.range[1], l.keyHigh ?? 127) + (l.transpose ?? 0);
+          const [min, max] = recorded(l.model);
+          if (lo <= hi && (lo < min - REACH || hi > max + REACH)) off.push(`${def.id} ${set} ${l.model}: plays ${lo}–${hi}, recorded ${min}–${max}`);
+        }
+      }
+    }
+    expect(off).toEqual([]);
+  });
+
+  test("an organ stop's recordings cover its division's keys", () => {
+    const off: string[] = [];
+    for (const organ of Object.values(ORGANS)) {
+      // the keys each stop's recordings reach (an octave filed wrong shows here)
+      const covers = new Map(organ.stops.map((s) => [s, recorded(stopModel(s)).map((n) => n - s.transpose)]));
+      for (const div of ['great', 'swell', 'positive', 'pedal'] as const) {
+        const stops = organ.stops.filter((s) => s.division === div);
+        // keyboards start at C (36) and end where most of their stops do
+        const highs = stops.map((s) => s.keys?.[1] ?? covers.get(s)![1]).sort((a, b) => a - b);
+        const top = highs[Math.floor(highs.length / 2)];
+        for (const s of stops) {
+          const [lo, hi] = covers.get(s)!;
+          const [first, last] = s.keys ?? [36, top];
+          if (lo > first + REACH || hi < last - REACH) off.push(`${organ.id} ${s.id}: plays keys ${first}–${last}, recorded ${lo}–${hi}`);
+        }
+      }
+    }
+    expect(off).toEqual([]);
+  });
+
   test('Bureå stops agree with the stop data analysed into their models', () => {
     for (const stop of BUREA_ORGAN.stops) {
       const h = header(`organ/${stop.id}`);

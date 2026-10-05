@@ -229,7 +229,7 @@ Config: `FLUTE`. Suggested room: `hall`.
 | `default` | Straight tone |
 | `vibrato` | With natural flute vibrato |
 | `breathy` | More air in the tone |
-| `piccolo` | Piccolo |
+| `piccolo` | Piccolo (flute below its range) |
 
 ### `oboe` — Oboe
 
