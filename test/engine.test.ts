@@ -292,11 +292,11 @@ describe('organ', () => {
     const organ = synth.add('burea', { presets: { soft: { description: 'Soft', swell: ["Salicional 8'"], pedal: ["Subbass 16'"] } }, preset: 'soft' });
     expect(organ.swell.drawn()).toEqual(["Salicional 8'"]);
     organ.preset({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] } });
-    expect(organ.current()).toEqual({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] } });
+    expect(organ.current()).toEqual({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] }, tremulant: [] });
     expect(organ.activePreset()).toBeUndefined();
     organ.savePreset('mine');
     organ.preset('plenum').preset('mine');
-    expect(organ.current()).toEqual({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] } });
+    expect(organ.current()).toEqual({ great: ["Principal 8'"], swell: ["Rohrflöte 8'"], couple: { great: ['swell'] }, tremulant: [] });
     expect(Object.keys(organ.presets())).toContain('mine');
     // a bad preset changes nothing
     expect(() => organ.preset({ great: ['Bombarde 32'] })).toThrow(SupersynthError);
@@ -390,6 +390,51 @@ describe('configurations', () => {
     expect(marimba.get('brightness')).toBe(-2);
     marimba.play('C5', { duration: 0.3 });
     expect(rms(synth.render(0.5).left)).toBeGreaterThan(1e-4);
+  });
+
+  /** Lowest and highest note recorded in a model, rounded. */
+  const recorded = (model: string): [number, number] => {
+    const notes = (header(model).zones as { note: number }[]).map((z) => z.note);
+    return [Math.round(Math.min(...notes)), Math.round(Math.max(...notes))];
+  };
+  /** How far (semitones) a model may be played beyond its recordings. */
+  const REACH = 5;
+
+  test("an instrument's range is covered by its models' recordings", () => {
+    const off: string[] = [];
+    for (const def of Object.values(INSTRUMENTS) as InstrumentDefinition[]) {
+      const sets = { layers: def.layers, ...Object.fromEntries(Object.entries(def.presets).map(([k, p]) => [k, p.layers])) };
+      for (const [set, layers] of Object.entries(sets)) {
+        for (const l of layers ?? []) {
+          if (l.trigger === 'release') continue;
+          const lo = Math.max(def.range[0], l.keyLow ?? 0) + (l.transpose ?? 0);
+          const hi = Math.min(def.range[1], l.keyHigh ?? 127) + (l.transpose ?? 0);
+          const [min, max] = recorded(l.model);
+          if (lo <= hi && (lo < min - REACH || hi > max + REACH)) off.push(`${def.id} ${set} ${l.model}: plays ${lo}–${hi}, recorded ${min}–${max}`);
+        }
+      }
+    }
+    expect(off).toEqual([]);
+  });
+
+  test("an organ stop's recordings cover its division's keys", () => {
+    const off: string[] = [];
+    for (const organ of Object.values(ORGANS)) {
+      // the keys each stop's recordings reach (an octave filed wrong shows here)
+      const covers = new Map(organ.stops.map((s) => [s, recorded(stopModel(s)).map((n) => n - s.transpose)]));
+      for (const div of ['great', 'swell', 'positive', 'pedal'] as const) {
+        const stops = organ.stops.filter((s) => s.division === div);
+        // keyboards start at C (36) and end where most of their stops do
+        const highs = stops.map((s) => s.keys?.[1] ?? covers.get(s)![1]).sort((a, b) => a - b);
+        const top = highs[Math.floor(highs.length / 2)];
+        for (const s of stops) {
+          const [lo, hi] = covers.get(s)!;
+          const [first, last] = s.keys ?? [36, top];
+          if (lo > first + REACH || hi < last - REACH) off.push(`${organ.id} ${s.id}: plays keys ${first}–${last}, recorded ${lo}–${hi}`);
+        }
+      }
+    }
+    expect(off).toEqual([]);
   });
 
   test('Bureå stops agree with the stop data analysed into their models', () => {
@@ -516,7 +561,7 @@ describe('configurations', () => {
     organ.great.couple({ division: 'swell', octave: 1 }).unison(false);
     expect(pitch(() => organ.great.noteOn('C4')) / direct).toBeCloseTo(1, 1);
     expect(organ.great.coupled()).toEqual([{ division: 'swell', octave: 1 }]);
-    expect(organ.current()).toEqual({ swell: ["Rohrflöte 8'"], couple: { great: [{ division: 'swell', octave: 1 }] }, unisonOff: ['great'] });
+    expect(organ.current()).toEqual({ swell: ["Rohrflöte 8'"], couple: { great: [{ division: 'swell', octave: 1 }] }, unisonOff: ['great'], tremulant: [] });
     // the swell's sub octave on itself with its unison off: C5 plays C4
     const c4 = pitch(() => organ.swell.noteOn('C4'));
     organ.preset({ swell: ["Rohrflöte 8'"], couple: { swell: [{ division: 'swell', octave: -1 }] }, unisonOff: ['swell'] });
@@ -558,6 +603,12 @@ describe('configurations', () => {
     expect(organ.tremulants().map((t) => t.on)).toEqual([false, true]);
     organ.preset({ swell: ["Rohrflöte 8'"] }); // tremulants left as they are
     expect(organ.tremulants().map((t) => t.on)).toEqual([false, true]);
+    // a preset saved with the tremulants off turns them off again
+    organ.set({ tremulant: false });
+    organ.savePreset('steady');
+    organ.set({ tremulant: true });
+    organ.preset('steady');
+    expect(organ.tremulants().map((t) => t.on)).toEqual([false, false]);
     organ.set({ tremulant: false });
     expect(organ.tremulants().map((t) => t.on)).toEqual([false, false]);
     // the swell's tremulant pulses its pipes
@@ -595,7 +646,7 @@ describe('configurations', () => {
     synth.render(0.6);
     const loud = rms(synth.render(0.5).left);
     expect(loud).toBeGreaterThan(soft * 1.2);
-    expect(organ.current()).toEqual({ great: ["Melodia 8'"], forte: ['great'] });
+    expect(organ.current()).toEqual({ great: ["Melodia 8'"], tremulant: [], forte: ['great'] });
     organ.preset('diapason');
     expect(organ.great.forteIsOn()).toBe(false);
   });

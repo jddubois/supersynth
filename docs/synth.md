@@ -31,7 +31,8 @@ Six rules hold everywhere:
    channel: `instrument.midi(1)`, `organ.midi({ great: 1, pedal: 2 })`.
 6. **Properties are read-only state** (`synth.currentTime`, `instrument.definition`);
    everything you change, and every list, is a method. Methods that change something return
-   the object, so calls chain: `synth.add('grand-piano').preset('mellow').midi(1)`.
+   the object, so calls chain: `synth.add('grand-piano').preset('mellow').midi(1)` (`start()`
+   and `enableMidi()` return a promise of it; `remove()` and `close()` return nothing).
 
 ## `new Synth(options?)`
 
@@ -42,10 +43,10 @@ Six rules hold everywhere:
 | `reverb` | `'auto'` | preset name, `ReverbOptions`, `false`, or `'auto'` (the room suggested by the first instrument or organ added; it follows that instrument's presets until the reverb is set by hand) |
 | `volume` | `0.5` | master volume 0–1 |
 | `quality` | `'high'` | partials per note: `'high'` 512, `'balanced'` 128, `'eco'` 32 (small boards such as a Raspberry Pi) |
-| `maxVoices` | `1024` | quietest/oldest voices are stolen beyond this (about 85 kB each; a full organ plenum playing a fast piece keeps several hundred pipes sounding in their release) |
+| `maxVoices` | `1024` | 8–4096; quietest/oldest voices are stolen beyond this (about 85 kB each; a full organ plenum playing a fast piece keeps several hundred pipes sounding in their release) |
 | `bufferSize` | device default | frames per audio callback |
 | `threads` | `'auto'` | CPU cores rendering audio, the audio thread included (1–16); `'auto'`: one per core but one, at most 8 (3 on a Raspberry Pi 5). Voices, and then the parts' effects, are shared out over the cores; the sound is bit-for-bit the same for any number. Offline `render()` uses them too |
-| `releaseCulling` | `false` | opt-in for machines too slow for a large organ (it changes the sound): `{ floorDb?, belowMixDb?, hold? }` ends notes in their release early: below `floorDb` dBFS, or more than `belowMixDb` dB below both their keyboard's output and the whole output (followed with `hold: 'peak'`, held 1 s then falling 40 dB/s, or `'smooth'`, ~300 ms). Off, every recorded tail plays out in full. Also with `synth.set({ releaseCulling })`. See the README's Performance section for what it saves and changes |
+| `releaseCulling` | `false` | opt-in for machines too slow for a large organ (it changes the sound): `{ floorDb?, belowMixDb?, hold? }` ends notes in their release early: below `floorDb` dBFS (−200 … 0), or more than `belowMixDb` dB (0 … 200) below both their keyboard's output and the whole output (followed with `hold: 'peak'`, held 1 s then falling 40 dB/s, or `'smooth'`, ~300 ms). Off, every recorded tail plays out in full. Also with `synth.set({ releaseCulling })`. See the README's Performance section for what it saves and changes |
 | `overloadGuard` | `false` | opt-in, real-time output only: when audio buffers come close to their deadline (render time smoothed over ~100 ms above 85 % of the buffer's duration, or a buffer late on a busy engine), end the quietest notes in their release early, with a 10 ms fade, just enough of them (by the measured cost per voice) for the next buffers to fit in 70 %, instead of letting the sound crackle; only when no released note is left, fade out upper partials of the quietest notes past their attack. Held notes and attacks are never touched. It lets go once the load has stayed under 50 % for 0.5 s (at least 1 s after it engaged), and the partials fade back in. While nothing is overloaded the output is bit-for-bit the same as without it, and offline rendering (`render()`, `renderMidi()`) is never guarded. Also with `synth.set({ overloadGuard })` (at once, not scheduled). See `guardActive` / `guardStats` below and the README's Performance section |
 | `modelsDirectory` | none | a directory searched first for `.ssm` models, laid out like `models/` (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`); then supersynth's own models and the installed organ packages |
 
@@ -54,10 +55,11 @@ Six rules hold everywhere:
 | `add(id \| definition, options)` | add an instrument → `Instrument` (options `{ preset, parameters }`), or an organ → `Organ` (options `{ preset, presets, tremulant, wind, noises, preload }`; its other stops load in the background, see [organ.md](organ.md#loading)) |
 | `ready()` | a promise: every organ added has loaded the models it loads in the background |
 | `instruments()`, `remove(instrument \| organ)` | the instruments and organs added; remove one (its notes stop, its channels — an organ's noise channel too — are freed and cleared, the models nothing else uses are unloaded; using it afterwards throws) |
-| `set({ volume, reverb, releaseCulling, overloadGuard }, { at })` | master volume and room, see [parameters.md](parameters.md#reverb); release culling and the overload guard as in the options above |
-| `start()` / `stop()` / `close()` | real-time output; `close()` also releases every instrument, organ and model, and the synth cannot be used afterwards |
+| `set({ volume, reverb, releaseCulling, overloadGuard }, { at })` | master volume (0–1) and room, see [parameters.md](parameters.md#reverb); release culling and the overload guard as in the options above; everything is checked before anything changes |
+| `start()` / `stop()` / `close()` | real-time output; `close()` also releases every instrument, organ and model, and the synth cannot be used afterwards. Output alone does not keep Node.js running: a script that plays and then ends exits at once, so wait for the music (`idle()`) |
+| `idle()` | a promise: everything sent so far has played out with real-time output running (no event waiting, no note sounding, the output below −60 dBFS). A held note, or an organ's blower and room noise, keeps it waiting; it resolves at once without output, and when output stops |
 | `render(seconds)` | offline → `{ sampleRate, left, right, duration }` |
-| `renderToFile(path, seconds, { bitDepth, mono, dither })` | offline → WAV: 16-bit (TPDF-dithered; digital silence stays 0) or 24-bit PCM, or 32-bit float |
+| `renderToFile(path, seconds, { bitDepth, mono, dither })` | offline → WAV: 16-bit (TPDF-dithered; digital silence stays 0) or 24-bit PCM, or 32-bit float; also returns the audio |
 | `renderMidi(file, options)` / `playMidi(file, options)` | Standard MIDI Files, see [midi.md](midi.md) |
 | `allNotesOff({ at })`, `panic()` | release every note; silence everything at once |
 | `enableMidi(device?, { route })`, `disableMidi()` | hardware MIDI input, see [midi.md](midi.md) |
@@ -91,9 +93,9 @@ Returned by `synth.add`: one instrument on one channel.
 
 | Method | |
 |---|---|
-| `play(notes, { velocity, duration, at, delay })` | notes: `'C4'`, `60`, or arrays (chords) |
-| `sequence(steps, { tempo, velocity, legato, at, delay })` | `[note, beats]` or `{ note, beats, velocity }`; `null` is a rest; returns seconds |
-| `noteOn(note, velocity?, { at })`, `noteOff(note, { at })`, `allNotesOff()` | |
+| `play(notes, { velocity, duration, at, delay })` | notes: `'C4'`, `60`, or arrays (chords); velocity 90 and 1 s by default |
+| `sequence(steps, { tempo, velocity, legato, at, delay })` | `[note, beats]` or `{ note, beats, velocity }`; `null` is a rest; returns seconds. Defaults: 120 bpm, velocity 90, each key held 0.95 of its step |
+| `noteOn(note, velocity = 90, { at })`, `noteOff(note, { at })`, `allNotesOff()` | |
 | `sustain(down)`, `pitchBend(-1…1)`, `modulation(0…1)`, `expression(0…1)`, `controlChange(n, v)` | controllers |
 | `set(parameters, { at })`, `get(name)`, `parameters()` | sound parameters, see [parameters.md](parameters.md) |
 | `preset(name \| preset, { at })`, `presets()`, `savePreset(name, preset?)`, `current()`, `activePreset()` | presets |
@@ -108,7 +110,7 @@ Returned by `synth.add`: one instrument on one channel.
 
 A preset is a set of parameters, and optionally layers, applied together; each instrument's
 presets are listed in [instruments.md](instruments.md). Applying one replaces every parameter;
-`preset('default')` returns to the instrument as recorded. `activePreset()` names the preset in
+`preset('default')` returns to the defaults (no adjustments). `activePreset()` names the preset in
 use until a parameter is changed by hand (parameters given with the preset to `synth.add` count
 as part of it):
 
@@ -123,5 +125,14 @@ piano.preset({ parameters: { brightness: -2, decay: 1.5 } });   // a preset obje
 
 ## Notes
 
-`noteNumber('F#3')` → 54, `noteName(61)` → `'C#4'`, `noteFrequency('A4')` → 440,
-`chord('C4')`, `chord('A3', 'm7')`, `chord('F#3m7b5')`.
+`noteNumber('F#3')` → 54, `noteName(61)` → `'C#4'`, `noteFrequency('A4')` → 440
+(`noteFrequency('A4', 415)` for another pitch standard), `chord('C4')`, `chord('A3', 'm7')`,
+`chord('F#3m7b5')`.
+
+## WAV files
+
+`render()` returns an `AudioBuffer`, `{ sampleRate, left, right, duration }` (samples in −1 … 1).
+`writeWav(path, audio, { bitDepth, mono, dither })` writes one to a file and `encodeWav(audio,
+options)` returns the file as a `Buffer`, with the options of `renderToFile`: `bitDepth` 16
+(default), 24 or 32 (float), `mono` (the average of both channels), `dither` (TPDF at 16 bits,
+default on).

@@ -14,9 +14,44 @@ tools/ssm/.venv/bin/pip install -r tools/ssm/requirements.txt
 cd tools/ssm && .venv/bin/python build.py <instrument-id>
 ```
 
+`npm run models` runs `python build_all.py` here: activate the virtual environment first
+(`source tools/ssm/.venv/bin/activate`).
+
+## Recordings
+
+The recordings are not in the repository and nothing downloads them. Get the libraries below
+and put them under `data/samples/` (`SUPERSYNTH_DATA_ROOT` replaces `data/`), as they unpack:
+
+| Folder | Source |
+| --- | --- |
+| `VCSL/` | [Versilian Community Sample Library](https://github.com/sgossner/VCSL) (CC0) |
+| `VSCO-2-CE/` | [VSCO 2 Community Edition](https://github.com/sgossner/VSCO-2-CE) (CC0) |
+| `grandorgue/Burea_wav/` | Bureå Church organ GrandOrgue sample set by Lars Palo (CC BY-SA 2.5) |
+| `piotr/<organ>/` | Piotr Grabowski's GrandOrgue sample sets ([piotrgrabowski.pl](https://piotrgrabowski.pl/instruments/)) |
+
+`instruments.py` lists, for every model, the recordings it is analysed from. Rendering with the
+engine (`engine.py`, the evaluation scripts) needs the Rust `ssrender` binary (`cargo build
+--release` in `native/`).
+
+## Scripts
+
+| Script | |
+| --- | --- |
+| `build.py <id>` | analyse one model (ids as in `instruments.py`, e.g. `grand-piano`, `organ/great-principal-8`) |
+| `build_all.py [--orchestra \| --organ \| id …]` | every model, continuing past failures (`npm run models`) |
+| `piotr.py survey \| catalog \| build \| ts <organ>` | Piotr Grabowski's organs: read the organ definition, write `piotr_organs/<organ>.json`, analyse its stops, print the TypeScript stop list |
+| `noises.py <organ>` | an organ's machinery noises (key and stop action, blower, church) |
+| `evaluate.py <id> [--holdout]`, `eval_all.py` | render notes through `ssrender` and compare with the recordings; held out, the model never saw them |
+| `blind.py make \| score` | blind A/B pairs of real and synthesised notes, and their scoring |
+
+The others are helpers of these, or one-off experiments. `requirements.txt` covers building
+models; `discriminate.py` also needs scikit-learn and `compare.py` (plots) matplotlib, not
+pinned. What the evaluation scripts measure, and what they do not, is in
+[docs/models.md](../../docs/models.md#evaluation): the repository holds no results from them.
+
 ## Where models go
 
-A model's *name* (`piano`, `organ/great-principal-8`, `organ/friesach/great-principal-8`) maps
+A model's *name* (`grand-piano`, `organ/great-principal-8`, `organ/friesach/great-principal-8`) maps
 to its committed file through `paths.model_path(name)`:
 
 | name                     | file                                                     |

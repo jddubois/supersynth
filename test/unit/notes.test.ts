@@ -35,6 +35,15 @@ describe('notes', () => {
     expect(chord('F#3m7b5')).toEqual([54, 57, 60, 64]);
   });
 
+  test('chord symbols with a number quality, and chords above the MIDI range', () => {
+    expect(chord('G37')).toEqual([55, 59, 62, 65]);
+    expect(chord('C49')).toEqual([60, 64, 67, 70, 74]);
+    expect(chord('C-17')).toEqual([0, 4, 7, 10]);
+    expect(chord('C7')).toEqual([96, 100, 103]); // the octave is always given
+    expect(() => chord('G9')).toThrow(RangeError);
+    expect(() => chord(120, 'maj7')).toThrow(RangeError);
+  });
+
   test('chord symbols take every accidental a note name does', () => {
     expect(chord('A♭3')).toEqual([56, 60, 63]);
     expect(chord('F♯3m')).toEqual([54, 57, 61]);

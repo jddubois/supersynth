@@ -52,6 +52,12 @@ export function encodeWav(audio: AudioBuffer, options: WavOptions = {}): Buffer 
   // fmt: 16 bytes for PCM; 18 (cbSize = 0) for IEEE float, which also needs a fact chunk
   const fmtLen = float ? 18 : 16;
   const headerLen = 12 + 8 + fmtLen + (float ? 12 : 0) + 8;
+  if (headerLen + dataLen + pad - 8 > 0xffffffff) {
+    throw new SupersynthError(`The audio is too long for a WAV file (at most 4 GiB): ${(dataLen / 2 ** 30).toFixed(1)} GiB of samples`);
+  }
+  if (!Number.isInteger(audio.sampleRate) || audio.sampleRate < 1 || audio.sampleRate * ch * bytes > 0xffffffff) {
+    throw new SupersynthError(`sampleRate must be a positive integer, got ${audio.sampleRate}`);
+  }
   const buf = Buffer.alloc(headerLen + dataLen + pad);
   const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let o = 0;

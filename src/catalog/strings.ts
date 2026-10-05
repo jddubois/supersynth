@@ -6,12 +6,12 @@ export const HARP: InstrumentDefinition = {
   id: 'harp',
   name: 'Concert Harp',
   family: 'strings',
-  description: 'Pedal harp with real pluck transients; notes ring until they decay.',
+  description: 'Pedal harp with the recorded pluck of each note; notes ring until they decay.',
   layers: one('harp'),
   range: [24, 103],
   reverb: 'hall',
   presets: {
-    default: { description: 'As recorded' },
+    default: { description: 'No adjustments' },
     warm: { description: 'Plucked closer to the middle of the string', parameters: { brightness: -1.5 } },
     'pres-de-la-table': { description: 'Plucked near the soundboard: metallic, guitar-like', parameters: { brightness: 2.5, decay: 0.6 } },
     hall: ROOMS.hall,
@@ -27,7 +27,7 @@ export const VIOLIN_PIZZICATO: InstrumentDefinition = {
   layers: one('violin-pizzicato'),
   range: [55, 100],
   reverb: 'hall',
-  presets: { default: { description: 'As recorded' }, dry: ROOMS.dry },
+  presets: { default: { description: 'No adjustments' }, dry: ROOMS.dry },
 };
 
 /** Cello Section Pizzicato. */
@@ -39,7 +39,7 @@ export const CELLO_PIZZICATO: InstrumentDefinition = {
   layers: one('cello-pizzicato'),
   range: [36, 76],
   reverb: 'hall',
-  presets: { default: { description: 'As recorded' }, dry: ROOMS.dry },
+  presets: { default: { description: 'No adjustments' }, dry: ROOMS.dry },
 };
 
 /** Contrabass Pizzicato. */
@@ -47,11 +47,11 @@ export const CONTRABASS_PIZZICATO: InstrumentDefinition = {
   id: 'contrabass-pizzicato',
   name: 'Contrabass Pizzicato',
   family: 'strings',
-  description: 'Plucked double bass — also a lovely jazz walking bass.',
+  description: 'Plucked double bass.',
   layers: one('contrabass-pizzicato'),
-  range: [28, 67],
+  range: [28, 57],
   reverb: 'hall',
-  presets: { default: { description: 'As recorded' }, jazz: { description: 'Dry jazz-club bass', parameters: { reverbSend: 0.05, brightness: 0.5 }, reverb: 'room' } },
+  presets: { default: { description: 'No adjustments' }, jazz: { description: 'Dry jazz-club bass', parameters: { reverbSend: 0.05, brightness: 0.5 }, reverb: 'room' } },
 };
 
 /** Solo Violin. */
@@ -61,11 +61,11 @@ export const VIOLIN: InstrumentDefinition = {
   family: 'strings',
   description: 'Solo violin with natural vibrato.',
   layers: one('violin'),
-  range: [55, 103],
+  range: [55, 101],
   reverb: 'hall',
   presets: {
     legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } },
-    default: { description: 'As recorded' },
+    default: { description: 'No adjustments' },
     'senza-vibrato': { description: 'Straight tone, no vibrato (baroque style)', parameters: { naturalVibrato: 0.15 } },
     expressive: { description: 'Wider romantic vibrato', parameters: { naturalVibrato: 1.4, vibrato: 6, vibratoDelay: 0.25 } },
     intimate: { description: 'Close and dry', parameters: { reverbSend: 0.06, noise: 2 } },
@@ -79,11 +79,11 @@ export const VIOLINS: InstrumentDefinition = {
   family: 'strings',
   description: 'Orchestral first violins.',
   layers: one('violins'),
-  range: [55, 100],
+  range: [55, 91],
   reverb: 'hall',
   presets: {
     legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } },
-    default: { description: 'As recorded' },
+    default: { description: 'No adjustments' },
     lush: { description: 'Bigger, wider section', parameters: { chorus: 0.25, chorusDepth: 4, spread: 0.85, humanize: 3 } },
     soft: { description: 'Gentle, slow bow attack', parameters: { attack: 2.2, brightness: -1 } },
   },
@@ -99,7 +99,7 @@ export const VIOLAS: InstrumentDefinition = {
   range: [48, 91],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, soft: { description: 'Slow bow attack', parameters: { attack: 2.2, brightness: -1 } } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' }, soft: { description: 'Slow bow attack', parameters: { attack: 2.2, brightness: -1 } } },
 };
 
 /** Cello Section. */
@@ -112,7 +112,7 @@ export const CELLOS: InstrumentDefinition = {
   range: [36, 76],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, soft: { description: 'Slow bow attack', parameters: { attack: 2.0, brightness: -1 } } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' }, soft: { description: 'Slow bow attack', parameters: { attack: 2.0, brightness: -1 } } },
 };
 
 /** Contrabass. */
@@ -122,10 +122,10 @@ export const CONTRABASS: InstrumentDefinition = {
   family: 'strings',
   description: 'Double bass, bowed.',
   layers: one('contrabass'),
-  range: [28, 67],
+  range: [28, 64],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' } },
 };
 
 /** String Orchestra. */
@@ -140,13 +140,13 @@ export const STRINGS: InstrumentDefinition = {
     { model: 'violas', keyLow: 55, keyHigh: 72, gain: -2 },
     { model: 'violins', keyLow: 60 },
   ],
-  range: [28, 100],
+  range: [28, 91],
   reverb: 'hall',
   presets: {
     default: { description: 'Divisi across the keyboard' },
     octaves: {
       description: 'Violins doubled by cellos an octave below (classic film voicing)',
-      layers: [{ model: 'violins', keyLow: 55 }, { model: 'cellos', transpose: -12, gain: -3 }],
+      layers: [{ model: 'violins', keyLow: 55 }, { model: 'cellos', transpose: -12, gain: -3, keyLow: 43 }, { model: 'contrabass', keyHigh: 42, gain: -2 }],
     },
     lush: { description: 'Wider and softer', parameters: { chorus: 0.2, attack: 1.6, spread: 0.9 } },
   },

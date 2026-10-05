@@ -4,8 +4,8 @@ import { SupersynthError } from './errors.js';
  * Tweakable instrument parameters. Every parameter can be changed at any time,
  * including while notes are sounding (changes are smoothed).
  *
- * All are relative to the instrument as recorded: the defaults reproduce the
- * real instrument.
+ * All are relative to the model as analysed: the defaults change nothing. Values outside
+ * {@link PARAMETER_RANGES} throw.
  */
 export interface InstrumentParameters {
   // ── level & placement ──────────────────────────────────────────────────
@@ -76,9 +76,9 @@ export interface InstrumentParameters {
   tremoloRate?: number;
   /** Overall gain of the voices in dB (before the part volume). @default 0 */
   gain?: number;
-  /** Independent micro-fluctuation of each partial, as recorded (0 = all partials in lockstep, 2 = double). @default 1 */
+  /** Independent micro-fluctuation of each partial, as analysed (0 = all partials in lockstep, 2 = double). @default 1 */
   jitter?: number;
-  /** Fast amplitude/phase fluctuation of each partial around its line, as recorded — bow noise and
+  /** Fast amplitude/phase fluctuation of each partial around its line, as analysed — bow noise and
    *  vibrato through the room spread energy around every harmonic (0 = clean lines). @default 1 */
   shimmer?: number;
 
@@ -121,10 +121,35 @@ export function toNativeParameter(name: keyof InstrumentParameters, value: unkno
   return value;
 }
 
+/** The range of each numeric parameter (inclusive): a value outside it throws. */
+export const PARAMETER_RANGES: Readonly<Record<Exclude<keyof InstrumentParameters, 'mono' | 'legato' | 'leslie'>, readonly [number, number]>> = {
+  volume: [-120, 24], pan: [-1, 1], reverbSend: [0, 1], spread: [0, 1],
+  brightness: [-24, 24], evenHarmonics: [-60, 24], noise: [-120, 40], formant: [0, 1], inharmonicity: [0, 10], maxPartials: [1, 512],
+  attack: [0.05, 20], decay: [0.05, 20], release: [0.01, 20],
+  vibrato: [0, 1200], vibratoRate: [0, 40], vibratoDelay: [0, 60], naturalVibrato: [0, 2], humanize: [0, 100],
+  transpose: [-96, 96], tune: [-1200, 1200], bendRange: [-48, 48], modDepth: [-1200, 1200], velocitySensitivity: [0, 1],
+  glide: [0, 10], tremolo: [0, 24], tremoloPitch: [0, 200], tremoloRate: [0, 40], gain: [-120, 48], jitter: [0, 10], shimmer: [0, 10],
+  eqLowGain: [-24, 24], eqLowFreq: [10, 100000], eqMidGain: [-24, 24], eqMidFreq: [10, 100000], eqMidQ: [0.1, 10],
+  eqHighGain: [-24, 24], eqHighFreq: [10, 100000], lowCut: [0, 100000], highCut: [0, 100000],
+  chorus: [0, 1], chorusRate: [0, 20], chorusDepth: [0, 50], drive: [1, 20], driveTone: [0, 100000], driveLevel: [0, 4],
+};
+
+/** @internal Throw unless `value` is a valid value of parameter `name` (known to exist). */
+export function checkParameter(name: keyof InstrumentParameters, value: unknown): void {
+  if ((name === 'mono' || name === 'legato') && typeof value !== 'boolean') {
+    throw new SupersynthError(`Parameter '${name}' must be true or false, got ${String(value)}`);
+  }
+  const native = toNativeParameter(name, value);
+  const range = (PARAMETER_RANGES as Record<string, readonly [number, number] | undefined>)[name];
+  if (range && (native < range[0] || native > range[1])) {
+    throw new SupersynthError(`Parameter '${name}' must be ${range[0]} … ${range[1]}, got ${native}`);
+  }
+}
+
 /** Parameters whose default is the instrument's own value. */
 type PerInstrument = 'reverbSend' | 'spread' | 'formant';
 
-/** Default of every parameter: the instrument as recorded. (`reverbSend`, `spread` and `formant`
+/** Default of every parameter: the model unchanged. (`reverbSend`, `spread` and `formant`
  *  default to each instrument's own value, so they are not listed.) */
 export const PARAMETER_DEFAULTS: Readonly<Required<Omit<InstrumentParameters, PerInstrument>>> = {
   volume: 0, pan: 0, brightness: 0, evenHarmonics: 0, noise: 0,
@@ -147,6 +172,9 @@ export function defaultParameter(name: keyof InstrumentParameters): unknown {
 
 /** Reverb presets (algorithmic FDN reverb). */
 export type ReverbPreset = 'room' | 'studio' | 'chamber' | 'hall' | 'concert-hall' | 'church' | 'cathedral' | 'plate';
+
+/** @internal Every reverb preset. */
+export const REVERB_PRESETS: readonly string[] = ['room', 'studio', 'chamber', 'hall', 'concert-hall', 'church', 'cathedral', 'plate'] satisfies ReverbPreset[];
 
 /** Fine reverb control; any field overrides the preset. */
 export interface ReverbOptions {

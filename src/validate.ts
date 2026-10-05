@@ -38,6 +38,13 @@ export function velocity(value: unknown, name = 'velocity'): number {
   return Math.max(1, Math.min(127, Math.round(finite(value, name))));
 }
 
+/** A finite number in [lo, hi]. */
+export function inRange(value: unknown, lo: number, hi: number, name: string): number {
+  const v = finite(value, name);
+  if (v < lo || v > hi) throw new SupersynthError(`${name} must be ${lo} … ${hi}, got ${v}`);
+  return v;
+}
+
 /** `value` clamped to [lo, hi], after checking it is finite. */
 export function clamp(value: unknown, lo: number, hi: number, name: string): number {
   return Math.max(lo, Math.min(hi, finite(value, name)));

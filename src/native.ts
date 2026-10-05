@@ -32,6 +32,8 @@ export interface NativeEngine {
   readonly currentTime: number;
   readonly activeVoices: number;
   readonly cpuLoad: number;
+  /** Peak output level of the last buffers (0–1), in steps of 0.001. */
+  readonly peak: number;
   /** Threads rendering audio, the audio thread included. */
   readonly threads: number;
   readonly isRunning: boolean;
@@ -83,7 +85,7 @@ export interface NativeEngine {
   listAudioBackends(): string[];
   enableMidi(deviceName: string | null | undefined, route: boolean, callback: (bytes: Buffer) => void): void;
   disableMidi(): void;
-  /** Stop and let go of every instrument and model now (the engine stays usable, empty). */
+  /** Stop and let go of every instrument and model now; the engine cannot be used afterwards. */
   releaseResources(): void;
 }
 

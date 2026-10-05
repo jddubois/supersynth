@@ -8,7 +8,7 @@ import type { CouplerLike, DivisionName, OrganDefinition, OrganPreset, StopDefin
 import { playNotes, playSequence, resolveTime, type Keys, type Playable, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
 import type { Synth } from './Synth.js';
 import type { MidiEvent } from './types.js';
-import { clamp, finite, velocity as checkVelocity } from './validate.js';
+import { clamp, finite, inRange, velocity as checkVelocity } from './validate.js';
 
 export type { CouplerLike, DivisionName, OrganDefinition, OrganPreset, StopDefinition } from './organs/types.js';
 
@@ -448,7 +448,7 @@ export interface OrganSettings {
    *  tremulants. Organs without noise recordings ignore it. */
   noises?: boolean | Partial<OrganNoiseSettings>;
   /** Wind supply: how much the pipes of a division sag together when many start at once
-   *  (pressure dip and regulator recovery). 0 = perfectly steady, 1 = flexible historic
+   *  (pressure dip and regulator recovery), 0 … 4. 0 = perfectly steady, 1 = flexible historic
    *  winding. */
   wind?: number;
 }
@@ -555,7 +555,7 @@ export class Organ {
     const preset = options.preset ?? def.defaultPreset;
     // fail before taking channels
     this.checkPreset(this.lookup(preset));
-    const wind = finite(options.wind ?? def.wind ?? ORGAN_DEFAULTS.wind, 'wind');
+    const wind = inRange(options.wind ?? def.wind ?? ORGAN_DEFAULTS.wind, 0, 4, 'wind');
     const layout = def.divisions ?? CHURCH_DIVISIONS;
     const boxes = new Map<DivisionName, { closed: number; shelf: number }>();
     for (const d of DIVISIONS) {
@@ -655,7 +655,7 @@ export class Organ {
   set(settings: OrganSettings, options: TimeOptions = {}): this {
     const n = this._engine();
     const t = this._time(options);
-    const wind = settings.wind === undefined ? undefined : Math.max(0, finite(settings.wind, 'wind'));
+    const wind = settings.wind === undefined ? undefined : inRange(settings.wind, 0, 4, 'wind');
     const tr = settings.tremulant;
     if (tr !== undefined && typeof tr !== 'boolean') {
       if (typeof tr !== 'object' || tr === null) throw new SupersynthError(`tremulant must be true, false or { <division>: boolean }, got ${String(tr)}`);
@@ -752,7 +752,8 @@ export class Organ {
     return this;
   }
 
-  /** The stops drawn, couplers engaged and tremulants on now, as a preset. */
+  /** The stops drawn, couplers engaged and tremulants on now (`tremulant: []` when none is),
+   *  as a preset. */
   current(): OrganPreset {
     const p: OrganPreset = {};
     const couple: OrganPreset['couple'] = {};
@@ -764,7 +765,8 @@ export class Organ {
     const off = this.divisions().filter((d) => !d.unisonOn()).map((d) => d.name);
     if (off.length) p.unisonOff = off;
     const trem = [...new Set(this.trems.flatMap((tr, i) => (this.tremOn[i] ? list(tr.division) : [])))];
-    if (trem.length) p.tremulant = trem;
+    // also when none is on: applying the preset then turns them off
+    if (this.trems.length) p.tremulant = trem;
     const forte = this.divisions().filter((d) => d.forteIsOn()).map((d) => d.name);
     if (forte.length) p.forte = forte;
     return p;

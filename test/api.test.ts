@@ -65,6 +65,21 @@ describe('MIDI files', () => {
     expect(synth.instruments()).toEqual([flute]);
   });
 
+  test('a file ending with the pedal down or a note held leaves nothing on an instrument passed in', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const flute = synth.add('flute');
+    // pedal down, a note without its note-off, a bend
+    const file = midiFile([[0, 0xb0, 64, 127], [0, 0xe0, 0, 0x50], [0, 0x90, 67, 100], [240, 0x90, 60, 100], [240, 0x80, 60, 0]]);
+    synth.renderMidi(file, { instrument: flute, tail: 0.2 });
+    synth.render(3);
+    expect(synth.activeVoices).toBe(0);
+    flute.play('C4', { duration: 0.1 });
+    synth.render(0.5);
+    synth.render(3);
+    expect(synth.activeVoices).toBe(0); // the pedal is up: the note ends
+    synth.close();
+  });
+
   test('speed, tail and transpose are checked', () => {
     const synth = new Synth({ sampleRate: 22050 });
     const file = midiFile([[0, 0x90, 60, 100], [480, 0x80, 60, 0]]);
@@ -467,5 +482,66 @@ describe('synth settings', () => {
     synth.set({ reverb: 'room' });
     piano.preset('concert'); // the room was set by hand
     expect(rooms()).toEqual(['hall', 'concert-hall', 'studio', 'room']);
+  });
+});
+
+describe('idle()', () => {
+  test('resolves once what was played has played out, reverb tail included', async () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: 'room' });
+    try {
+      await synth.idle(); // no output: at once
+      const flute = synth.add('flute');
+      const out = fakeOutput(synth);
+      try {
+        const t0 = synth.currentTime;
+        flute.play('A4', { duration: 0.5, delay: 0.2 });
+        await synth.idle();
+        expect(synth.currentTime - t0).toBeGreaterThan(0.7);
+        expect(synth.activeVoices).toBe(0);
+        // a held note keeps it waiting until it is released
+        flute.noteOn('C5');
+        let done = false;
+        const waiting = synth.idle().then(() => (done = true));
+        await sleep(300);
+        expect(done).toBe(false);
+        flute.noteOff('C5');
+        await waiting;
+        // stopping output settles a wait
+        flute.noteOn('D5');
+        const stopped = synth.idle();
+        out.stop();
+        await stopped;
+      } finally {
+        out.done();
+      }
+    } finally {
+      synth.close();
+    }
+  });
+});
+
+describe('checked before anything is sent', () => {
+  test('parameters outside their range throw and change nothing', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const piano = synth.add('grand-piano');
+    expect(() => piano.set({ maxPartials: -5 })).toThrow(/maxPartials/);
+    expect(() => piano.set({ reverbSend: 7 })).toThrow(/reverbSend/);
+    expect(() => piano.set({ brightness: 1, drive: 0 })).toThrow(/drive/);
+    expect(() => piano.set({ mono: 1 as unknown as boolean })).toThrow(/mono/);
+    expect(piano.parameters()).toEqual({});
+    expect(() => synth.add('flute', { parameters: { release: 0 } })).toThrow(SupersynthError);
+    piano.set({ brightness: 24, pan: -1 });
+    synth.close();
+  });
+
+  test('synth.set() refuses a bad setting without applying the others', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const calls = spy(synth, ['setMasterParam', 'setReverbPreset']);
+    expect(() => synth.set({ volume: 0.2, releaseCulling: { floorDb: -80, hold: 'slow' as 'peak' } })).toThrow(/hold/);
+    expect(() => synth.set({ volume: 0.2, reverb: 'garage' as 'hall' })).toThrow(/reverb preset/);
+    expect(() => synth.set({ volume: 2 })).toThrow(/volume/);
+    expect(calls).toEqual([]);
+    expect(() => new Synth({ quality: 'ultra' as 'high' })).toThrow(/quality/);
+    synth.close();
   });
 });

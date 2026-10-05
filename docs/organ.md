@@ -1,9 +1,9 @@
 # The church organ
 
-`synth.add('burea')` adds a real church organ: the **Bureå Church organ** (Nils Hammarberg,
+`synth.add('burea')` adds a model of a real church organ: the **Bureå Church organ** (Nils Hammarberg,
 1967, Sweden), every pipe of 40 stops analysed from Lars Palo's GrandOrgue sample set (CC BY-SA).
-Pipes keep their own tuning and voicing, stops keep their natural balance, and the pipes carry
-the church acoustic they were recorded in.
+Each pipe keeps its recorded tuning and level, and the recordings include the church's
+acoustic.
 
 Each organ's models are an npm package of their own (only the VCSL organ ships with supersynth):
 
@@ -33,7 +33,7 @@ organ.swell.unison(false);                      // unison off: only the octave c
 organ.pedal.uncouple('great');
 organ.swell.expression(0.5);                    // swell pedal
 organ.set({ tremulant: true });                 // every tremulant; or { swell: true }
-organ.set({ noises: true });                    // blower, room, key and stop action
+organ.set({ noises: true });                    // blower, room, key and stop action (organs that recorded them, see Noises)
 ```
 
 Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
@@ -50,15 +50,16 @@ Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
 | `forte(on)` | a harmonium's Forte: stops with a forte recording play it |
 | `set({ stops, couple, unison, forte })` | replace the stops drawn and/or the couplers as a whole (`[]` for none) |
 | `stops()`, `drawn()`, `coupled()`, `unisonOn()`, `forteIsOn()` | the division's stops, those drawn, its couplers |
+| `name` | `'great'`, `'swell'`, `'positive'` or `'pedal'` |
 
 | Organ | |
 |---|---|
 | `great`, `swell`, `positive`, `pedal`, `divisions()`, `division(name)` | the keyboards |
 | `preset(name \| preset)`, `presets()`, `savePreset(name, preset?)`, `current()`, `activePreset()` | presets, as on an instrument |
-| `set({ tremulant, wind, noises })` | the tremulants (`true`, or by division: `{ swell: true }`); how much the wind sags when many pipes start (0 steady – 1 flexible); the machinery noises |
+| `set({ tremulant, wind, noises })` | the tremulants (`true`, or by division: `{ swell: true }`); how much the wind sags when many pipes start (0 … 4: 0 steady, 1 flexible); the machinery noises |
 | `tremulants()`, `noisesOn()` | the tremulants and whether each is on; which noises are on (`{ blower, ambient, action }`) |
 | `midi(channels, { presets })` | play it from MIDI keyboards |
-| `allNotesOff()`, `stops()`, `definition` | |
+| `allNotesOff()`, `stops()`, `definition`, `synth` | |
 | `ready` | a promise: every model the organ loads in the background is loaded (see [Loading](#loading)) |
 
 Every change takes `{ at }` or `{ delay }` last, like a note, so registration changes can be
@@ -69,9 +70,9 @@ file. A pipe reached from two keyboards (or, through an octave coupler, two keys
 once, until both keys are up. As on a real organ they are not transitive: with Swell to Great
 and Great to Pedal, the pedal plays the great's stops but not the swell's.
 
-Pipes speak as recorded: each key's pipes start after a short random delay (`speech`, up to
-10 ms, different for every pipe and note, as the tracker action and the pipe feet of a real
-organ make them), so unison stops beat and blend instead of starting in lockstep. Where a sample
+Pipes start with their recorded attack, after a short random delay (`speech`, up to 10 ms,
+different for every pipe and note, as the tracker action and the pipe feet of a real organ
+make them), so unison stops beat and blend instead of starting in lockstep. Where a sample
 set recorded a pipe's release after short key presses too (most of Piotr Grabowski's do, after
 0.1–0.6 s), a staccato note ends with that release: the room has not filled yet and the pipe
 had not reached full speech.
@@ -178,13 +179,14 @@ organ.midi({ great: 1, swell: 2, pedal: 3 }, { presets: ['flutes', 'principal-ch
 ```
 
 Each division plays its MIDI channel straight in the engine (no JavaScript in the note path),
-couplers included; CC 11 on a division's channel is its swell pedal. Program change *n* on any of
-the organ's channels selects the *n*-th preset of `presets` (default: all presets, in the order
-of `organ.presets()`; `false` ignores program changes). The preset names are checked when
-`midi()` is called; a preset that cannot be applied when its program change arrives is emitted
-as the synth's `'error'` event if it has listeners, and ignored otherwise (it never throws out of
-the MIDI callback). Calling `midi()` again replaces the organ's channels. MIDI files play an organ with
-`synth.renderMidi(file, { channels: { 1: organ.great, 2: organ.pedal } })`.
+couplers included; CC 11 on a division's channel is its swell pedal. A program change on any of
+the organ's channels selects a preset of `presets`: program 0 the first, 1 the second, …
+(default: all presets, in the order of `organ.presets()`; `false` ignores program changes). The
+preset names are checked when `midi()` is called; a preset that cannot be applied when its
+program change arrives is emitted as the synth's `'error'` event if it has listeners, and
+ignored otherwise (it never throws out of the MIDI callback). Calling `midi()` again replaces
+the organ's channels. MIDI files play an organ with `synth.renderMidi(file, { channels: { 1:
+organ.great, 2: organ.pedal } })`.
 
 ## A second organ: the VCSL church organ
 
@@ -236,9 +238,10 @@ NOTICE.md.
 
 Each organ is a plain `OrganDefinition` object: its stops, named presets, the placement of its
 divisions (stereo position, which one stands in a swell box and how far it closes), its
-tremulants, wind, speech, noises and reverb.
-The built-in organs are `ORGANS.burea` (`BUREA_ORGAN`) and `ORGANS.vcsl` (`VCSL_ORGAN`), exported
-from `supersynth` and from `supersynth/organs`; `synth.add` takes an id or any `OrganDefinition`:
+tremulants, wind, speech, noises and reverb. The built-in organs are `ORGANS.burea`
+(`BUREA_ORGAN`), `ORGANS.vcsl` (`VCSL_ORGAN`) and Piotr Grabowski's organs (`ORGANS.friesach`,
+`FRIESACH_ORGAN`, …; all of them in `PIOTR_ORGANS`), exported from `supersynth` and from
+`supersynth/organs`; `synth.add` takes an id or any `OrganDefinition`:
 
 ```ts
 import { BUREA_ORGAN, type OrganDefinition } from 'supersynth/organs';
@@ -282,8 +285,17 @@ then in the organ's package (`organ/friesach/…` in `@supersynth/organ-friesach
 shutters closed; the default box closes to −9 dB and −14 dB above ~700 Hz). `tremulant` is one
 tremulant or a list, each on a division or several (`{ division: ['great', 'pedal'], depth,
 pitch, rate }`). Optional fields default to `CHURCH_DIVISIONS` (great centre, swell right in its
-swell box, positive left, pedal centre), `SWELL_TREMULANT` and `ORGAN_DEFAULTS`. The rest of this page
-describes the Bureå organ.
+swell box, positive left, pedal centre), `SWELL_TREMULANT` and `ORGAN_DEFAULTS`.
+
+A stop also has a `family` (`'principal'`, `'flute'`, …), an optional `gain` (dB, for stops
+whose recordings were normalised separately) and `actionNoise` (`[on, off]`, the notes of its
+drawing and retiring noises in the stop-action model); a tremulant a `name` and `actionNoise`.
+`noises` lists the machinery models: `keys` (per division, `{ down, up }` models with a zone per
+key), `stops` (the stop-action model), `coupler` (`[on, off]` notes in it), `blower` and
+`ambient` (`{ model, note? }`) and `gain` (dB). `reverb` is the room the synth picks for the
+organ when its reverb is automatic (default `'church'`) and `reverbSend` each division's send
+into it (default 0.07: the pipes carry their own church). The rest of this page describes the
+Bureå organ.
 
 ## Stops
 

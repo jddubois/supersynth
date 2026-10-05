@@ -17,7 +17,8 @@ type WithoutTime<T> = T extends unknown ? Omit<T, 'time'> : never;
 export interface MidiFileData {
   /** Events sorted by time (seconds from the start). */
   events: MidiFileEvent[];
-  /** Time of the last event, seconds. */
+  /** Time of the last note, controller, pitch bend or program change, seconds (tempo changes
+   *  and the end of the tracks after it do not count). */
   duration: number;
   tracks: number;
   /** Track names (from meta events), by track index. */
@@ -174,13 +175,13 @@ export function parseMidiFile(data: Uint8Array): MidiFileData {
     p = end;
     limit = data.length;
   }
-  // note-offs before note-ons at the same tick so re-struck notes are not cut
-  raw.sort((a, b) => a.tick - b.tick || rank(a) - rank(b) || a.order - b.order);
+  raw.sort((a, b) => a.tick - b.tick || a.order - b.order);
+  const ordered = orderTicks(raw);
   const events: MidiFileEvent[] = [];
   let usPerBeat = 500000;
   let lastTick = 0;
   let time = 0;
-  for (const r of raw) {
+  for (const r of ordered) {
     time += ((r.tick - lastTick) * usPerBeat) / tpb / 1e6;
     lastTick = r.tick;
     if (r.ev.type === 'tempo') {
@@ -189,9 +190,46 @@ export function parseMidiFile(data: Uint8Array): MidiFileData {
     }
     events.push({ ...(r.ev as WithoutTime<MidiFileEvent>), time } as MidiFileEvent);
   }
-  return { events, duration: time, tracks: ntracks, trackNames, ticksPerBeat: tpb };
+  const duration = events.length > 0 ? events[events.length - 1]!.time : 0;
+  return { events, duration, tracks: ntracks, trackNames, ticksPerBeat: tpb };
 }
 
-function rank(r: { ev: { type: string } }): number {
-  return r.ev.type === 'tempo' ? 0 : r.ev.type === 'noteOff' ? 1 : r.ev.type === 'noteOn' ? 3 : 2;
+/**
+ * Order the events of each tick (given sorted by tick, then file order): tempo changes first,
+ * then the note-offs that end a note sounding before this tick (so a note re-struck at the
+ * same tick is not cut), then controllers and the like, then notes. A note-off for a note that
+ * starts at this tick (a zero-length note) stays after its note-on.
+ */
+function orderTicks<R extends { tick: number; ev: { type: string; channel?: number; note?: number } }>(raw: R[]): R[] {
+  const sounding = new Map<number, number>(); // (channel, note) → notes on
+  const keyOf = (ev: R['ev']) => ev.channel! * 128 + ev.note!;
+  const out: R[] = [];
+  for (let i = 0; i < raw.length; ) {
+    let j = i;
+    while (j < raw.length && raw[j]!.tick === raw[i]!.tick) j++;
+    const group = raw.slice(i, j);
+    const ends = new Set<R>();
+    for (const r of group) {
+      if (r.ev.type !== 'noteOff') continue;
+      const n = sounding.get(keyOf(r.ev)) ?? 0;
+      if (n > 0) {
+        sounding.set(keyOf(r.ev), n - 1);
+        ends.add(r);
+      }
+    }
+    const rank = (r: R) => (r.ev.type === 'tempo' ? 0 : ends.has(r) ? 1 : r.ev.type === 'noteOn' || r.ev.type === 'noteOff' ? 3 : 2);
+    // a stable sort: file order within a rank
+    const sorted = group.map((r, k) => [r, k] as const).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([r]) => r);
+    for (const r of sorted) {
+      out.push(r);
+      if (ends.has(r)) continue;
+      if (r.ev.type === 'noteOn') sounding.set(keyOf(r.ev), (sounding.get(keyOf(r.ev)) ?? 0) + 1);
+      else if (r.ev.type === 'noteOff') {
+        const n = sounding.get(keyOf(r.ev)) ?? 0;
+        if (n > 0) sounding.set(keyOf(r.ev), n - 1);
+      }
+    }
+    i = j;
+  }
+  return out;
 }
