@@ -79,6 +79,25 @@ describe('Synth offline rendering', () => {
     expect(() => new Synth({ threads: 0 })).toThrow(SupersynthError);
   });
 
+  test('release culling is off by default and ends quiet tails early when asked', () => {
+    const voicesAfterRelease = (releaseCulling?: { floorDb: number }) => {
+      const synth = new Synth({ sampleRate: 48000, ...(releaseCulling ? { releaseCulling } : {}) });
+      const organ = synth.add('burea', { preset: 'plenum' });
+      organ.great.play(['C3', 'E3', 'G3', 'C4'], { duration: 0.5 });
+      synth.render(2);
+      const v = synth.activeVoices;
+      synth.close();
+      return v;
+    };
+    const full = voicesAfterRelease();
+    expect(full).toBeGreaterThan(0);
+    expect(voicesAfterRelease({ floorDb: -60 })).toBeLessThan(full);
+    const synth = new Synth({ sampleRate: 48000 });
+    expect(() => synth.set({ releaseCulling: { floorDb: Number.NaN } })).toThrow(SupersynthError);
+    synth.set({ releaseCulling: false });
+    synth.close();
+  });
+
   test('many notes are limited below full scale', () => {
     const synth = new Synth({ sampleRate: 48000, volume: 1 });
     const p = synth.add('strings');

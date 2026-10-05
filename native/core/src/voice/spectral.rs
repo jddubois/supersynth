@@ -2051,6 +2051,14 @@ impl SpectralVoice {
         self.pulse_len
     }
 
+    /// Estimate of the voice's output level (dB of its own scale): the sum of its partials'
+    /// amplitudes at the end of the last block, or its loudest noise band if that is louder.
+    pub fn output_level_db(&self) -> f32 {
+        let k = self.k;
+        let a: f32 = self.gl[..k].iter().zip(&self.gr[..k]).map(|(l, r)| l.abs().max(r.abs())).sum();
+        (20.0 * a.max(1e-10).log10()).max(self.noise_peak_db)
+    }
+
     /// Partials (oscillators) of the current note.
     pub fn partials(&self) -> usize {
         self.k

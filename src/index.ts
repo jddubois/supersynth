@@ -1,5 +1,5 @@
 export { Synth } from './Synth.js';
-export type { SynthOptions, SynthSettings, MidiFileOptions, MidiTarget, AudioBackend } from './Synth.js';
+export type { SynthOptions, SynthSettings, ReleaseCulling, MidiFileOptions, MidiTarget, AudioBackend } from './Synth.js';
 export { Instrument } from './Instrument.js';
 export type { InstrumentOptions } from './Instrument.js';
 export { Organ, Division } from './Organ.js';

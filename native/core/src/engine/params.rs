@@ -189,6 +189,15 @@ pub enum MasterParam {
     ReverbLowCut,
     ReverbHighCut,
     ReverbModulation,
+    /// Retire a released voice once its output falls below this level (dBFS). The engine
+    /// already lets voices end at about −110 dB of their own scale; this is an opt-in, lower-
+    /// quality setting for slow machines (−200 = off, the default).
+    ReleaseFloor,
+    /// Retire a released voice once it is this many dB below the (smoothed) output and below
+    /// `ReleaseBelowMixFloor` (0 = off, the default): tails under the music are cut, tails in
+    /// pauses and at the end survive.
+    ReleaseBelowMix,
+    ReleaseBelowMixFloor,
 }
 
 impl MasterParam {
@@ -207,6 +216,9 @@ impl MasterParam {
         ("reverbLowCut", MasterParam::ReverbLowCut),
         ("reverbHighCut", MasterParam::ReverbHighCut),
         ("reverbModulation", MasterParam::ReverbModulation),
+        ("releaseFloor", MasterParam::ReleaseFloor),
+        ("releaseBelowMix", MasterParam::ReleaseBelowMix),
+        ("releaseBelowMixFloor", MasterParam::ReleaseBelowMixFloor),
     ];
 
     pub fn parse(name: &str) -> Option<MasterParam> {
@@ -219,6 +231,8 @@ impl MasterParam {
         let (lo, hi) = match self {
             MasterParam::Volume | MasterParam::ReverbReturn => (-120.0, 24.0),
             MasterParam::Ceiling => (-40.0, 0.0),
+            MasterParam::ReleaseFloor | MasterParam::ReleaseBelowMixFloor => (-200.0, 0.0),
+            MasterParam::ReleaseBelowMix => (0.0, 200.0),
             _ => (f32::MIN, f32::MAX),
         };
         v.is_finite().then(|| v.clamp(lo, hi))

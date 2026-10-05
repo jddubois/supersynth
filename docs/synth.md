@@ -45,6 +45,7 @@ Six rules hold everywhere:
 | `maxVoices` | `1024` | quietest/oldest voices are stolen beyond this (about 85 kB each; a full organ plenum playing a fast piece keeps several hundred pipes sounding in their release) |
 | `bufferSize` | device default | frames per audio callback |
 | `threads` | `'auto'` | CPU cores rendering audio, the audio thread included (1–16); `'auto'`: one per core but one, at most 8 (3 on a Raspberry Pi 5). Voices, and then the parts' effects, are shared out over the cores; the sound is bit-for-bit the same for any number. Offline `render()` uses them too |
+| `releaseCulling` | `false` | opt-in for machines too slow for a large organ: `{ floorDb?, belowMixDb?, belowMixFloorDb? }` ends notes in their release once quiet (below `floorDb` dBFS, or `belowMixDb` below the current output and below `belowMixFloorDb`, default −100). Off, every recorded tail plays out in full. Also with `synth.set({ releaseCulling })`. BWV 532 on the Friesach plenum: `floorDb: -80` halves the voices, band levels change by ≤ 1.8 dB; on smaller organs it saves less and can change single bands of the room tail by 15 dB or more |
 | `modelsDirectory` | none | a directory searched first for `.ssm` models, laid out like `models/` (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`); then supersynth's own models and the installed organ packages |
 
 | Method | |

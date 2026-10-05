@@ -579,6 +579,14 @@ pub struct Engine {
     vtr_on: Vec<bool>,
     /// offset given to voices started now (see `render_planar`)
     start_offset: usize,
+    /// Opt-in release culling (see [`MasterParam::ReleaseFloor`]): absolute floor (dBFS, −200
+    /// = off), distance below the output level (dB, 0 = off) and that rule's floor; the
+    /// output level (dBFS, power, instant attack and 0.5 s release), and voices retired so far.
+    release_floor_db: f32,
+    below_mix_db: f32,
+    below_mix_floor_db: f32,
+    mix_level_db: f32,
+    pub culled: u64,
     /// free voice slots, highest first (rebuilt after every block: voices end while rendering)
     free: Vec<u32>,
     /// split blocks at engine-scheduled starts too, as earlier versions did (for comparisons:
@@ -651,6 +659,11 @@ impl Engine {
             vtr: vec![[[0.0; BLOCK]; 2]; slots],
             vtr_on: vec![false; slots],
             start_offset: 0,
+            release_floor_db: -200.0,
+            below_mix_db: 0.0,
+            below_mix_floor_db: -100.0,
+            mix_level_db: -200.0,
+            culled: 0,
             free: (0..slots as u32).rev().collect(),
             split_starts: std::env::var_os("SUPERSYNTH_SPLIT_STARTS").is_some_and(|v| v == "1"),
             order: Vec::with_capacity(slots),
@@ -1543,8 +1556,11 @@ impl Engine {
             ReverbLowCut => rp.low_cut_hz = v,
             ReverbHighCut => rp.high_cut_hz = v,
             ReverbModulation => rp.modulation = v,
+            ReleaseFloor => self.release_floor_db = v,
+            ReleaseBelowMix => self.below_mix_db = v,
+            ReleaseBelowMixFloor => self.below_mix_floor_db = v,
         }
-        if !matches!(param, Volume | Ceiling | ReverbReturn) {
+        if !matches!(param, Volume | Ceiling | ReverbReturn | ReleaseFloor | ReleaseBelowMix | ReleaseBelowMixFloor) {
             self.reverb.set_params(rp);
         }
     }
@@ -1717,6 +1733,10 @@ impl Engine {
             }
         }
 
+        if self.release_floor_db > -199.0 || self.below_mix_db > 0.0 {
+            self.cull_releases();
+        }
+
         // ── mix, in part order ───────────────────────────────────────────────
         self.mix_l[..n].fill(0.0);
         self.mix_r[..n].fill(0.0);
@@ -1782,7 +1802,32 @@ impl Engine {
             pk = pk.max(out_l[i].abs()).max(out_r[i].abs());
         }
         self.peak = pk;
+        if self.release_floor_db > -199.0 || self.below_mix_db > 0.0 {
+            let p = out_l.iter().chain(out_r.iter()).map(|x| x * x).sum::<f32>() / (2 * n).max(1) as f32;
+            let db = 10.0 * p.max(1e-20).log10();
+            let a = 1.0 - (-(n as f32) / (0.5 * self.sr)).exp();
+            self.mix_level_db = if db > self.mix_level_db { db } else { self.mix_level_db + (db - self.mix_level_db) * a };
+        }
         self.collect_free();
+    }
+
+    /// Opt-in: retire (with the 4 ms steal fade) released voices whose output is below the
+    /// release floor, or far below the output and below that rule's floor.
+    fn cull_releases(&mut self) {
+        let master = self.master_db;
+        for &vi in &self.order {
+            let v = &mut self.voices[vi as usize];
+            if !v.is_active() || !v.is_released() || v.is_killing() {
+                continue;
+            }
+            let level = v.output_level_db() + self.parts[v.part].volume_db + master;
+            let below_floor = level < self.release_floor_db;
+            let masked = self.below_mix_db > 0.0 && level < self.mix_level_db - self.below_mix_db && level < self.below_mix_floor_db;
+            if below_floor || masked {
+                v.kill();
+                self.culled += 1;
+            }
+        }
     }
 
     fn collect_free(&mut self) {
