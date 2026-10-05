@@ -36,3 +36,15 @@ used by the `.ts` render helpers here.
 them set, `build.py` refuses to write into the committed model locations unless it has an
 output directory (`--out DIR` / `SSM_OUT_DIR`) or `--force` (`SSM_FORCE=1`); the model header
 records the active flags under `build.flags`.
+
+## Lost recordings
+
+A recording whose analysis fails, or whose measured pitch is far from its nominal note, does
+not become a zone. `build.py` prints every such recording with the reason and records them in
+the header (`build.lost`). The build fails when
+
+- a key in the *middle* of a layer's range is lost — every recorded key except the lowest and
+  highest 10 % (at least one at each end) — and no other recording of that key and layer
+  survives: the neighbouring zones would be pitch-shifted across the gap. Losing an edge key
+  only narrows the range. Accept with `--allow-gaps` (`SSM_ALLOW_GAPS=1`);
+- more than 8 % of all recordings are lost: `--max-failed 0.2` (`SSM_MAX_FAILED`) changes that.
