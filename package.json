@@ -44,6 +44,7 @@
     "test:unit": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.js test/unit",
     "test:rust": "cd native && cargo test --release --workspace",
     "bench": "node --import tsx bench/engine.bench.ts",
+    "live-test": "node --import tsx bench/live.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "example:tour": "node --import tsx examples/tour.ts",
     "example:piano": "node --import tsx examples/piano.ts",
