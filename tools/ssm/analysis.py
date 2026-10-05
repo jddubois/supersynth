@@ -30,7 +30,12 @@ from scipy import ndimage, signal
 NOTE_RE = re.compile(r'(?<![A-Za-z])([A-Ga-g])([#b]?)(-?\d)(?![0-9])')
 NOTE_OFFSETS = {'c': 0, 'd': 2, 'e': 4, 'f': 5, 'g': 7, 'a': 9, 'b': 11}
 
-# Shared noise band edges (Hz). 28 bands, roughly third-octave above 200 Hz.
+# Shared noise band edges (Hz): 31 edges, 30 bands, roughly third-octave above 200 Hz. They are
+# part of the model (header noiseEdges, rendered band by band by the engine): keep the count.
+# The top edge is the Nyquist frequency of 44.1 kHz recordings. Higher-rate recordings: the
+# residual above 22050 Hz is not modelled. Lower-rate recordings: bands that start at or above
+# their Nyquist frequency are silent (-140 dB, see analyze_zone), and the band that straddles it
+# holds only the power measured below it (nothing is invented above the recording's bandwidth).
 NOISE_EDGES = np.array([
     20, 60, 100, 150, 200, 260, 330, 420, 530, 670, 840, 1060, 1330, 1680,
     2120, 2660, 3350, 4220, 5310, 6680, 8410, 10000, 11900, 13500, 15000,
@@ -302,7 +307,10 @@ def estimate_f0(x: np.ndarray, sr: int, nominal_hz: float, t0: float, t1: float,
     a, b = int(t0 * sr), int(t1 * sr)
     seg = x[a:b]
     if len(seg) < 2048:
-        seg = x[:max(len(x), 2048)]
+        # too short a steady segment (a short recording): a 2048-sample window from the analysis
+        # point, moved back to end with the recording if need be (all of it if shorter still)
+        s = max(0, min(a, len(x) - 2048))
+        seg = x[s:s + 2048]
     nfft = 1 << int(math.ceil(math.log2(max(len(seg) * 4, 1 << 16))))
     w = np.blackman(len(seg))
     mag = np.abs(np.fft.rfft(seg * w, nfft))
@@ -355,11 +363,35 @@ def estimate_f0(x: np.ndarray, sr: int, nominal_hz: float, t0: float, t1: float,
     return float(best)
 
 
+def stable_segment(x: np.ndarray, sr: int, n: int, skip_s: float = 0.03, range_db: float = 30.0) -> np.ndarray:
+    """The n samples of `x` after its attack (the level peak, plus `skip_s`) whose level varies
+    least, among stretches within `range_db` of the peak level (a quiet tail is steady too, but
+    it is noise). Falls back to the latest stretch that fits, or all of `x` if it is shorter."""
+    if len(x) <= n:
+        return x
+    hop = max(1, int(0.005 * sr))
+    w = max(hop, int(0.01 * sr))
+    env = 10 * np.log10(np.convolve(x * x, np.ones(w) / w, mode='same')[::hop] + 1e-20)
+    nf = max(1, n // hop)
+    last = len(x) - n
+    first = min(int(np.argmax(env)) * hop + int(skip_s * sr), last)
+    best, best_sd = last, None
+    for s in range(first, last + 1, hop):
+        e = env[s // hop:s // hop + nf]
+        if len(e) == 0 or e.mean() < env.max() - range_db:
+            continue
+        sd = float(e.std())
+        if best_sd is None or sd < best_sd:
+            best, best_sd = s, sd
+    return x[best:best + n]
+
+
 def comb_fit(x, sr, f0, t0, t1, K, max_B):
     """(f0, B, per-partial ratios) from a long, low-leakage spectrum of the steady part."""
     seg = x[int(t0 * sr):int(t1 * sr)]
     if len(seg) < int(0.1 * sr):
-        seg = x[:max(int(0.1 * sr), len(seg))]
+        # (not the first 0.1 s: that is the attack — hammer, pluck — not the partials' comb)
+        seg = stable_segment(x, sr, int(0.1 * sr))
     nfft = 1 << int(math.ceil(math.log2(len(seg) * 4)))
     spec = np.abs(np.fft.rfft(seg * signal.get_window('blackmanharris', len(seg)), nfft))
     ldb = 20 * np.log10(spec + 1e-12)
