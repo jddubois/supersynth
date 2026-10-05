@@ -247,13 +247,14 @@ def noise_zone(x: np.ndarray, sr: int, note: float, *, sustained: bool = False, 
         loop = (a, b)
         keep = np.arange(b + 2)
         if cue:
-            r = int(np.searchsorted(grid, end_t - 0.02))
+            r = max(int(np.searchsorted(grid, end_t - 0.02)), b + 3)   # after the frames kept for the loop
             alive = np.where((np.arange(len(grid)) > r) & (tot < tot.max() - TAIL_DB))[0]
             end = int(alive[0]) + 1 if len(alive) else len(grid)
             if end - r >= 8:
                 keep = np.concatenate([np.arange(b + 3), np.arange(r, end)])
                 rel_frame = b + 3
         grid, noise_db = grid[keep], noise_db[keep]
+        assert np.all(np.diff(grid) > 0), 'noise zone frames out of order'
     else:
         alive = np.where(tot > tot.max() - TAIL_DB)[0]
         T = max(8, int(alive[-1]) + 2 if len(alive) else len(grid))
