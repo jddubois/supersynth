@@ -1,12 +1,9 @@
-// Where `.ssm` models are found. The core instruments ship in supersynth's own `models/`; each
-// organ sample set ships in its own npm package (`@supersynth/organ-<id>`), with the same tree
-// under the package's `models/` (`organ/<id>/<stop>.ssm`, the Bureå organ `organ/<stop>.ssm`).
-import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import path from 'node:path';
-
-import { SupersynthError } from './errors.js';
-import { packageRoot } from './native.js';
+// Which `.ssm` models there are, and where they ship. The core instruments ship in supersynth's
+// own `models/`; each organ sample set ships in its own npm package (`@supersynth/organ-<id>`),
+// with the same tree under the package's `models/` (`organ/<id>/<stop>.ssm`, the Bureå organ
+// `organ/<stop>.ssm`). Finding them is the platform's: files in Node.js
+// (`platform/node-models.ts`), URLs in a browser (`platform/browser.ts`).
+import type { InstrumentDefinition } from './catalog/types.js';
 
 /** @internal Organs whose models are in a package of their own (`@supersynth/organ-<id>`). */
 export const ORGAN_MODEL_PACKAGES = [
@@ -41,66 +38,6 @@ export function modelPackage(name: string): { organ: string; pkg: string } | und
   return { organ, pkg: `@supersynth/organ-${organ}` };
 }
 
-/** @internal Finds the directory of an installed package, or `undefined`. */
-export type PackageFinder = (pkg: string) => string | undefined;
-
-const packageDirs = new Map<string, string>();
-
-/** @internal The directory of an installed model package: resolved from supersynth itself, then
- *  from the working directory (linked or global installs), then — in a git clone — from the
- *  workspace folder `packages/organ-<id>`. */
-export const findPackageDir: PackageFinder = (pkg) => {
-  const cached = packageDirs.get(pkg);
-  if (cached) return cached;
-  const from = [import.meta.url, path.join(process.cwd(), 'index.js')];
-  let dir: string | undefined;
-  for (const base of from) {
-    try {
-      dir = path.dirname(createRequire(base).resolve(`${pkg}/package.json`));
-      break;
-    } catch {
-      // not resolvable from there
-    }
-  }
-  if (!dir) {
-    const workspace = path.join(packageRoot(), 'packages', pkg.replace(/^@supersynth\//, ''));
-    if (existsSync(path.join(workspace, 'package.json'))) dir = workspace;
-  }
-  if (dir) packageDirs.set(pkg, dir);
-  return dir;
-};
-
-/**
- * @internal The file of a model (`grand-piano`, `organ/friesach/great-principal-8`, …). Searched
- * in order: `modelsDirectory` and `$SUPERSYNTH_MODELS_DIR` (each the whole tree:
- * `<dir>/organ/friesach/great-principal-8.ssm`), supersynth's own `models/`, then the
- * organ's package. Throws a {@link SupersynthError} naming the package to install when an organ's
- * package is missing.
- */
-export function resolveModelFile(name: string, modelsDirectory?: string, findPackage: PackageFinder = findPackageDir): string {
-  const file = `${name}.ssm`;
-  const dirs = [modelsDirectory, process.env.SUPERSYNTH_MODELS_DIR, path.join(packageRoot(), 'models')];
-  const tried: string[] = [];
-  for (const dir of dirs) {
-    if (!dir) continue;
-    const candidate = path.resolve(dir, file);
-    if (existsSync(candidate)) return candidate;
-    tried.push(candidate);
-  }
-  const owner = modelPackage(name);
-  if (owner) {
-    const dir = findPackage(owner.pkg);
-    if (!dir) throw new SupersynthError(`The organ '${owner.organ}' needs its models: npm install ${owner.pkg}`);
-    const candidate = path.join(dir, 'models', file);
-    if (existsSync(candidate)) return candidate;
-    tried.push(candidate);
-    throw new SupersynthError(
-      `Model '${name}' is not in ${owner.pkg} (${dir}); install the version of ${owner.pkg} that matches supersynth. Looked in:\n  ${tried.join('\n  ')}`,
-    );
-  }
-  throw new SupersynthError(`Instrument model '${name}' not found. Looked in:\n  ${tried.join('\n  ')}`);
-}
-
 /** The models an organ definition names besides its stops' own: Forte models and machinery
  *  noises. */
 interface OrganModels {
@@ -129,10 +66,10 @@ export function organModels(organ: OrganModels): string[] {
   return [...names];
 }
 
-/**
- * @internal Checks that every model of an organ (stops, Forte, noises) is there, so a missing
- * organ package is reported by `synth.add()` before any channel is taken.
- */
-export function assertOrganModels(organ: OrganModels, modelsDirectory?: string): void {
-  for (const name of organModels(organ)) resolveModelFile(name, modelsDirectory);
+/** @internal Every model an instrument may load: its layers' and its presets'. */
+export function instrumentModels(def: Pick<InstrumentDefinition, 'layers' | 'presets'>): string[] {
+  const names = new Set<string>();
+  for (const l of def.layers) names.add(l.model);
+  for (const p of Object.values(def.presets ?? {})) for (const l of p.layers ?? []) names.add(l.model);
+  return [...names];
 }

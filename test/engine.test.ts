@@ -8,7 +8,7 @@ import {
 import * as instrumentConfigs from '../src/catalog/index.js';
 import { BUREA_ORGAN, ORGANS, PIOTR_ORGANS } from '../src/organs/index.js';
 import { stopModel } from '../src/Organ.js';
-import { resolveModelFile } from '../src/models.js';
+import { resolveModelFile } from '../src/platform/node-models.js';
 import { midiFile } from './smf.js';
 
 const peak = (a: Float32Array) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);

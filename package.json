@@ -23,10 +23,19 @@
     },
     "./package.json": "./package.json"
   },
+  "imports": {
+    "#platform": {
+      "types": "./dist/platform/node.d.ts",
+      "browser": "./dist/platform/browser.js",
+      "default": "./dist/platform/node.js"
+    },
+    "#wasm": "./wasm/supersynth.js"
+  },
   "files": [
     "dist",
     "src",
     "models",
+    "wasm",
     "NOTICE.md"
   ],
   "engines": {
@@ -38,11 +47,13 @@
   ],
   "scripts": {
     "build:native": "node scripts/build-native.mjs",
+    "build:wasm": "node scripts/build-wasm.mjs",
     "build:ts": "tsc -p tsconfig.build.json",
     "build": "npm run build:native && npm run build:ts",
     "test": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.js",
     "test:unit": "node --experimental-vm-modules node_modules/.bin/jest --config jest.config.js test/unit",
     "test:rust": "cd native && cargo test --release --workspace",
+    "test:browser": "node scripts/test-browser.mjs",
     "bench": "node --import tsx bench/engine.bench.ts",
     "live-test": "node --import tsx bench/live.ts",
     "bench:organs": "node --import tsx bench/organs.bench.ts",
@@ -53,6 +64,7 @@
     "example:organ": "node --import tsx examples/organ.ts",
     "example:orchestra": "node --import tsx examples/orchestra.ts",
     "example:midi": "node --import tsx examples/midi-file.ts examples/jsbwv532.mid",
+    "example:browser": "node examples/browser/serve.mjs",
     "demos": "node --import tsx examples/render-demos.ts",
     "models": "cd tools/ssm && python build_all.py",
     "version": "node scripts/sync-versions.mjs && git add npm package-lock.json",
@@ -86,8 +98,8 @@
     "url": "https://github.com/jddubois/supersynth/issues"
   },
   "peerDependencies": {
-    "@supersynth/organ-burea": "*",
     "@supersynth/organ-azzio": "*",
+    "@supersynth/organ-burea": "*",
     "@supersynth/organ-cracow": "*",
     "@supersynth/organ-dluga-koscielna": "*",
     "@supersynth/organ-friesach": "*",
@@ -154,17 +166,18 @@
     }
   },
   "optionalDependencies": {
+    "@supersynth/darwin-arm64": "0.3.0",
+    "@supersynth/darwin-x64": "0.3.0",
+    "@supersynth/linux-arm64-gnu": "0.3.0",
     "@supersynth/linux-x64-gnu": "0.3.0",
     "@supersynth/linux-x64-musl": "0.3.0",
-    "@supersynth/linux-arm64-gnu": "0.3.0",
-    "@supersynth/darwin-x64": "0.3.0",
-    "@supersynth/darwin-arm64": "0.3.0",
     "@supersynth/win32-x64-msvc": "0.3.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
     "@types/node": "^22.0.0",
     "jest": "^29.7.0",
+    "playwright-core": "^1.56.1",
     "ts-jest": "^29.3.0",
     "tsx": "^4.0.0",
     "typescript": "^5.8.0"

@@ -1,13 +1,12 @@
-import { EventEmitter } from 'node:events';
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { totalmem } from 'node:os';
+import { EventEmitter, platform } from '#platform';
+import type { Bytes } from './platform/platform.js';
 
 import { INSTRUMENTS, type InstrumentDefinition, type InstrumentId, type LayerDefinition } from './catalog/index.js';
 import { AbortError, AudioBackendError, MidiError, SupersynthError } from './errors.js';
 import { Instrument, type InstrumentOptions } from './Instrument.js';
 import { parseMidiFile, type MidiFileData, type MidiFileEvent } from './midifile.js';
-import { assertOrganModels, resolveModelFile } from './models.js';
-import { loadNative, type NativeEngine, type NativeLayer } from './native.js';
+import type { NativeEngine, NativeLayer } from './engine.js';
+import { instrumentModels, organModels } from './models.js';
 import type { ReverbOptions, ReverbPreset } from './parameters.js';
 import { defaultParameter, PARAMETER_NAMES, REVERB_FIELDS, toNativeParameter, type InstrumentParameters } from './parameters.js';
 import { Organ, type Division, type OrganOptions } from './Organ.js';
@@ -77,6 +76,9 @@ export interface SynthOptions extends Omit<SynthSettings, 'reverb'> {
   /** CPU/quality trade-off: partials per note up to 512 (`'high'`), 128 (`'balanced'`) or 32 (`'eco'`,
    *  for small boards such as a Raspberry Pi). @default 'high' */
   quality?: 'high' | 'balanced' | 'eco';
+  /** Browser: where the WebAssembly engine is, if not next to supersynth's `wasm/supersynth.js`
+   *  (read by the first {@link Synth.create}). */
+  wasmUrl?: string | URL;
 }
 
 export interface MidiFileOptions {
@@ -132,6 +134,23 @@ interface LoadedModel {
  * ```
  */
 export class Synth extends EventEmitter {
+  /**
+   * Create a synth, getting the platform ready first: in a browser this loads the WebAssembly
+   * engine (once), which `new Synth()` needs; in Node.js it is the same as `new Synth()`.
+   *
+   * ```ts
+   * const synth = await Synth.create();
+   * await synth.load('grand-piano');      // a browser downloads the models first
+   * const piano = synth.add('grand-piano');
+   * ```
+   */
+  static async create(options: SynthOptions = {}): Promise<Synth> {
+    await platform.prepare(options.wasmUrl === undefined ? {} : { wasmUrl: options.wasmUrl });
+    const synth = new Synth(options);
+    await synth.engine.ready?.();
+    return synth;
+  }
+
   private engine: NativeEngine;
   /** What owns each engine channel. */
   private slots: (Instrument | Organ | null)[] = new Array(32).fill(null);
@@ -152,10 +171,9 @@ export class Synth extends EventEmitter {
 
   constructor(options: SynthOptions = {}) {
     super();
-    const N = loadNative();
     const reverbPreset = typeof options.reverb === 'string' && options.reverb !== 'auto' ? options.reverb : 'hall';
     try {
-      this.engine = guardEngine(new N.SynthEngine({
+      this.engine = guardEngine(platform.createEngine({
         ...(options.sampleRate !== undefined ? { sampleRate: integer(options.sampleRate, 1, 1e7, 'sampleRate') } : {}),
         ...(options.backend ? { backend: options.backend } : {}),
         ...(options.maxVoices !== undefined ? { maxVoices: integer(options.maxVoices, 1, 1e6, 'maxVoices') } : {}),
@@ -230,7 +248,8 @@ export class Synth extends EventEmitter {
     this.checkOpen();
     const organ = typeof what === 'string' ? (ORGANS as Record<string, OrganDefinition>)[what] : 'stops' in what ? what : undefined;
     if (organ) {
-      assertOrganModels(organ, this.modelsDirectory); // a missing organ package fails before any channel is taken
+      // a missing organ package fails before any channel is taken
+      for (const name of organModels(organ)) platform.locateModel(name, this.modelsDirectory);
       const o = new Organ(this, organ, options as OrganOptions);
       this._suggestRoom(organ.reverb ?? ORGAN_DEFAULTS.reverb, o);
       return o;
@@ -239,6 +258,30 @@ export class Synth extends EventEmitter {
       throw new SupersynthError(`Unknown instrument '${what}'. Instruments: ${Object.keys(INSTRUMENTS).join(', ')}; organs: ${Object.keys(ORGANS).join(', ')}`);
     }
     return new Instrument(this, what as InstrumentId | InstrumentDefinition, options as InstrumentOptions);
+  }
+
+  /**
+   * Make the models of these instruments and organs available. A browser downloads them, which
+   * `add()` needs first (organs are large: 5–150 MB); in Node.js models are read from disk when
+   * used, so this only checks that they are installed.
+   *
+   * ```ts
+   * await synth.load('grand-piano', 'burea');
+   * ```
+   */
+  async load(...items: (InstrumentId | OrganId | InstrumentDefinition | OrganDefinition)[]): Promise<this> {
+    this.checkOpen();
+    const names = new Set<string>();
+    for (const what of items) {
+      const organ = typeof what === 'string' ? (ORGANS as Record<string, OrganDefinition>)[what] : 'stops' in what ? what : undefined;
+      const inst = organ ? undefined : typeof what === 'string' ? (INSTRUMENTS as Record<string, InstrumentDefinition>)[what] : (what as InstrumentDefinition);
+      if (!organ && !inst) {
+        throw new SupersynthError(`Unknown instrument '${String(what)}'. Instruments: ${Object.keys(INSTRUMENTS).join(', ')}; organs: ${Object.keys(ORGANS).join(', ')}`);
+      }
+      for (const name of organ ? organModels(organ) : instrumentModels(inst!)) names.add(name);
+    }
+    await platform.fetchModels([...names], this.modelsDirectory);
+    return this;
   }
 
   /** The instruments and organs added, in the order of their first channel. */
@@ -339,7 +382,7 @@ export class Synth extends EventEmitter {
   async start(): Promise<this> {
     this.checkOpen();
     try {
-      this.engine.start();
+      await this.engine.start();
     } catch (e) {
       throw new AudioBackendError(`Failed to start audio: ${(e as Error).message}`);
     }
@@ -519,7 +562,7 @@ export class Synth extends EventEmitter {
     const speed = positive(options.speed ?? 1, 'speed');
     const transpose = integer(options.transpose ?? 0, -127, 127, 'transpose');
     const tail = atLeast(options.tail ?? 3, 0, 'tail');
-    const bytes = typeof file === 'string' ? readFileSync(file) : file;
+    const bytes = typeof file === 'string' ? platform.readFile(file) : file;
     const raw = parseMidiFile(bytes);
     const midi: MidiFileData = speed === 1 ? raw : {
       ...raw,
@@ -596,7 +639,7 @@ export class Synth extends EventEmitter {
   async enableMidi(device?: string, options: { route?: boolean } = {}): Promise<this> {
     this.checkOpen();
     try {
-      this.engine.enableMidi(device ?? null, options.route ?? true, (raw: Buffer) => {
+      await this.engine.enableMidi(device ?? null, options.route ?? true, (raw: Uint8Array) => {
         this.emit('midi', parseMidiBytes(raw));
       });
     } catch (e) {
@@ -737,7 +780,7 @@ export class Synth extends EventEmitter {
     let m = this.models.get(name);
     if (!m) {
       // the engine parses the bytes into its own model, so they are not kept
-      m = { id: this.engine.loadModel(readFileSync(this._modelFile(name))), users: new Set() };
+      m = { id: this.engine.loadModel(platform.readModel(this._modelFile(name))), users: new Set() };
       this.models.set(name, m);
     }
     m.users.add(owner);
@@ -760,19 +803,17 @@ export class Synth extends EventEmitter {
     return ids;
   }
 
-  /** @internal The file of a model. */
+  /** @internal The file (Node.js) or URL (browser) of a model. */
   _modelFile(name: string): string {
-    const file = resolveModelFile(name, this.modelsDirectory);
-    if (!existsSync(file)) throw new SupersynthError(`Instrument model '${name}' not found at ${file}`);
-    return file;
+    return platform.locateModel(name, this.modelsDirectory);
   }
 
   /** @internal Preloading everything when these models would take at most a quarter of the
    *  machine's memory decoded (about 5 times their file size), else only a preset's. */
   _defaultPreload(names: Iterable<string>): 'all' | 'preset' {
     let bytes = 0;
-    for (const name of names) bytes += statSync(this._modelFile(name)).size;
-    return bytes * DECODED_PER_FILE_BYTE <= totalmem() / 4 ? 'all' : 'preset';
+    for (const name of names) bytes += platform.modelSize(this._modelFile(name));
+    return bytes * DECODED_PER_FILE_BYTE <= platform.memory() / 4 ? 'all' : 'preset';
   }
 
   /** @internal Decoded size of the models loaded so far, in bytes. */
@@ -845,7 +886,9 @@ function abortError(signal: AbortSignal): AbortError {
   return err;
 }
 
-function parseMidiBytes(raw: Buffer): MidiEvent {
+function parseMidiBytes(bytes: Uint8Array): MidiEvent {
+  // (a Buffer from the Node.js engine, a Uint8Array from a browser's)
+  const raw = bytes as Bytes;
   const status = raw[0] ?? 0;
   const kind = status & 0xf0;
   const channel = (status & 0x0f) + 1;

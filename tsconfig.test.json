@@ -1,10 +1,17 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["node", "jest"],
+    "types": [
+      "node",
+      "jest"
+    ],
     "noUncheckedIndexedAccess": false,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "rootDir": "."
   },
-  "include": ["src", "test"],
+  "include": [
+    "src",
+    "test"
+  ],
   "exclude": []
 }

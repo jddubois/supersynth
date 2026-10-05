@@ -130,7 +130,9 @@ export function parseMidiFile(data: Uint8Array): MidiFileData {
           const us = (data[p]! << 16) | (data[p + 1]! << 8) | data[p + 2]!;
           if (us > 0) raw.push({ tick, track: t, order: order++, ev: { type: 'tempo', usPerBeat: us } });
         } else if (mt === 0x03) {
-          trackNames[t] = Buffer.from(data.subarray(p, p + ml)).toString('latin1');
+          let name = ''; // latin1
+          for (let i = p; i < p + ml; i++) name += String.fromCharCode(data[i]!);
+          trackNames[t] = name;
         }
         p += ml;
         running = 0; // meta and sysex events cancel running status

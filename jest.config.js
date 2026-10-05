@@ -14,6 +14,8 @@ export default {
   },
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    '^#platform$': '<rootDir>/src/platform/node.ts',
+    '^#wasm$': '<rootDir>/wasm/supersynth.js',
   },
   testMatch: ['<rootDir>/test/**/*.test.ts'],
   collectCoverageFrom: ['src/**/*.ts'],

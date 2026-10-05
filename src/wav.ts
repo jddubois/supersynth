@@ -1,6 +1,7 @@
-import { writeFileSync } from 'node:fs';
+import { platform } from '#platform';
 
 import { SupersynthError } from './errors.js';
+import type { Bytes } from './platform/platform.js';
 
 /** Rendered stereo audio. */
 export interface AudioBuffer {
@@ -39,8 +40,9 @@ export interface WavOptions {
   dither?: boolean;
 }
 
-/** Encode audio as a WAV file. Integer samples are clipped to full scale. */
-export function encodeWav(audio: AudioBuffer, options: WavOptions = {}): Buffer {
+/** Encode audio as a WAV file (a Buffer in Node.js, a Uint8Array in a browser). Integer
+ *  samples are clipped to full scale. */
+export function encodeWav(audio: AudioBuffer, options: WavOptions = {}): Bytes {
   const bits = options.bitDepth ?? 16;
   if (bits !== 16 && bits !== 24 && bits !== 32) throw new SupersynthError(`bitDepth must be 16, 24 or 32, got ${String(bits)}`);
   const float = bits === 32;
@@ -52,11 +54,11 @@ export function encodeWav(audio: AudioBuffer, options: WavOptions = {}): Buffer 
   // fmt: 16 bytes for PCM; 18 (cbSize = 0) for IEEE float, which also needs a fact chunk
   const fmtLen = float ? 18 : 16;
   const headerLen = 12 + 8 + fmtLen + (float ? 12 : 0) + 8;
-  const buf = Buffer.alloc(headerLen + dataLen + pad);
+  const buf = platform.allocBytes(headerLen + dataLen + pad);
   const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   let o = 0;
   const tag = (s: string) => {
-    buf.write(s, o, 'ascii');
+    for (let i = 0; i < 4; i++) v.setUint8(o + i, s.charCodeAt(i));
     o += 4;
   };
   const u32 = (x: number) => {
@@ -116,7 +118,7 @@ export function encodeWav(audio: AudioBuffer, options: WavOptions = {}): Buffer 
   return buf; // a pad byte (0) follows odd-sized data
 }
 
-/** Write audio to a WAV file. */
+/** Write audio to a WAV file (Node.js; in a browser, {@link encodeWav} makes the file's bytes). */
 export function writeWav(path: string, audio: AudioBuffer, options: WavOptions = {}): void {
-  writeFileSync(path, encodeWav(audio, options));
+  platform.writeFile(path, encodeWav(audio, options));
 }

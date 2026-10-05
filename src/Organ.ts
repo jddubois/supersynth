@@ -1,5 +1,5 @@
 import { SupersynthError } from './errors.js';
-import type { NativeEngine, NativeLayer } from './native.js';
+import type { NativeEngine, NativeLayer } from './engine.js';
 import { noteNumber, type NoteLike } from './notes.js';
 import { CHURCH_DIVISIONS, ORGAN_DEFAULTS, SWELL_TREMULANT } from './organs/defaults.js';
 import { organModels } from './models.js';

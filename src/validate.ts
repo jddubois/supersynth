@@ -1,5 +1,5 @@
 import { SupersynthError } from './errors.js';
-import type { NativeEngine } from './native.js';
+import type { NativeEngine } from './engine.js';
 
 /** Events the engine's command queue holds before they are rendered (see `docs/synth.md`). */
 export const QUEUE_CAPACITY = 32768;

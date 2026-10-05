@@ -40,3 +40,6 @@ demos/
 # Python
 __pycache__/
 *.pyc
+
+# Browser engine (scripts/build-wasm.mjs)
+/wasm/

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>supersynth in a browser</title>
+<!-- Without a bundler, an import map points the browser at the packages (a bundler resolves
+     them itself, `#platform` to supersynth's browser platform through the `browser` condition). -->
+<script type="importmap">
+{
+  "imports": {
+    "supersynth": "/node_modules/supersynth/dist/index.js",
+    "#platform": "/node_modules/supersynth/dist/platform/browser.js",
+    "#wasm": "/node_modules/supersynth/wasm/supersynth.js"
+  }
+}
+</script>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 52rem; margin: 2rem auto; padding: 0 1rem; color: #222; background: #fafafa; }
+  select, button { font: inherit; padding: .3rem .6rem; }
+  .row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin: .8rem 0; }
+  #keys { display: flex; margin-top: 1rem; user-select: none; }
+  #keys div { flex: 1; height: 7rem; border: 1px solid #888; background: #fff; border-radius: 0 0 4px 4px; display: flex; align-items: flex-end; justify-content: center; font-size: .8rem; color: #888; }
+  #keys div.black { background: #333; color: #ccc; height: 4.5rem; }
+  #keys div.down { background: #9cf; }
+  #status { color: #555; min-height: 1.5em; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<h1>supersynth in a browser</h1>
+<p>The same engine as in Node.js, compiled to WebAssembly: rendering in an AudioWorklet, with the
+render workers on the other cores. Play with the mouse or the keyboard (A&nbsp;W&nbsp;S&nbsp;E&nbsp;D&nbsp;F&nbsp;T&nbsp;G&nbsp;Y&nbsp;H&nbsp;U&nbsp;J&nbsp;K, Z/X for octaves).</p>
+<div class="row">
+  <select id="instrument"></select>
+  <select id="preset"></select>
+  <button id="go">Start</button>
+</div>
+<div id="status">Pick an instrument and press Start.</div>
+<div id="keys"></div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

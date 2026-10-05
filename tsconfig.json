@@ -3,8 +3,14 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022"],
-    "types": ["node"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node"
+    ],
     "outDir": "dist",
     "declaration": true,
     "declarationMap": true,
@@ -17,8 +23,22 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "#platform": [
+        "./src/platform/node.ts"
+      ],
+      "#wasm": [
+        "./src/platform/web/wasm.d.ts"
+      ]
+    }
   },
-  "include": ["src", "bench", "examples"],
-  "exclude": ["test"]
+  "include": [
+    "src",
+    "bench",
+    "examples"
+  ],
+  "exclude": [
+    "test"
+  ]
 }

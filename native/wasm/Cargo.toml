@@ -1,0 +1,17 @@
+[package]
+name = "supersynth-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "Browser bindings for supersynth: wasm-bindgen types over supersynth-host, with threads on shared memory"
+
+[lib]
+crate-type = ["cdylib"]
+
+# (nothing to build natively: see src/lib.rs)
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+supersynth-core = { path = "../core" }
+supersynth-host = { path = "../host" }
+# keep in step with the wasm-bindgen CLI (scripts/build-wasm.mjs)
+wasm-bindgen = "=0.2.129"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"

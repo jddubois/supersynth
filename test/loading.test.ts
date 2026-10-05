@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { BUREA_ORGAN, Synth, SupersynthError, type OrganDefinition, type OrganPreload } from '../src/index.js';
-import { organModels, resolveModelFile } from '../src/models.js';
+import { organModels } from '../src/models.js';
+import { resolveModelFile } from '../src/platform/node-models.js';
 import { stopModel } from '../src/Organ.js';
 
 const rms = (a: Float32Array) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / Math.max(1, a.length));

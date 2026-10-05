@@ -1,6 +1,6 @@
 import { INSTRUMENTS, type InstrumentDefinition, type InstrumentId, type LayerDefinition, type InstrumentPreset } from './catalog/index.js';
 import { SupersynthError } from './errors.js';
-import type { NativeEngine } from './native.js';
+import type { NativeEngine } from './engine.js';
 import { noteNumber, type NoteLike } from './notes.js';
 import { defaultParameter, PARAMETER_DEFAULTS, PARAMETER_NAMES, toNativeParameter, type InstrumentParameters } from './parameters.js';
 import { playNotes, playSequence, resolveTime, type Keys, type Playable, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';

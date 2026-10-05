@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { SupersynthError } from '../src/errors.js';
-import { assertOrganModels, findPackageDir, modelPackage, ORGAN_MODEL_PACKAGES, resolveModelFile } from '../src/models.js';
+import { modelPackage, ORGAN_MODEL_PACKAGES } from '../src/models.js';
+import { assertOrganModels, findPackageDir, resolveModelFile } from '../src/platform/node-models.js';
 import { PIOTR_ORGANS } from '../src/organs/piotr/index.js';
 import { BUREA_ORGAN } from '../src/organs/burea.js';
 import { VCSL_ORGAN } from '../src/organs/vcsl.js';
