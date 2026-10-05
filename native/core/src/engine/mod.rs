@@ -14,6 +14,7 @@ use std::collections::BinaryHeap;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use crate::dsp::denormal::FlushDenormals;
 use crate::dsp::noise::Rng;
 use crate::dsp::{db_to_amp, BLOCK};
 use crate::fx::chorus::{Chorus, ChorusParams};
@@ -544,6 +545,7 @@ impl Engine {
 
     /// Fill an interleaved buffer with `channels` channels (1 = mono downmix).
     pub fn process_interleaved(&mut self, out: &mut [f32], channels: usize) {
+        let _ftz = FlushDenormals::new();
         let channels = channels.max(1);
         let frames = out.len() / channels;
         let mut done = 0;
@@ -551,7 +553,7 @@ impl Engine {
         let mut r = [0.0f32; BLOCK];
         while done < frames {
             let n = (frames - done).min(BLOCK);
-            self.process_planar(&mut l[..n], &mut r[..n]);
+            self.render_planar(&mut l[..n], &mut r[..n]);
             for i in 0..n {
                 let o = &mut out[(done + i) * channels..(done + i + 1) * channels];
                 match channels {
@@ -569,8 +571,15 @@ impl Engine {
         }
     }
 
-    /// Render planar stereo (any length), splitting at event boundaries.
+    /// Render planar stereo (any length), splitting at event boundaries. Denormals are flushed
+    /// to zero while rendering; the calling thread's floating-point mode is restored after.
     pub fn process_planar(&mut self, left: &mut [f32], right: &mut [f32]) {
+        let _ftz = FlushDenormals::new();
+        self.render_planar(left, right);
+    }
+
+    /// `process_planar` without switching the denormal mode (the caller has).
+    fn render_planar(&mut self, left: &mut [f32], right: &mut [f32]) {
         let start = std::time::Instant::now();
         self.drain_queue();
         let frames = left.len();
@@ -1265,6 +1274,10 @@ impl Engine {
             // smoothed expression (CC11)
             let a = 1.0 - (-(n as f32) / (0.02 * self.sr)).exp();
             p.expression_smoothed += (p.expression - p.expression_smoothed) * a;
+            if (p.expression - p.expression_smoothed).abs() < 1e-6 {
+                // settle exactly (CC11 = 0 would otherwise decay into denormals)
+                p.expression_smoothed = p.expression;
+            }
             // tremulant: one wind-pressure wobble shared by every pipe of the division
             let (mut trem_c, mut trem_g) = (0.0f32, 1.0f32);
             if p.trem_db > 0.0 || p.trem_cents > 0.0 {
@@ -1777,6 +1790,21 @@ mod tests {
         render(&mut eng, 24_000 + 100);
         assert_eq!(ctl.queue_free(), 64 + 24_000 + 24_100 - 48_000, "applied events free their places");
         ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 90 }).unwrap();
+    }
+
+    #[test]
+    fn rendering_restores_the_callers_denormal_mode() {
+        let denormal = || std::hint::black_box(1e-30f32) * std::hint::black_box(1e-10f32);
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(testing::model()))).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        // CC11 = 0: the expression smoother settles at exactly zero rather than in denormals
+        ctl.send(0, Command::ControlChange { part: 0, controller: 11, value: 0 }).unwrap();
+        render(&mut eng, 48_000);
+        let mut buf = vec![0.0f32; 960];
+        eng.process_interleaved(&mut buf, 2);
+        assert!(denormal() > 0.0, "offline rendering runs on the caller's thread");
+        assert_eq!(eng.parts[0].expression_smoothed, 0.0);
     }
 
     #[test]

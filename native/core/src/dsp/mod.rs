@@ -1,6 +1,7 @@
 //! Low-level DSP building blocks shared by voices and effects.
 
 pub mod biquad;
+pub mod denormal;
 pub mod fft;
 pub mod noise;
 
