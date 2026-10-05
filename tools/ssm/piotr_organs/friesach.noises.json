@@ -1,0 +1,237 @@
+{
+ "keys": {
+  "pedal": {
+   "down": "organ/friesach/noise-keys-pedal-down",
+   "up": "organ/friesach/noise-keys-pedal-up"
+  },
+  "great": {
+   "down": "organ/friesach/noise-keys-great-down",
+   "up": "organ/friesach/noise-keys-great-up"
+  },
+  "swell": {
+   "down": "organ/friesach/noise-keys-swell-down",
+   "up": "organ/friesach/noise-keys-swell-up"
+  },
+  "positive": {
+   "down": "organ/friesach/noise-keys-positive-down",
+   "up": "organ/friesach/noise-keys-positive-up"
+  }
+ },
+ "stops": {
+  "great-gambe-8": [
+   3,
+   4
+  ],
+  "great-holzflote-8": [
+   5,
+   6
+  ],
+  "great-mixtur-major-4-5f-2-2-3": [
+   7,
+   8
+  ],
+  "great-mixtur-minor-4f-1-1-3": [
+   9,
+   10
+  ],
+  "great-octave-2": [
+   11,
+   12
+  ],
+  "great-octave-4": [
+   13,
+   14
+  ],
+  "great-praestant-16": [
+   15,
+   16
+  ],
+  "great-principal-8": [
+   17,
+   18
+  ],
+  "great-quinte-2-2-3": [
+   19,
+   20
+  ],
+  "great-rohrflote-8": [
+   21,
+   22
+  ],
+  "great-spitzflote-4": [
+   23,
+   24
+  ],
+  "great-trompete-16": [
+   25,
+   26
+  ],
+  "great-trompete-8": [
+   27,
+   28
+  ],
+  "pedal-choralbass-4": [
+   29,
+   30
+  ],
+  "pedal-contrabass-16": [
+   31,
+   32
+  ],
+  "pedal-gedackt-8": [
+   33,
+   34
+  ],
+  "pedal-octavbass-8": [
+   35,
+   36
+  ],
+  "pedal-posaune-16": [
+   37,
+   38
+  ],
+  "pedal-posaune-32": [
+   39,
+   40
+  ],
+  "pedal-subbass-16": [
+   41,
+   42
+  ],
+  "pedal-trompete-8": [
+   43,
+   44
+  ],
+  "pedal-untersatz-32": [
+   45,
+   46
+  ],
+  "positive-cornet-a-pavillon-8": [
+   47,
+   48
+  ],
+  "positive-englischhorn-8": [
+   49,
+   50
+  ],
+  "positive-jubalflote-8": [
+   51,
+   52
+  ],
+  "positive-trichterflote-4": [
+   53,
+   54
+  ],
+  "positive-trompete-en-chamade-8": [
+   55,
+   56
+  ],
+  "swell-bourdon-16": [
+   57,
+   58
+  ],
+  "swell-clairon-4": [
+   59,
+   60
+  ],
+  "swell-corno-dolce-8": [
+   61,
+   62
+  ],
+  "swell-flageolett-2": [
+   63,
+   64
+  ],
+  "swell-geigenprincipal-4": [
+   65,
+   66
+  ],
+  "swell-hautbois-8": [
+   67,
+   68
+  ],
+  "swell-larigot-1-1-3": [
+   69,
+   70
+  ],
+  "swell-nachthorn-gedackt-8": [
+   71,
+   72
+  ],
+  "swell-nazard-2-2-3": [
+   73,
+   74
+  ],
+  "swell-plein-jeu-4-5f-2": [
+   75,
+   76
+  ],
+  "swell-principal-8": [
+   77,
+   78
+  ],
+  "swell-querflote-4": [
+   79,
+   80
+  ],
+  "swell-scharff-4f-1": [
+   81,
+   82
+  ],
+  "swell-tierce-1-3-5": [
+   83,
+   84
+  ],
+  "swell-trompete-harmonique-8": [
+   85,
+   86
+  ],
+  "swell-viola-8": [
+   87,
+   88
+  ],
+  "swell-vox-celeste-8": [
+   89,
+   90
+  ]
+ },
+ "tremulants": {
+  "tremulant 2 man": [
+   91,
+   92
+  ],
+  "tremulant 3 man": [
+   93,
+   94
+  ]
+ },
+ "couplers": {
+  "coupler 1": [
+   95,
+   96
+  ],
+  "coupler 2": [
+   97,
+   98
+  ],
+  "coupler 3": [
+   99,
+   100
+  ],
+  "coupler 4": [
+   101,
+   102
+  ],
+  "coupler 5": [
+   103,
+   104
+  ],
+  "coupler 6": [
+   105,
+   106
+  ]
+ },
+ "stopsModel": "organ/friesach/noise-stops",
+ "blower": "organ/friesach/noise-blower",
+ "ambient": "organ/friesach/noise-ambient"
+}
