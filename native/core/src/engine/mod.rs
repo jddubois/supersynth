@@ -752,6 +752,8 @@ impl Engine {
 
     /// `process_planar` without switching the denormal mode (the caller has).
     fn render_planar(&mut self, left: &mut [f32], right: &mut [f32]) {
+        // (WebAssembly has no clock: the host measures the load there, see `report_load`)
+        #[cfg(not(target_arch = "wasm32"))]
         let start = std::time::Instant::now();
         self.pool.set_hot(true);
         self.drain_queue();
@@ -798,19 +800,30 @@ impl Engine {
         }
         self.pool.set_hot(false);
         self.reclaim_models();
-        self.publish(start.elapsed().as_secs_f32(), frames);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.publish(Some(start.elapsed().as_secs_f32()), frames);
+        #[cfg(target_arch = "wasm32")]
+        self.publish(None, frames);
     }
 
-    fn publish(&mut self, secs: f32, frames: usize) {
+    fn publish(&mut self, secs: Option<f32>, frames: usize) {
         let st = &self.status;
         st.frames.store(self.now, Ordering::Relaxed);
         st.active_voices.store(self.voices.iter().filter(|v| v.is_active()).count() as u32, Ordering::Relaxed);
         st.peak_milli.store((self.peak * 1000.0) as u32, Ordering::Relaxed);
-        if frames > 0 {
-            let load = secs / (frames as f32 / self.sr);
-            st.load_permille.store((load * 1000.0) as u32, Ordering::Relaxed);
+        if let Some(secs) = secs {
+            self.report_load(secs, frames);
         }
         self.peak *= 0.5;
+    }
+
+    /// Record that rendering `frames` took `secs` (the CPU load the status reports). Rendering
+    /// does this itself, except in WebAssembly, which has no clock: its host measures instead.
+    pub fn report_load(&self, secs: f32, frames: usize) {
+        if frames > 0 {
+            let load = secs / (frames as f32 / self.sr);
+            self.status.load_permille.store((load * 1000.0) as u32, Ordering::Relaxed);
+        }
     }
 
     fn drain_queue(&mut self) {

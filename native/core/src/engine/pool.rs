@@ -17,15 +17,16 @@ use std::cell::UnsafeCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
-use std::thread::{JoinHandle, Thread};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::dsp::denormal::FlushDenormals;
+use crate::thread::Handle;
 
 /// Most threads (the rendering thread included) the engine renders with.
 pub const MAX_THREADS: usize = 16;
 
 /// How long an idle worker spins before it parks.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 const SPIN: Duration = Duration::from_micros(60);
 
 /// A job: called with (item, thread index); thread 0 is the dispatching thread.
@@ -73,7 +74,7 @@ pub const MAX_ITEMS: usize = 0xFFFF;
 
 pub struct Pool {
     shared: Arc<Shared>,
-    workers: Vec<(JoinHandle<()>, Thread)>,
+    workers: Vec<Handle>,
 }
 
 impl Pool {
@@ -94,12 +95,8 @@ impl Pool {
         let mut workers = Vec::with_capacity(threads - 1);
         for w in 1..threads {
             let sh = Arc::clone(&shared);
-            let spawned = std::thread::Builder::new().name(format!("supersynth-render-{w}")).spawn(move || worker(sh, w));
-            match spawned {
-                Ok(h) => {
-                    let t = h.thread().clone();
-                    workers.push((h, t));
-                }
+            match crate::thread::spawn(format!("supersynth-render-{w}"), move || worker(sh, w)) {
+                Ok(h) => workers.push(h),
                 // fewer cores at work, never a failure
                 Err(_) => break,
             }
@@ -150,7 +147,7 @@ impl Pool {
         sh.done.store(0, Ordering::Relaxed);
         let gen = gen_of(sh.state.load(Ordering::Relaxed)).wrapping_add(1);
         sh.state.store(pack(gen, 0, n as u32), Ordering::SeqCst);
-        for (w, (_, t)) in self.workers.iter().enumerate() {
+        for (w, t) in self.workers.iter().enumerate() {
             if sh.sleeping[w + 1].swap(false, Ordering::SeqCst) {
                 t.unpark();
             }
@@ -175,9 +172,9 @@ impl Pool {
 impl Drop for Pool {
     fn drop(&mut self) {
         self.shared.shutdown.store(true, Ordering::SeqCst);
-        for (h, t) in self.workers.drain(..) {
-            t.unpark();
-            let _ = h.join();
+        for h in self.workers.drain(..) {
+            h.unpark();
+            h.join();
         }
     }
 }
@@ -224,7 +221,7 @@ fn worker(sh: Arc<Shared>, w: usize) {
     let mut realtime = 0u8;
     loop {
         // wait for a new generation: spin, then park
-        let mut since: Option<Instant> = None;
+        let mut spin = Spin::default();
         loop {
             if sh.shutdown.load(Ordering::Relaxed) {
                 return;
@@ -234,8 +231,7 @@ fn worker(sh: Arc<Shared>, w: usize) {
                 seen = g;
                 break;
             }
-            let t0 = *since.get_or_insert_with(Instant::now);
-            if sh.hot.load(Ordering::Relaxed) || t0.elapsed() < SPIN {
+            if sh.hot.load(Ordering::Relaxed) || spin.spinning() {
                 for _ in 0..64 {
                     std::hint::spin_loop();
                 }
@@ -246,7 +242,7 @@ fn worker(sh: Arc<Shared>, w: usize) {
                 std::thread::park();
             }
             sh.sleeping[w].store(false, Ordering::Relaxed);
-            since = None;
+            spin = Spin::default();
             let want = sh.realtime.load(Ordering::Relaxed);
             if want != realtime {
                 realtime = want;
@@ -257,9 +253,34 @@ fn worker(sh: Arc<Shared>, w: usize) {
     }
 }
 
-/// Real-time (or normal) scheduling for the calling thread, if the system allows it.
+/// How long an idle worker has been spinning: by the clock natively; WebAssembly has no clock,
+/// so there by spin rounds (64 hints each, roughly [`SPIN`] in all).
+#[derive(Default)]
+struct Spin {
+    #[cfg(not(target_arch = "wasm32"))]
+    since: Option<std::time::Instant>,
+    #[cfg(target_arch = "wasm32")]
+    rounds: u32,
+}
+
+impl Spin {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn spinning(&mut self) -> bool {
+        self.since.get_or_insert_with(std::time::Instant::now).elapsed() < SPIN
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn spinning(&mut self) -> bool {
+        self.rounds += 1;
+        self.rounds < 400
+    }
+}
+
+/// Real-time (or normal) scheduling for the calling thread, if the system allows it (not in
+/// WebAssembly: a browser schedules its workers itself).
+#[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
 fn set_scheduling(realtime: bool) {
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_arch = "wasm32")))]
     {
         use thread_priority::unix::*;
         use thread_priority::{ThreadPriority, ThreadPriorityValue};
@@ -271,7 +292,7 @@ fn set_scheduling(realtime: bool) {
             set_thread_priority_and_policy(id, ThreadPriority::Min, ThreadSchedulePolicy::Normal(NormalThreadSchedulePolicy::Other))
         };
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, target_arch = "wasm32")))]
     {
         use thread_priority::{set_current_thread_priority, ThreadPriority};
         let _ = set_current_thread_priority(if realtime { ThreadPriority::Max } else { ThreadPriority::Crossplatform(50u8.try_into().unwrap()) });

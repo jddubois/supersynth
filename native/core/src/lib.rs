@@ -4,9 +4,11 @@
 //! - [`voice`]: the additive/noise resynthesis voice and pooled noise
 //! - [`engine`]: lock-free command queue, scheduling, parts, mixing
 //! - [`fx`]: stereo effects (reverb, EQ, chorus, drive, rotary, limiter)
+//! - [`thread`]: starting threads, natively and in WebAssembly
 
 pub mod dsp;
 pub mod engine;
 pub mod fx;
 pub mod model;
+pub mod thread;
 pub mod voice;

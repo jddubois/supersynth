@@ -2077,6 +2077,7 @@ impl SpectralVoice {
 #[inline(always)]
 fn sum_lanes(acc: &[[f32; LANES]], out: &mut [f32]) {
     let n = acc.len().min(out.len());
+    #[cfg_attr(not(any(target_arch = "x86_64", target_arch = "aarch64", all(target_arch = "wasm32", target_feature = "simd128"))), allow(unused_mut))]
     let mut s = 0;
     #[cfg(target_arch = "x86_64")]
     {
@@ -2133,6 +2134,34 @@ fn sum_lanes(acc: &[[f32; LANES]], out: &mut [f32]) {
                 }
                 let o = out.as_mut_ptr().add(s);
                 vst1q_f32(o, vaddq_f32(vld1q_f32(o), v));
+                s += 4;
+            }
+        }
+    }
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    {
+        use std::arch::wasm32::*;
+        // SAFETY: every load and store is within `acc` / `out` (unaligned access is allowed)
+        unsafe {
+            #[inline(always)]
+            fn transpose(r0: v128, r1: v128, r2: v128, r3: v128) -> [v128; 4] {
+                let t0 = i32x4_shuffle::<0, 4, 1, 5>(r0, r1);
+                let t1 = i32x4_shuffle::<0, 4, 1, 5>(r2, r3);
+                let t2 = i32x4_shuffle::<2, 6, 3, 7>(r0, r1);
+                let t3 = i32x4_shuffle::<2, 6, 3, 7>(r2, r3);
+                [i64x2_shuffle::<0, 2>(t0, t1), i64x2_shuffle::<1, 3>(t0, t1), i64x2_shuffle::<0, 2>(t2, t3), i64x2_shuffle::<1, 3>(t2, t3)]
+            }
+            while s + 4 <= n {
+                let p = acc.as_ptr().add(s) as *const f32;
+                let ld = |k: usize| v128_load(p.add(k) as *const v128);
+                let lo = transpose(ld(0), ld(8), ld(16), ld(24));
+                let hi = transpose(ld(4), ld(12), ld(20), ld(28));
+                let mut v = f32x4_splat(0.0);
+                for c in lo.into_iter().chain(hi) {
+                    v = f32x4_add(v, c);
+                }
+                let o = out.as_mut_ptr().add(s) as *mut v128;
+                v128_store(o, f32x4_add(v128_load(o), v));
                 s += 4;
             }
         }

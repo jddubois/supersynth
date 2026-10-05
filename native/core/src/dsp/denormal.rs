@@ -15,7 +15,8 @@ pub struct FlushDenormals {
 }
 
 impl FlushDenormals {
-    #[allow(clippy::new_without_default)]
+    // (`Mode` is `()` where there is no flush-to-zero control, e.g. WebAssembly)
+    #[allow(clippy::new_without_default, clippy::unit_arg)]
     pub fn new() -> Self {
         let prev = imp::get();
         if let Some(m) = prev {

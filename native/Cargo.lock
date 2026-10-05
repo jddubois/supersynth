@@ -919,18 +919,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "supersynth-host"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "supersynth-core",
+]
+
+[[package]]
 name = "supersynth-native"
 version = "0.1.0"
 dependencies = [
  "cpal",
- "libc",
  "midir",
  "napi",
  "napi-build",
  "napi-derive",
- "serde",
- "serde_json",
  "supersynth-core",
+ "supersynth-host",
 ]
 
 [[package]]
