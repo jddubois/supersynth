@@ -466,7 +466,7 @@ export interface OrganOptions extends OrganSettings {
    *
    * - `'all'`: every other stop's model (and the Forte and noise models) then loads in the
    *   background, off the JavaScript thread, so drawing stops and changing presets later is
-   *   instant. `await organ.ready` waits for it. The largest organs take 250–330 MB decoded.
+   *   instant. `await organ.ready` waits for it. The largest organs take 250–430 MB decoded.
    * - `'preset'`: only the starting preset's models; another stop's model is loaded when the
    *   stop is first drawn (tens of milliseconds per stop on a desktop, several times that on a
    *   Raspberry Pi), and the memory grows only with the stops used.

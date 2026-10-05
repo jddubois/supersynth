@@ -1,6 +1,6 @@
 {
   "name": "@supersynth/linux-x64-musl",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "supersynth's native engine for Linux x64 (musl, Alpine)",
   "license": "MIT",
   "repository": {

@@ -1,6 +1,6 @@
 {
   "name": "supersynth",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Real instrument sounds for Node.js: spectral resynthesis of real recordings (piano, 16 pipe organs and a harmonium, strings, winds, brass, mallets) in a native Rust engine",
   "type": "module",
   "main": "./dist/index.js",
@@ -154,12 +154,12 @@
     }
   },
   "optionalDependencies": {
-    "@supersynth/linux-x64-gnu": "0.2.0",
-    "@supersynth/linux-x64-musl": "0.2.0",
-    "@supersynth/linux-arm64-gnu": "0.2.0",
-    "@supersynth/darwin-x64": "0.2.0",
-    "@supersynth/darwin-arm64": "0.2.0",
-    "@supersynth/win32-x64-msvc": "0.2.0"
+    "@supersynth/linux-x64-gnu": "0.3.0",
+    "@supersynth/linux-x64-musl": "0.3.0",
+    "@supersynth/linux-arm64-gnu": "0.3.0",
+    "@supersynth/darwin-x64": "0.3.0",
+    "@supersynth/darwin-arm64": "0.3.0",
+    "@supersynth/win32-x64-msvc": "0.3.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

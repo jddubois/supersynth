@@ -89,7 +89,7 @@ Each organ's models are a package of their own, so you download only the organs 
 ```bash
 npm install @supersynth/organ-burea      # the Bureå organ (71 MB)
 npm install @supersynth/organ-friesach   # one of Piotr Grabowski's organs: @supersynth/organ-<id>
-npm install @supersynth/organs           # all 16 organs (about 550 MB)
+npm install @supersynth/organs           # all 16 organs (about 900 MB)
 ```
 
 `synth.add('friesach')` without its package throws an error naming the package to install. The
@@ -292,8 +292,8 @@ priority limit allows it, as for JACK).
 Models load off the JavaScript thread. Adding an organ waits only for its starting preset's
 stops (loaded in parallel); the others load in the background, so drawing a stop never stalls
 playing ([organ.md](docs/organ.md#loading)). On a 4-core cloud VM, `npm run load-test`: Friesach with
-every stop drawn is ready in 0.56 s (325 MB decoded), and with its default preset `add()` returns
-in 0.07 s.
+every stop drawn is ready in 0.95 s (430 MB decoded), and with its default preset `add()` returns
+in 0.12 s.
 
 ## Architecture
 

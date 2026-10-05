@@ -10,7 +10,7 @@ Each organ's models are an npm package of their own (only the VCSL organ ships w
 ```bash
 npm install @supersynth/organ-burea        # the Bureå organ (71 MB)
 npm install @supersynth/organ-friesach     # one of Piotr Grabowski's organs
-npm install @supersynth/organs             # every organ (about 550 MB)
+npm install @supersynth/organs             # every organ (about 900 MB)
 ```
 
 Adding an organ whose package is missing throws a `SupersynthError` naming the package to install.
@@ -105,8 +105,8 @@ The `preload` option of `synth.add()` chooses what loads in the background:
 | `'preset'` | only the starting preset's; another stop's model loads when the stop is first drawn, so memory grows only with the stops used (the default on smaller machines) |
 | `false` | nothing in the background: each model, the preset's too, loads on the JavaScript thread when first needed |
 
-Decoded, the largest organs take about 325 MB (Friesach, 44 stops), 265 MB (Bureå, 40) and
-253 MB (Cracow, 40), roughly four times the size of their package; `npm run load-test` measures
+Decoded, the largest organs take about 430 MB (Friesach, 44 stops), 280 MB (Cracow, 40) and
+245 MB (Bureå, 40), about three times the size of their package; `npm run load-test` measures
 it. A model that fails to load in the background (a damaged file) rejects `organ.ready` with a
 `SupersynthError`, is emitted as the synth's `'error'` event when it has listeners, and drawing
 that stop throws the same error; the other stops play. Removing the organ (or `synth.close()`)

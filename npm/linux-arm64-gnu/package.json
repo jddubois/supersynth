@@ -1,6 +1,6 @@
 {
   "name": "@supersynth/linux-arm64-gnu",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "supersynth's native engine for Linux arm64 (glibc; Raspberry Pi 4/5 with a 64-bit OS)",
   "license": "MIT",
   "repository": {
