@@ -1,0 +1,113 @@
+{
+ "keys": {
+  "pedal": {
+   "down": "organ/melcer/noise-keys-pedal-down",
+   "up": "organ/melcer/noise-keys-pedal-up"
+  },
+  "great": {
+   "down": "organ/melcer/noise-keys-great-down",
+   "up": "organ/melcer/noise-keys-great-up"
+  },
+  "swell": {
+   "down": "organ/melcer/noise-keys-swell-down",
+   "up": "organ/melcer/noise-keys-swell-up"
+  }
+ },
+ "stops": {
+  "great-mixtur-1-1-3-4f": [
+   3,
+   4
+  ],
+  "great-nachthorn-8": [
+   5,
+   6
+  ],
+  "great-nasard-2-2-3": [
+   7,
+   8
+  ],
+  "great-oktave-2": [
+   9,
+   10
+  ],
+  "great-prinzipal-4": [
+   11,
+   12
+  ],
+  "great-trompete-8": [
+   13,
+   14
+  ],
+  "pedal-choralbas-4": [
+   15,
+   16
+  ],
+  "pedal-gedacktbass-8": [
+   17,
+   18
+  ],
+  "pedal-oktave-2": [
+   19,
+   20
+  ],
+  "pedal-subbass-16": [
+   21,
+   22
+  ],
+  "pedal-trompete-8": [
+   23,
+   24
+  ],
+  "swell-gedackt-8": [
+   25,
+   26
+  ],
+  "swell-krumhorn-8": [
+   27,
+   28
+  ],
+  "swell-prinzipal-2": [
+   29,
+   30
+  ],
+  "swell-quintaton-8": [
+   31,
+   32
+  ],
+  "swell-quinte-1-1-3": [
+   33,
+   34
+  ],
+  "swell-rohrflote-4": [
+   35,
+   36
+  ],
+  "swell-sifflote-1": [
+   37,
+   38
+  ]
+ },
+ "tremulants": {
+  "tremulant 2 man": [
+   39,
+   40
+  ]
+ },
+ "couplers": {
+  "coupler 1": [
+   41,
+   42
+  ],
+  "coupler 2": [
+   43,
+   44
+  ],
+  "coupler 3": [
+   45,
+   46
+  ]
+ },
+ "stopsModel": "organ/melcer/noise-stops",
+ "blower": "organ/melcer/noise-blower",
+ "ambient": "organ/melcer/noise-ambient"
+}
