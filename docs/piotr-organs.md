@@ -23,6 +23,7 @@ and may not be sold or built into products for sale — see NOTICE.md.
 | Id | Organ | Stops |
 |---|---|---|
 | `azzio` | Azzio | 12 |
+| `cracow` | Cracow, St. John Cantius | 40 |
 | `dluga-koscielna` | Długa Kościelna | 22 |
 | `friesach` | Friesach, St. Bartholomäus | 44 |
 | `giubiasco` | Giubiasco | 22 |
@@ -58,6 +59,35 @@ Config: `AZZIO_ORGAN`. Default preset: `ripieno`. Tremulant on the great.
 | `flute-8` | Bordone 8' — soft stopped flute |
 | `cornetto` | Cornet from the positive's flutes and mutations (8' 4' 2 2/3' 2') |
 | `sesquialtera` | Sesquialtera solo on the great against the Bordone on the positive |
+
+## `cracow` — Cracow, St. John Cantius
+
+Jacek Siedlar 2004, St. John Cantius, Cracow (Poland): a French-symphonic organ, 40 stops on three manuals (the Récit enclosed) and pedal.
+
+Config: `CRACOW_ORGAN`. Default preset: `fonds`. Tremulant on the swell. In a swell box: swell.
+
+**Great:** Bourdon 16', Montre 8', Flûte Harmonique 8', Bourdon 8', Viole de Gambe 8', Prestant 4', Flûte douce 4', Doublette 2', Cornet 5x, Plein Jeu 5x, Trompette 8', Clairon 4'
+
+**Swell:** Flûte Traversière 8', Bourdon 8', Aeoline 8', Voix Céleste 8', Flûte Octaviante 4', Fugara 4', Doublette 2', Harmonia Aethera 4x, Basson 16', Trompette Harmonique 8', Hautbois 8', Clairon 4'
+
+**Positive:** Cor de Nuit 8', Salicional 8', Unda Maris 8', Clarinette 8', Prestant 4', Dolce 4', Nazard 2 2/3', Octavin 2', Tierce 1 3/5', Cromorne 8'
+
+**Pedal:** Contrebasse 16', Soubasse 16', Octave 8', Violoncelle 8', Flûte 4', Bombarde 16'
+
+| Preset | Description |
+|---|---|
+| `principal` | Montre 8' alone |
+| `fonds` | Fonds de 8': the 8' foundations of all three manuals coupled |
+| `plein-jeu` | Plein jeu: principals and Plein Jeu with the positive and récit coupled |
+| `grand-choeur` | Grand chœur: full organ with the French reeds, Cornet and Bombarde |
+| `flute-harmonique` | Flûte Harmonique 8' solo on the great against the positive's Cor de Nuit |
+| `flutes` | Flûte Traversière 8' + Flûte Octaviante 4' on the récit |
+| `cornet` | Cornet 5x solo on the great against the récit foundations |
+| `jeu-de-tierce` | Jeu de tierce on the positive: Cor de Nuit 8', Dolce 4', Nazard, Octavin and Tierce |
+| `celeste` | Aeoline + Voix Céleste — the récit's undulating strings |
+| `hautbois` | Hautbois 8' solo on the récit against the great's Bourdon |
+| `clarinette` | Clarinette 8' solo on the positive against the récit strings |
+| `trompette` | Trompette Harmonique 8' solo on the récit with the great's foundations |
 
 ## `dluga-koscielna` — Długa Kościelna
 
