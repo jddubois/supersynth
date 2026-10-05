@@ -75,5 +75,6 @@ export const HARMONIUM_ORGAN: OrganDefinition = {
   defaultPreset: 'diapason',
   divisions: { great: { pan: 0, swellBox: true }, swell: { pan: 0, swellBox: true }, positive: { pan: 0 }, pedal: { pan: 0, swellBox: true } },
   tremulant: { division: 'swell', depth: 1.5, pitch: 5, rate: 4.3 },
+  wind: 0,
   reverb: 'room',
 };

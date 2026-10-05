@@ -63,7 +63,28 @@ def settings(organ: str, pans: dict[str, float]) -> dict:
         for s in ss:
             if s['keys'][0] > lo or s['keys'][1] < hi:
                 keys[s['id']] = s['keys']
-    return dict(divisions=divisions, tremulant=trems, keys=keys)
+    # machinery noises (noises.py)
+    noises, action = None, {}
+    npath = os.path.join(piotr.CATALOG_DIR, f'{organ}.noises.json')
+    if os.path.exists(npath):
+        nz = json.load(open(npath))
+        noises = {}
+        if nz.get('keys'):
+            noises['keys'] = {d: {k: v for k, v in parts.items()} for d, parts in nz['keys'].items()}
+        if nz.get('stopsModel'):
+            noises['stops'] = nz['stopsModel']
+        for k in ('blower', 'ambient'):
+            if nz.get(k):
+                noises[k] = {'model': nz[k]}
+        action = {sid: pair for sid, pair in nz.get('stops', {}).items() if pair[0] is not None and pair[1] is not None}
+        # a coupler's noise for every coupler, each tremulant's own
+        cps = [v for v in nz.get('couplers', {}).values() if v[0] is not None and v[1] is not None]
+        if cps:
+            noises['coupler'] = cps[0]
+        for t, (tn, pair) in zip(trems, [(n, v) for n, v in sorted(nz.get('tremulants', {}).items())]):
+            if pair[0] is not None and pair[1] is not None:
+                t['actionNoise'] = pair
+    return dict(divisions=divisions, tremulant=trems, keys=keys, noises=noises, action=action)
 
 
 def patch(organ: str) -> None:
@@ -76,15 +97,18 @@ def patch(organ: str) -> None:
     st = settings(organ, pans)
     tail = (f"  divisions: {ts_value(st['divisions'])},\n"
             f"  tremulant: {ts_value(st['tremulant'] if len(st['tremulant']) != 1 else st['tremulant'][0])},\n"
-            f"  wind: 0,\n")
-    src = re.sub(r'\n  divisions: .*,\n(  tremulant: .*,\n)?(  wind: .*,\n)?', '\n' + tail, src, count=1)
+            f"  wind: 0,\n"
+            + (f"  noises: {ts_value(st['noises'])},\n" if st['noises'] else ''))
+    src = re.sub(r'\n  divisions: .*,\n(  tremulant: .*,\n)?(  wind: .*,\n)?(  noises: .*,\n)?', '\n' + tail, src, count=1)
     if 'CHURCH_DIVISIONS' not in tail:
         src = re.sub(r"import \{ CHURCH_DIVISIONS \} from '\.\./defaults\.js';\n", '', src)
     for sid, (lo, hi) in st['keys'].items():
-        src = re.sub(rf"(\{{ id: '{re.escape(sid)}',[^\n]*?)(, keys: \[\d+, \d+\])? \}},", rf'\1, keys: [{lo}, {hi}] }},', src)
+        src = re.sub(rf"(\{{ id: '{re.escape(sid)}',[^\n]*?)(, keys: \[\d+, \d+\])?(, actionNoise: \[\d+, \d+\])? \}},", rf'\1, keys: [{lo}, {hi}]\3 }},', src)
+    for sid, (on, off) in st['action'].items():
+        src = re.sub(rf"(\{{ id: '{re.escape(sid)}',[^\n]*?)(, actionNoise: \[\d+, \d+\])? \}},", rf'\1, actionNoise: [{on}, {off}] }},', src)
     open(path, 'w').write(src)
     print(f"{organ}: boxes {[d for d, e in st['divisions'].items() if 'swellBox' in e]}, "
-          f"{len(st['tremulant'])} tremulants, {len(st['keys'])} short stops")
+          f"{len(st['tremulant'])} tremulants, {len(st['keys'])} short stops, noises {bool(st['noises'])}")
 
 
 if __name__ == '__main__':

@@ -1,0 +1,113 @@
+{
+ "keys": {
+  "pedal": {
+   "down": "organ/skrzatusz/noise-keys-pedal-down",
+   "up": "organ/skrzatusz/noise-keys-pedal-up"
+  },
+  "great": {
+   "down": "organ/skrzatusz/noise-keys-great-down",
+   "up": "organ/skrzatusz/noise-keys-great-up"
+  },
+  "positive": {
+   "down": "organ/skrzatusz/noise-keys-positive-down",
+   "up": "organ/skrzatusz/noise-keys-positive-up"
+  }
+ },
+ "stops": {
+  "great-bordun-16": [
+   3,
+   4
+  ],
+  "great-cornett-4f": [
+   5,
+   6
+  ],
+  "great-flute-harmonique-8": [
+   7,
+   8
+  ],
+  "great-fugara-8": [
+   9,
+   10
+  ],
+  "great-mixtur-3f": [
+   11,
+   12
+  ],
+  "great-octave-2": [
+   13,
+   14
+  ],
+  "great-octave-4": [
+   15,
+   16
+  ],
+  "great-principal-8": [
+   17,
+   18
+  ],
+  "great-quinte-2-2-3": [
+   19,
+   20
+  ],
+  "pedal-bassflote-8": [
+   21,
+   22
+  ],
+  "pedal-octavbass-8": [
+   23,
+   24
+  ],
+  "pedal-posaune-16": [
+   25,
+   26
+  ],
+  "pedal-subbass-16": [
+   27,
+   28
+  ],
+  "pedal-violon-16": [
+   29,
+   30
+  ],
+  "positive-flauto-dolce-4": [
+   31,
+   32
+  ],
+  "positive-gedact-8": [
+   33,
+   34
+  ],
+  "positive-geigenprincipal-8": [
+   35,
+   36
+  ],
+  "positive-praestant-4": [
+   37,
+   38
+  ],
+  "positive-viola-di-gamba-8": [
+   39,
+   40
+  ]
+ },
+ "tremulants": {
+  "tremulant 2 man": [
+   41,
+   42
+  ]
+ },
+ "couplers": {
+  "coupler 1": [
+   43,
+   44
+  ],
+  "coupler 2": [
+   45,
+   46
+  ]
+ },
+ "stopsModel": "organ/skrzatusz/noise-stops",
+ "blower": "organ/skrzatusz/noise-blower",
+ "ambient": "organ/skrzatusz/noise-ambient"
+}

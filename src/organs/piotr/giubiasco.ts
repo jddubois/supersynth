@@ -1,4 +1,3 @@
-import { CHURCH_DIVISIONS } from '../defaults.js';
 import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/giubiasco/<id>.ssm.
@@ -7,7 +6,7 @@ const STOPS: StopDefinition[] = [
   { id: 'great-principale-8', model: 'organ/giubiasco/great-principale-8', name: "Principale 8'", division: 'great', family: 'principal', transpose: 0 },
   { id: 'great-viola-da-gamba-8', model: 'organ/giubiasco/great-viola-da-gamba-8', name: "Viola da Gamba 8'", division: 'great', family: 'string', transpose: 0 },
   { id: 'great-flauto-a-camino-8', model: 'organ/giubiasco/great-flauto-a-camino-8', name: "Flauto a camino 8'", division: 'great', family: 'flute', transpose: 0 },
-  { id: 'great-voce-umana-8', model: 'organ/giubiasco/great-voce-umana-8', name: "Voce umana 8'", division: 'great', family: 'string', transpose: 0 },
+  { id: 'great-voce-umana-8', model: 'organ/giubiasco/great-voce-umana-8', name: "Voce umana 8'", division: 'great', family: 'string', transpose: 0, keys: [55, 93] },
   { id: 'great-ottava-4', model: 'organ/giubiasco/great-ottava-4', name: "Ottava 4'", division: 'great', family: 'principal', transpose: 12 },
   { id: 'great-flauto-conico-4', model: 'organ/giubiasco/great-flauto-conico-4', name: "Flauto conico 4'", division: 'great', family: 'flute', transpose: 12 },
   { id: 'great-quintadecima-2', model: 'organ/giubiasco/great-quintadecima-2', name: "Quintadecima 2'", division: 'great', family: 'principal', transpose: 24 },
@@ -105,6 +104,7 @@ export const GIUBIASCO_ORGAN: OrganDefinition = {
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'ripieno',
-  divisions: CHURCH_DIVISIONS,
-  tremulant: { division: 'positive', depth: 1.91, pitch: 3.5, rate: 5.07 },
+  divisions: { great: { pan: 0 }, swell: { pan: 0.15 }, positive: { pan: -0.15 }, pedal: { pan: 0 } },
+  tremulant: { division: 'positive', name: 'Tremulant 1 Man', depth: 1.91, pitch: 3.5, rate: 5.07 },
+  wind: 0,
 };

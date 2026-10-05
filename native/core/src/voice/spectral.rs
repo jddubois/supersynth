@@ -222,6 +222,7 @@ pub struct SpectralVoice {
     damper_rate: f32,
     first_block: bool,
     peak_db: f32,
+    noise_peak_db: f32,
     // attack transient playback (per zone): source position and step in source samples
     tr_pos: [f64; MAX_ZONES],
     tr_step: [f64; MAX_ZONES],
@@ -317,6 +318,7 @@ impl Default for SpectralVoice {
             damper_rate: 0.0,
             first_block: true,
             peak_db: -200.0,
+            noise_peak_db: -200.0,
             tr_pos: [0.0; MAX_ZONES],
             tr_step: [0.0; MAX_ZONES],
             has_tr: false,
@@ -349,7 +351,7 @@ impl SpectralVoice {
 
     /// Current loudness estimate (dB) for voice stealing.
     pub fn level_db(&self) -> f32 {
-        self.peak_db
+        self.peak_db.max(self.noise_peak_db)
     }
 
     pub fn start(&mut self, on: NoteOn) {
@@ -1559,6 +1561,7 @@ impl SpectralVoice {
 
         // ── noise band powers (summed by the part's noise generator) ─────────
         let nb = self.nb;
+        let mut noise_peak = -200.0f32;
         if nb > 0 {
             let noise_off = p.noise_db + common
                 - if self.state == State::Released && self.t_rel >= 0.0 {
@@ -1590,13 +1593,17 @@ impl SpectralVoice {
                     db += self.w[j] * (lerp(a, c, ftj[j]) + zgain[j]);
                 }
                 db += noise_off + tr_db;
+                noise_peak = noise_peak.max(db);
                 // stored as band power in dB (10·log10): linear power = 10^(dB/10)
                 self.noise_pow[b] = if db < -150.0 { 0.0 } else { fast_exp2(db * 0.332_192_8) };
             }
         }
 
         // ── termination ────────────────────────────────────────────────────
-        if peak < SILENT_DB + 5.0 && self.t > 0.05 && (self.state != State::Playing || m.kind == Kind::Decaying) {
+        // (a noise recording has no partials: its noise bands and stored onset are the sound)
+        self.noise_peak_db = noise_peak;
+        let onset = self.has_tr && self.t < self.tr_fade.1;
+        if peak.max(noise_peak) < SILENT_DB + 5.0 && self.t > 0.05 && !onset && (self.state != State::Playing || m.kind == Kind::Decaying) {
             self.state = State::Done;
             for b in 0..MAX_BANDS {
                 self.noise_pow[b] = 0.0;

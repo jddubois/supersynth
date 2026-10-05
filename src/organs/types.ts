@@ -105,6 +105,8 @@ export interface TremulantDefinition {
   pitch: number;
   /** Rate (Hz). */
   rate: number;
+  /** Notes of its switching-on and -off noises in the organ's action-noise model. */
+  actionNoise?: [on: number, off: number];
 }
 
 /**
@@ -147,7 +149,7 @@ export interface OrganDefinition {
   wind?: number;
   /** Longest delay (ms) between a key going down and a pipe speaking, different for every
    *  pipe and every note. Pipes of different ranks never start in the same instant; started
-   *  together, unison stops would sum louder and brighter than they do. @default 12 */
+   *  together, unison stops would sum louder and brighter than they do. @default 10 */
   speech?: number;
   /** Action, blower and room noises recorded with the organ. */
   noises?: OrganNoises;
@@ -168,8 +170,10 @@ export interface OrganNoises {
   /** Key action per keyboard: the key going down and coming up (models with a zone per key). */
   keys?: Partial<Record<DivisionName, { down?: string; up?: string }>>;
   /** Stop action: model whose zones are the stops' drawing and retiring noises (see
-   *  {@link StopDefinition.actionNoise}). */
+   *  {@link StopDefinition.actionNoise}), and those of the couplers and tremulants. */
   stops?: string;
+  /** Notes of a coupler being engaged and released, in the stop-action model. */
+  coupler?: [on: number, off: number];
   /** The blower running (a sustained model), its starting and its stopping. */
   blower?: { model: string; note?: number };
   /** The empty church: its background noise while the organ is on. */

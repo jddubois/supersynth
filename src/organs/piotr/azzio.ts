@@ -1,16 +1,15 @@
-import { CHURCH_DIVISIONS } from '../defaults.js';
 import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/azzio/<id>.ssm.
 // The organ stands about 80 cents below A440 (a ≈ 420 Hz): every key sounds its own pipe at
 // that pitch.
 const STOPS: StopDefinition[] = [
-  { id: 'great-principale-8', model: 'organ/azzio/great-principale-8', name: "Principale 8'", division: 'great', family: 'principal', transpose: -1 },
-  { id: 'great-flauto-camino-8', model: 'organ/azzio/great-flauto-camino-8', name: "Flauto camino 8'", division: 'great', family: 'flute', transpose: -1 },
-  { id: 'great-ottava-4', model: 'organ/azzio/great-ottava-4', name: "Ottava 4'", division: 'great', family: 'principal', transpose: 11 },
-  { id: 'great-sesquialtera-2-2-3', model: 'organ/azzio/great-sesquialtera-2-2-3', name: "Sesquialtera 2 2/3'", division: 'great', family: 'mixture', transpose: -1 },
+  { id: 'great-principale-8', model: 'organ/azzio/great-principale-8', name: "Principale 8'", division: 'great', family: 'principal', transpose: -1, keys: [36, 85] },
+  { id: 'great-flauto-camino-8', model: 'organ/azzio/great-flauto-camino-8', name: "Flauto camino 8'", division: 'great', family: 'flute', transpose: -1, keys: [36, 85] },
+  { id: 'great-ottava-4', model: 'organ/azzio/great-ottava-4', name: "Ottava 4'", division: 'great', family: 'principal', transpose: 11, keys: [36, 85] },
+  { id: 'great-sesquialtera-2-2-3', model: 'organ/azzio/great-sesquialtera-2-2-3', name: "Sesquialtera 2 2/3'", division: 'great', family: 'mixture', transpose: -1, keys: [36, 85] },
   { id: 'great-sesquialtera-ii', model: 'organ/azzio/great-sesquialtera-ii', name: 'Sesquialtera II', division: 'great', family: 'mixture', transpose: -1 },
-  { id: 'great-ripieno-3-4-file', model: 'organ/azzio/great-ripieno-3-4-file', name: 'Ripieno 3-4 file', division: 'great', family: 'mixture', transpose: -1 },
+  { id: 'great-ripieno-3-4-file', model: 'organ/azzio/great-ripieno-3-4-file', name: 'Ripieno 3-4 file', division: 'great', family: 'mixture', transpose: -1, keys: [36, 85] },
 
   { id: 'positive-bordone-8', model: 'organ/azzio/positive-bordone-8', name: "Bordone 8'", division: 'positive', family: 'flute', transpose: -1 },
   { id: 'positive-flauto-conico-4', model: 'organ/azzio/positive-flauto-conico-4', name: "Flauto conico 4'", division: 'positive', family: 'flute', transpose: 11 },
@@ -74,6 +73,7 @@ export const AZZIO_ORGAN: OrganDefinition = {
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'ripieno',
-  divisions: CHURCH_DIVISIONS,
-  tremulant: { division: 'great', depth: 0.77, pitch: 3.4, rate: 3.94 },
+  divisions: { great: { pan: 0 }, swell: { pan: 0.15 }, positive: { pan: -0.15 }, pedal: { pan: 0 } },
+  tremulant: { division: ['great', 'positive'], name: 'Tremulant 1 Man', depth: 0.77, pitch: 3.4, rate: 3.94 },
+  wind: 0,
 };

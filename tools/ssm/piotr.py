@@ -475,17 +475,27 @@ def _with_silent_zones(write_model, notes: list[float]):
     return wm
 
 
-def build_stop(cat: dict, st: dict, odf: ODF | None = None, keep: bool = False) -> str:
+def build_stop(cat: dict, st: dict, odf: ODF | None = None, keep: bool = False, max_alts: int = 4) -> str:
     import build
     odf = odf or load_odf(cat['id'])
     s = next(x for x in pipe_stops(odf) if x.section == st['section'] and x.manual == st['manual'])
     d = os.path.join(PREP, cat['id'], st['id'])
     shutil.rmtree(d, ignore_errors=True)
     os.makedirs(d)
+    alts: dict[str, list] = {}
     for key, pipes in sorted(s.keys.items()):
         y, sr, up = render_key(pipes)
-        write_wav_cue(os.path.join(d, f'{key:03d}-.wav'), y, sr, up)
+        name = f'{key:03d}-.wav'
+        write_wav_cue(os.path.join(d, name), y, sr, up)
+        # the key released into each release recorded after a shorter key press
+        for i, (max_hold, _) in enumerate(pipes[0].alt_releases[:max_alts]):
+            y, sr, up = render_key(pipes, alt=i, hold_s=ALT_HOLD_S, exact_hold=True)
+            os.makedirs(os.path.join(d, 'alt'), exist_ok=True)
+            path = os.path.join(d, 'alt', f'{key:03d}-r{i + 1}.wav')
+            write_wav_cue(path, y, sr, up)
+            alts.setdefault(name, []).append((max_hold, path))
     spec = spec_for(cat, st)
+    spec['alt_releases'] = alts
     shift = int(round(cat['pitch']))
     silent = [k + st['transpose'] + shift + (cat['pitch'] - shift) for k in st['missing']]
     orig = build.write_model
@@ -497,6 +507,54 @@ def build_stop(cat: dict, st: dict, odf: ODF | None = None, keep: bool = False) 
     if not keep:
         shutil.rmtree(d, ignore_errors=True)
     return path
+
+
+# Alternative releases are analysed from the key held this long (their frames from the key-up
+# on are all that is kept; a shorter render analyses ~40 % faster and gives the same release)
+ALT_HOLD_S = 1.5
+
+
+def add_alt_releases(cat: dict, st: dict, odf: ODF | None = None, workers: int = min(4, os.cpu_count() or 4),
+                     max_alts: int = 4) -> int:
+    """Add the releases recorded after shorter key presses to a stop's built model, without
+    re-analysing its main recordings. Returns how many were added."""
+    import build
+    import ssm_patch
+    from concurrent.futures import ProcessPoolExecutor
+    odf = odf or load_odf(cat['id'])
+    s = next(x for x in pipe_stops(odf) if x.section == st['section'] and x.manual == st['manual'])
+    path = os.path.join(build.OUT_DIR, model_id(cat['id'], st['id']) + '.ssm')
+    _, _, zones = ssm_patch.read_model(path)
+    zone_of = {}
+    for i, z in enumerate(zones):
+        m = re.match(r'(\d+)-', z['h'].get('src', ''))
+        if m:
+            zone_of[int(m.group(1))] = i
+    spec = spec_for(cat, st)
+    kw = build.analysis_kw({**spec, 'stereo': True})
+    d = os.path.join(PREP, cat['id'], st['id'], 'alt')
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    jobs, where = [], []
+    for key, pipes in sorted(s.keys.items()):
+        if key not in zone_of:
+            continue
+        for i, (max_hold, _) in enumerate(pipes[0].alt_releases[:max_alts]):
+            y, sr, up = render_key(pipes, alt=i, hold_s=ALT_HOLD_S, exact_hold=True)
+            f = os.path.join(d, f'{key:03d}-r{i + 1}.wav')
+            write_wav_cue(f, y, sr, up)
+            jobs.append((f, key + spec['note_offset'], 'main', kw))
+            where.append((zone_of[key], max_hold))
+    with ProcessPoolExecutor(workers, initializer=build._worker_init) as ex:
+        results = list(ex.map(build._analyze_job, jobs))
+    alts: dict[int, list] = {}
+    for (zi, max_hold), z in zip(where, results):
+        if z is not None:
+            alts.setdefault(zi, []).append((max_hold, z))
+    n = ssm_patch.add_releases(path, alts)
+    shutil.rmtree(d, ignore_errors=True)
+    print(f'  {st["id"]}: {n}/{len(jobs)} alternative releases', flush=True)
+    return n
 
 
 def build_organ(organ: str, only: list[str] | None = None, keep: bool = False):

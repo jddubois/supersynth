@@ -3,27 +3,27 @@ import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/skrzatusz/<id>.ssm.
 // Manual I is the great, manual II (not enclosed) the positive. The Cornett sounds from c' up.
 const STOPS: StopDefinition[] = [
-  { id: 'great-bordun-16', model: 'organ/skrzatusz/great-bordun-16', name: "Bordun 16'", division: 'great', family: 'flute', transpose: -12 },
-  { id: 'great-principal-8', model: 'organ/skrzatusz/great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0 },
-  { id: 'great-fugara-8', model: 'organ/skrzatusz/great-fugara-8', name: "Fugara 8'", division: 'great', family: 'string', transpose: 0 },
-  { id: 'great-flute-harmonique-8', model: 'organ/skrzatusz/great-flute-harmonique-8', name: "Flûte harmonique 8'", division: 'great', family: 'flute', transpose: 0 },
-  { id: 'great-octave-4', model: 'organ/skrzatusz/great-octave-4', name: "Octave 4'", division: 'great', family: 'principal', transpose: 12 },
-  { id: 'great-quinte-2-2-3', model: 'organ/skrzatusz/great-quinte-2-2-3', name: "Quinte 2 2/3'", division: 'great', family: 'mutation', transpose: 19 },
-  { id: 'great-octave-2', model: 'organ/skrzatusz/great-octave-2', name: "Octave 2'", division: 'great', family: 'principal', transpose: 24 },
-  { id: 'great-cornett-4f', model: 'organ/skrzatusz/great-cornett-4f', name: 'Cornett 4f', division: 'great', family: 'mixture', transpose: 0, keys: [60, 89] },
-  { id: 'great-mixtur-3f', model: 'organ/skrzatusz/great-mixtur-3f', name: 'Mixtur 3f', division: 'great', family: 'mixture', transpose: 0 },
+  { id: 'great-bordun-16', model: 'organ/skrzatusz/great-bordun-16', name: "Bordun 16'", division: 'great', family: 'flute', transpose: -12, actionNoise: [3, 4] },
+  { id: 'great-principal-8', model: 'organ/skrzatusz/great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0, actionNoise: [17, 18] },
+  { id: 'great-fugara-8', model: 'organ/skrzatusz/great-fugara-8', name: "Fugara 8'", division: 'great', family: 'string', transpose: 0, actionNoise: [9, 10] },
+  { id: 'great-flute-harmonique-8', model: 'organ/skrzatusz/great-flute-harmonique-8', name: "Flûte harmonique 8'", division: 'great', family: 'flute', transpose: 0, actionNoise: [7, 8] },
+  { id: 'great-octave-4', model: 'organ/skrzatusz/great-octave-4', name: "Octave 4'", division: 'great', family: 'principal', transpose: 12, actionNoise: [15, 16] },
+  { id: 'great-quinte-2-2-3', model: 'organ/skrzatusz/great-quinte-2-2-3', name: "Quinte 2 2/3'", division: 'great', family: 'mutation', transpose: 19, actionNoise: [19, 20] },
+  { id: 'great-octave-2', model: 'organ/skrzatusz/great-octave-2', name: "Octave 2'", division: 'great', family: 'principal', transpose: 24, actionNoise: [13, 14] },
+  { id: 'great-cornett-4f', model: 'organ/skrzatusz/great-cornett-4f', name: 'Cornett 4f', division: 'great', family: 'mixture', transpose: 0, keys: [60, 89], actionNoise: [5, 6] },
+  { id: 'great-mixtur-3f', model: 'organ/skrzatusz/great-mixtur-3f', name: 'Mixtur 3f', division: 'great', family: 'mixture', transpose: 0, actionNoise: [11, 12] },
 
-  { id: 'positive-geigenprincipal-8', model: 'organ/skrzatusz/positive-geigenprincipal-8', name: "Geigenprincipal 8'", division: 'positive', family: 'principal', transpose: 0 },
-  { id: 'positive-gedact-8', model: 'organ/skrzatusz/positive-gedact-8', name: "Gedact 8'", division: 'positive', family: 'flute', transpose: 0 },
-  { id: 'positive-viola-di-gamba-8', model: 'organ/skrzatusz/positive-viola-di-gamba-8', name: "Viola di Gamba 8'", division: 'positive', family: 'string', transpose: 0 },
-  { id: 'positive-praestant-4', model: 'organ/skrzatusz/positive-praestant-4', name: "Praestant 4'", division: 'positive', family: 'principal', transpose: 12 },
-  { id: 'positive-flauto-dolce-4', model: 'organ/skrzatusz/positive-flauto-dolce-4', name: "Flauto dolce 4'", division: 'positive', family: 'flute', transpose: 12 },
+  { id: 'positive-geigenprincipal-8', model: 'organ/skrzatusz/positive-geigenprincipal-8', name: "Geigenprincipal 8'", division: 'positive', family: 'principal', transpose: 0, actionNoise: [35, 36] },
+  { id: 'positive-gedact-8', model: 'organ/skrzatusz/positive-gedact-8', name: "Gedact 8'", division: 'positive', family: 'flute', transpose: 0, actionNoise: [33, 34] },
+  { id: 'positive-viola-di-gamba-8', model: 'organ/skrzatusz/positive-viola-di-gamba-8', name: "Viola di Gamba 8'", division: 'positive', family: 'string', transpose: 0, actionNoise: [39, 40] },
+  { id: 'positive-praestant-4', model: 'organ/skrzatusz/positive-praestant-4', name: "Praestant 4'", division: 'positive', family: 'principal', transpose: 12, actionNoise: [37, 38] },
+  { id: 'positive-flauto-dolce-4', model: 'organ/skrzatusz/positive-flauto-dolce-4', name: "Flauto dolce 4'", division: 'positive', family: 'flute', transpose: 12, actionNoise: [31, 32] },
 
-  { id: 'pedal-violon-16', model: 'organ/skrzatusz/pedal-violon-16', name: "Violon 16'", division: 'pedal', family: 'string', transpose: -12 },
-  { id: 'pedal-subbass-16', model: 'organ/skrzatusz/pedal-subbass-16', name: "Subbass 16'", division: 'pedal', family: 'flute', transpose: -12 },
-  { id: 'pedal-octavbass-8', model: 'organ/skrzatusz/pedal-octavbass-8', name: "Octavbass 8'", division: 'pedal', family: 'principal', transpose: 0 },
-  { id: 'pedal-bassflote-8', model: 'organ/skrzatusz/pedal-bassflote-8', name: "Bassflöte 8'", division: 'pedal', family: 'flute', transpose: 0 },
-  { id: 'pedal-posaune-16', model: 'organ/skrzatusz/pedal-posaune-16', name: "Posaune 16'", division: 'pedal', family: 'reed', transpose: -12 },
+  { id: 'pedal-violon-16', model: 'organ/skrzatusz/pedal-violon-16', name: "Violon 16'", division: 'pedal', family: 'string', transpose: -12, actionNoise: [29, 30] },
+  { id: 'pedal-subbass-16', model: 'organ/skrzatusz/pedal-subbass-16', name: "Subbass 16'", division: 'pedal', family: 'flute', transpose: -12, actionNoise: [27, 28] },
+  { id: 'pedal-octavbass-8', model: 'organ/skrzatusz/pedal-octavbass-8', name: "Octavbass 8'", division: 'pedal', family: 'principal', transpose: 0, actionNoise: [23, 24] },
+  { id: 'pedal-bassflote-8', model: 'organ/skrzatusz/pedal-bassflote-8', name: "Bassflöte 8'", division: 'pedal', family: 'flute', transpose: 0, actionNoise: [21, 22] },
+  { id: 'pedal-posaune-16', model: 'organ/skrzatusz/pedal-posaune-16', name: "Posaune 16'", division: 'pedal', family: 'reed', transpose: -12, actionNoise: [25, 26] },
 ];
 
 const PRESETS: Record<string, OrganPreset> = {
@@ -95,6 +95,7 @@ export const SKRZATUSZ_ORGAN: OrganDefinition = {
   presets: PRESETS,
   defaultPreset: 'principal-chorus',
   divisions: { great: { pan: 0 }, swell: { pan: 0.15 }, positive: { pan: -0.15 }, pedal: { pan: 0 } },
-  tremulant: { division: 'positive', name: 'Tremulant 2 Man', depth: 0.98, pitch: 7.2, rate: 5.18 },
+  tremulant: { division: 'positive', name: 'Tremulant 2 Man', depth: 0.98, pitch: 7.2, rate: 5.18, actionNoise: [41, 42] },
   wind: 0,
+  noises: { keys: { pedal: { down: 'organ/skrzatusz/noise-keys-pedal-down', up: 'organ/skrzatusz/noise-keys-pedal-up' }, great: { down: 'organ/skrzatusz/noise-keys-great-down', up: 'organ/skrzatusz/noise-keys-great-up' }, positive: { down: 'organ/skrzatusz/noise-keys-positive-down', up: 'organ/skrzatusz/noise-keys-positive-up' } }, stops: 'organ/skrzatusz/noise-stops', blower: { model: 'organ/skrzatusz/noise-blower' }, ambient: { model: 'organ/skrzatusz/noise-ambient' }, coupler: [43, 44] },
 };

@@ -90,7 +90,8 @@ export const MELCER_ORGAN: OrganDefinition = {
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'principal-chorus',
-  divisions: { great: { pan: 0 }, swell: { pan: 0, swellBox: true }, positive: { pan: 0 }, pedal: { pan: 0 } },
-  tremulant: { division: 'swell', depth: 1.97, pitch: 8.2, rate: 3.75 },
+  divisions: { great: { pan: 0 }, swell: { pan: 0, swellBox: { closed: -8 } }, positive: { pan: 0 }, pedal: { pan: 0 } },
+  tremulant: { division: 'swell', name: 'Tremulant 2 Man', depth: 1.97, pitch: 8.2, rate: 3.75 },
+  wind: 0,
   reverb: 'concert-hall',
 };

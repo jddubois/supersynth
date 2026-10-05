@@ -139,6 +139,7 @@ def write_model(path: str, header: dict, zones: list[Zone]):
                            'ph': [int(v) for v in np.round((np.asarray(z.meta['stereo'][2]) + math.pi) / (2 * math.pi) * 255).clip(0, 255)]}}
                if z.meta.get('stereo') is not None else {}),
             **({'relFrame': int(z.meta['rel_frame'])} if z.meta.get('rel_frame') is not None else {}),
+            **({'altRel': [[h, int(f)] for h, f in z.meta['alt_rel']]} if z.meta.get('alt_rel') else {}),
             **({'pulse': [int(v) for v in np.round(np.asarray(z.meta['pulse']) / 4.0 * 255).clip(0, 255)]}
                if z.meta.get('pulse') is not None else {}),
             'frames': T,
@@ -170,15 +171,29 @@ def _worker_init():
 
 
 def _analyze_job(args):
-    path, note, layer, kw = args
+    path, note, layer, kw, *more = args
+    alts = more[0] if more else []
     try:
         kw = dict(kw)
-        if kw.pop('use_cue', False):
+        use_cue = kw.pop('use_cue', False)
+        if use_cue:
             kw['release_at_s'] = wav_cue_seconds(path)
-        return analyze_zone(path, note, layer, **kw)
+        z = analyze_zone(path, note, layer, **kw)
     except Exception as ex:  # noqa: BLE001
         print(f'  !! failed {os.path.basename(path)}: {ex}', flush=True)
         return None
+    # releases recorded after shorter key presses: the same pipe, released into each
+    from analysis import append_release
+    for max_hold, alt in alts:
+        try:
+            if use_cue:
+                kw['release_at_s'] = wav_cue_seconds(alt)
+            a = analyze_zone(alt, note, layer, **kw)
+            if not append_release(z, a, max_hold):
+                print(f'  !! no release in {os.path.basename(alt)}', flush=True)
+        except Exception as ex:  # noqa: BLE001
+            print(f'  !! failed {os.path.basename(alt)}: {ex}', flush=True)
+    return z
 
 
 def wav_cue_seconds(path: str) -> float | None:
@@ -238,6 +253,21 @@ def collect(spec: dict) -> list[tuple[str, int, str]]:
     return out
 
 
+def analysis_kw(spec: dict) -> dict:
+    """analyze_zone settings of a build spec."""
+    return dict(kind=spec['kind'], max_partials=spec.get('max_partials', 512),
+              periods=spec.get('periods', 3.0), max_duration=spec.get('max_duration'),
+              onset_db=spec.get('onset_db', -30.0), octave_search=spec.get('octave_search', True),
+              min_window_s=spec.get('min_window_s', 0.0), harmonic=spec.get('harmonic', True),
+              free_partials=spec.get('free_partials', 0), free_window_s=spec.get('free_window_s', 0.04),
+              transient=spec.get('transient', False), transient_max_s=spec.get('transient_max_s', 0.1),
+              max_loop_s=spec.get('max_loop_s'), use_cue=spec.get('use_cue', False), locked=spec.get('locked'),
+              max_stiffness=spec.get('max_stiffness', 2e-3), stereo=spec.get('stereo', False),
+              steady_smooth_s=spec.get('steady_smooth_s', 0.0), phase_smooth_s=spec.get('phase_smooth_s', 0.0),
+              weak_after_attack=spec.get('weak_after_attack', False),
+              pitch_smooth_s=spec.get('pitch_smooth_s', 0.1 if spec.get('family') == 'organ' and spec['kind'] == 'sustained' else 0.0))
+
+
 def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) -> str:
     if os.environ.get('SSM_OVERRIDES'):
         # experiments: e.g. SSM_OVERRIDES='{"phase_smooth_s": 0.1}'
@@ -255,18 +285,12 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
     if not items:
         raise SystemExit(f'{inst_id}: no files matched')
     print(f'[{inst_id}] {len(items)} recordings', flush=True)
-    kw = dict(kind=spec['kind'], max_partials=spec.get('max_partials', 512),
-              periods=spec.get('periods', 3.0), max_duration=spec.get('max_duration'),
-              onset_db=spec.get('onset_db', -30.0), octave_search=spec.get('octave_search', True),
-              min_window_s=spec.get('min_window_s', 0.0), harmonic=spec.get('harmonic', True),
-              free_partials=spec.get('free_partials', 0), free_window_s=spec.get('free_window_s', 0.04),
-              transient=spec.get('transient', False), transient_max_s=spec.get('transient_max_s', 0.1),
-              max_loop_s=spec.get('max_loop_s'), use_cue=spec.get('use_cue', False), locked=spec.get('locked'),
-              max_stiffness=spec.get('max_stiffness', 2e-3), stereo=spec.get('stereo', False),
-              steady_smooth_s=spec.get('steady_smooth_s', 0.0), phase_smooth_s=spec.get('phase_smooth_s', 0.0),
-              weak_after_attack=spec.get('weak_after_attack', False),
-              pitch_smooth_s=spec.get('pitch_smooth_s', 0.1 if spec.get('family') == 'organ' and spec['kind'] == 'sustained' else 0.0))
-    jobs = [(f, n, l, kw) for f, n, l in items]
+    kw = analysis_kw(spec)
+    # alternative releases of a recording (spec 'alt_releases': file name → [(longest press s,
+    # recording)])
+    alt_map = spec.get('alt_releases', {})
+    alts = {f: alt_map.get(os.path.basename(f), []) for f, _, _ in items}
+    jobs = [(f, n, l, kw, alts[f]) for f, n, l in items]
     with ProcessPoolExecutor(workers, initializer=_worker_init) as ex:
         results = list(ex.map(_analyze_job, jobs))
     failed = sum(1 for z in results if z is None)
@@ -282,7 +306,7 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
         print(f'  re-analysing {len(redo)} zones with octave offset {med}', flush=True)
         kw2 = dict(kw, octave_search=False)
         with ProcessPoolExecutor(workers, initializer=_worker_init) as ex:
-            fixed = list(ex.map(_analyze_job, [(f, n, l, kw2) for f, n, l in redo]))
+            fixed = list(ex.map(_analyze_job, [(f, n, l, kw2, alts.get(f, [])) for f, n, l in redo]))
         fixmap = {z.source: z for z in fixed if z is not None}
         zones = [fixmap.get(z.source, z) if o != med else z for z, o in zip(zones, offs)]
     # detuning sanity: drop zones whose pitch is far from the nominal (mislabelled / failed)

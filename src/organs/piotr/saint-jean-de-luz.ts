@@ -15,7 +15,7 @@ const STOPS: StopDefinition[] = [
 
   { id: 'swell-flute-8', model: 'organ/saint-jean-de-luz/swell-flute-8', name: "Flûte 8'", division: 'swell', family: 'flute', transpose: 0 },
   { id: 'swell-flute-4', model: 'organ/saint-jean-de-luz/swell-flute-4', name: "Flûte 4'", division: 'swell', family: 'flute', transpose: 12 },
-  { id: 'swell-plein-jeu-iii', model: 'organ/saint-jean-de-luz/swell-plein-jeu-iii', name: "Plein-jeu III", division: 'swell', family: 'mixture', transpose: 0 },
+  { id: 'swell-plein-jeu-iii', model: 'organ/saint-jean-de-luz/swell-plein-jeu-iii', name: "Plein-jeu III", division: 'swell', family: 'mixture', transpose: 0, keys: [36, 91] },
   { id: 'swell-trompette-8', model: 'organ/saint-jean-de-luz/swell-trompette-8', name: "Trompette 8'", division: 'swell', family: 'reed', transpose: 0 },
 
   { id: 'pedal-soubasse-16', model: 'organ/saint-jean-de-luz/pedal-soubasse-16', name: "Soubasse 16'", division: 'pedal', family: 'flute', transpose: -12 },
@@ -94,6 +94,7 @@ export const SAINT_JEAN_DE_LUZ_ORGAN: OrganDefinition = {
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'fonds',
-  divisions: { great: { pan: -0.1, swellBox: true }, swell: { pan: 0.1, swellBox: true }, positive: { pan: 0 }, pedal: { pan: 0 } },
-  tremulant: { division: 'great', depth: 1.55, pitch: 8.7, rate: 2.93 },
+  divisions: { great: { pan: -0.1, swellBox: { closed: -8 } }, swell: { pan: 0.1, swellBox: { closed: -8 } }, positive: { pan: 0 }, pedal: { pan: 0 } },
+  tremulant: { division: 'great', name: 'Tremulant 2 Division', depth: 1.55, pitch: 8.7, rate: 2.93 },
+  wind: 0,
 };

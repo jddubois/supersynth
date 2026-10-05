@@ -247,6 +247,12 @@ export class Division implements Playable {
       if ((c.division === this.name && c.octave === 0) || keep.some((k) => sameCoupler(k, c))) continue;
       keep.push(c);
     }
+    // the coupler's action, once for each coupler engaged or released
+    const noise = this.organ.definition.noises?.coupler;
+    const added = keep.filter((c) => !this.couplers.some((o) => sameCoupler(o, c))).length;
+    const removed = this.couplers.filter((o) => !keep.some((c) => sameCoupler(o, c))).length;
+    for (let i = 0; i < added; i++) this.organ._stopNoise({ actionNoise: noise }, true, time);
+    for (let i = 0; i < removed; i++) this.organ._stopNoise({ actionNoise: noise }, false, time);
     this.couplers = keep;
     const targets = keep.map((c) => ({ part: this.organ.division(c.division).channel, shift: 12 * c.octave }));
     this.organ.synth._native().setCouplers(this.channel, targets, this.unisonOff, time);
@@ -424,6 +430,7 @@ export class Organ {
         const divs = list(trem.division);
         const on = typeof tr === 'boolean' ? tr : divs.some((d) => tr[d]) ? true : divs.some((d) => tr[d] === false) ? false : undefined;
         if (on === undefined) return;
+        if (on !== this.tremOn[i]) this._stopNoise(trem, on, t);
         this.tremOn[i] = on;
         // all pipes on the tremulant's wind pulse together in loudness and (less) in pitch
         for (const d of divs) {
@@ -581,10 +588,9 @@ export class Organ {
     return [...this.divisions().map((d) => d.channel), ...(this.noise ? [this.noise.channel] : [])];
   }
 
-  /** @internal Play a stop's drawing or retiring noise. */
-  _stopNoise(stop: StopDefinition, on: boolean, time: number | undefined): void {
-    const nz = this.definition.noises;
-    if (!this.noisesOn_ || !this.noise || !nz?.stops || !stop.actionNoise) return;
+  /** @internal Play the noise of a stop (or coupler, tremulant) being drawn or retired. */
+  _stopNoise(stop: { actionNoise?: [number, number] | undefined } | undefined, on: boolean, time: number | undefined): void {
+    if (!this.noisesOn_ || !this.noise || !this.definition.noises?.stops || !stop?.actionNoise) return;
     const note = stop.actionNoise[on ? 0 : 1];
     const n = this.synth._native();
     n.noteOn(this.noise.channel, note, 100, time);

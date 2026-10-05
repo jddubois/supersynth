@@ -95,6 +95,9 @@ class Pipe:
     midi: float                 # nominal sounding pitch (MIDI)
     crossfade_ms: float = 10.0  # attack → release crossfade at key-up
     release_in_attack: bool = False
+    # releases recorded after shorter key presses: (longest press in seconds, recording),
+    # shortest first (GrandOrgue MaxKeyPressTime)
+    alt_releases: list = field(default_factory=list)
 
     @property
     def footage_semitones(self) -> float:
@@ -146,21 +149,34 @@ def _pipe_from(odf: ODF, sec: str, i: int, base_midi: int, depth: int = 0) -> Pi
                         odf.get(sec, f'{p}attack{a:03d}loadrelease', 'Y')))
     attacks = [a for a in attacks if a[0]]
     main = next((a for a in attacks if a[1].strip() != '1'), attacks[0])
-    # release: the one for the longest key press (MaxKeyPressTime −1 = any), not the tremulant one
+    # releases: GrandOrgue plays the one with the shortest MaxKeyPressTime the key press fits
+    # (−1 = any length). The main release (any length) is a separate recording, or the one
+    # the attack recording holds after its cue; the others are for short presses.
     rels = []
     for r in range(1, odf.int(sec, p + 'releasecount', 0) + 1):
         rp = odf.get(sec, f'{p}release{r:03d}')
         if not rp:
             continue
         mk = float(odf.get(sec, f'{p}release{r:03d}maxkeypresstime', -1) or -1)
-        trem = (odf.get(sec, f'{p}release{r:03d}istremulant', '-1') or '-1').strip() == '1'
-        rels.append((trem, -(1e9 if mk < 0 else mk), rp))
+        if (odf.get(sec, f'{p}release{r:03d}istremulant', '-1') or '-1').strip() == '1':
+            continue
+        rels.append((1e9 if mk < 0 else mk, rp))
     rels.sort()
-    release = odf.file(rels[0][2]) if rels else None
-    in_attack = release is None and not main[2].strip().upper().startswith('N')
+    any_len = [rp for mk, rp in rels if mk >= 1e9]
+    loads = not main[2].strip().upper().startswith('N')
+    if any_len:
+        release, in_attack = odf.file(any_len[0]), False
+    elif loads or not rels:
+        release, in_attack = None, loads
+    else:
+        # no release for long presses: the longest one serves them
+        release, in_attack = odf.file(rels[-1][1]), False
+        rels = rels[:-1]
+    alt = [(mk / 1000.0, odf.file(rp)) for mk, rp in rels if mk < 1e9]
     midi = base_midi + (i - 1) + 12 * math.log2(hn / 8.0)
     return Pipe(attack=odf.file(main[0]), release=release, gain_db=gain, amplitude=amp,
-                tuning_cents=tune, harmonic=hn, midi=midi, crossfade_ms=xf, release_in_attack=in_attack)
+                tuning_cents=tune, harmonic=hn, midi=midi, crossfade_ms=xf, release_in_attack=in_attack,
+                alt_releases=alt)
 
 
 def read_stops(odf: ODF) -> list[Stop]:
@@ -292,13 +308,22 @@ def retune(x: np.ndarray, cents: float) -> np.ndarray:
     return y[:n] if len(y) >= n else np.pad(y, ((0, n - len(y)), (0, 0)))
 
 
-def render_pipe(p: Pipe, hold_s: float = 3.4) -> tuple[np.ndarray, int, int]:
-    """One pipe: (stereo signal, sample rate, key-up frame)."""
+def render_pipe(p: Pipe, hold_s: float = 3.4, alt: int | None = None, exact_hold: bool = False) -> tuple[np.ndarray, int, int]:
+    """One pipe: (stereo signal, sample rate, key-up frame). `alt`: released into its
+    alternative release `alt` (recorded after a shorter key press) instead of the main one."""
     att, sr = _read(p.attack)
     f0 = 440.0 * 2 ** ((p.midi - 69) / 12)
-    if p.release is not None:
-        rel, sr2 = _read(p.release)
-        rcue = wav_cue(p.release)
+    release = p.release
+    if alt is not None and alt < len(p.alt_releases):
+        release = p.alt_releases[alt][1]
+        if p.release is None:
+            # the attack recording holds the main release after its cue: play its sustain only
+            cue = wav_cue(p.attack)
+            if cue is not None and 0 < cue < len(att):
+                att = att[:cue]
+    if release is not None:
+        rel, sr2 = _read(release)
+        rcue = wav_cue(release)
         if rcue is not None and 0 < rcue < len(rel) // 2:
             # a release recording with a cue point starts sounding there (the samples before it
             # are silence or pre-roll that the sampler skips)
@@ -317,7 +342,7 @@ def render_pipe(p: Pipe, hold_s: float = 3.4) -> tuple[np.ndarray, int, int]:
         # key-up well into the sustain: at least `hold_s`, 1.8 s past the loop start (a loop
         # starting later than 2.5 s counts as 2.5 s: the model loops within the first ~2 s of
         # steady sound and drops the rest of the sustain before the release)
-        at = int(min(len(att) - 0.06 * sr, max(hold_s * sr, min(loop_a, 2.5 * sr) + 1.8 * sr)))
+        at = int(min(len(att) - 0.06 * sr, hold_s * sr if exact_hold else max(hold_s * sr, min(loop_a, 2.5 * sr) + 1.8 * sr)))
         y, up = splice_release(att, rel, sr, at, f0, p.crossfade_ms)
     else:
         y = att
@@ -329,9 +354,9 @@ def render_pipe(p: Pipe, hold_s: float = 3.4) -> tuple[np.ndarray, int, int]:
     return y, sr, up
 
 
-def render_key(pipes: list[Pipe]) -> tuple[np.ndarray, int, int]:
+def render_key(pipes: list[Pipe], alt: int | None = None, hold_s: float = 3.4, exact_hold: bool = False) -> tuple[np.ndarray, int, int]:
     """All pipes of one key of a stop, summed, released together (the first pipe's key-up)."""
-    parts = [render_pipe(p) for p in pipes]
+    parts = [render_pipe(p, hold_s=hold_s, alt=alt, exact_hold=exact_hold) for p in pipes]
     sr = parts[0][1]
     if len(parts) == 1:
         return parts[0]
@@ -433,10 +458,14 @@ def read_hauptwerk_stops(hw: HauptwerkODF) -> list[Stop]:
             tune = float(lay.get('PitchLvl_DetuningPercentSemitones') or 0)
             if att.get('Pitch_SpecificationMethodCode') == '4' and float(p.get('Pitch_OriginalOrgan_PitchHz') or 0) > 0:
                 tune += 1200 * math.log2(float(p['Pitch_OriginalOrgan_PitchHz']) / float(att['Pitch_ExactSamplePitch']))
+            # releases for short key presses (Hauptwerk: the latest key-release time each serves)
+            alt = sorted((float(r['ReleaseSelCriteria_LatestKeyReleaseTimeMs']) / 1000.0, hw.sample_path(samples[r['SampleID']]))
+                         for r in rels[1:] if float(r.get('ReleaseSelCriteria_LatestKeyReleaseTimeMs') or 99999) < 99999)
             pipe = Pipe(attack=hw.sample_path(att), release=hw.sample_path(rel) if rel else None,
                         gain_db=float(lay.get('AmpLvl_LevelAdjustDecibels') or 0), amplitude=1.0,
                         tuning_cents=tune, harmonic=hn, midi=int(p['NormalMIDINoteNumber']) + 12 * math.log2(hn / 8.0),
-                        crossfade_ms=float(rels[0].get('ReleaseCrossfadeLengthMs') or 10) if rels else 10.0)
+                        crossfade_ms=float(rels[0].get('ReleaseCrossfadeLengthMs') or 10) if rels else 10.0,
+                        alt_releases=alt)
             for div, key in keys:
                 if div == stop.manual:
                     stop.keys.setdefault(key, []).append(pipe)
