@@ -189,7 +189,7 @@ def hw_sources(hw: HauptwerkODF, cat: dict) -> dict:
 
 # ── analysis ───────────────────────────────────────────────────────────────────────────────
 def noise_zone(x: np.ndarray, sr: int, note: float, *, sustained: bool = False, cue: int | None = None,
-               source: str = '') -> Zone | None:
+               loop_at: tuple[int, int] | None = None, source: str = '') -> Zone | None:
     """One noise recording (stereo) as a zone: its noise-band envelope over time and, for a
     click, its first CLICK_S seconds as recorded. Sustained noises (blower, room) loop their
     steady part and keep the recording's own ending after the cue."""
@@ -230,11 +230,18 @@ def noise_zone(x: np.ndarray, sr: int, note: float, *, sustained: bool = False, 
     tot = 10 * np.log10(np.sum(noise, axis=1) + 1e-14)
     loop, rel_frame = None, None
     if sustained:
-        end_t = cue / sr if cue else dur
-        # loop the steady noise: from 1 s after the start (the blower has spun up) for up to
-        # 4 s, ending before the cue; the frames from the cue on are its ending
-        a = int(np.searchsorted(grid, min(1.0, 0.3 * end_t)))
-        b = int(np.searchsorted(grid, min(end_t - 0.2, grid[a] + 4.0)))
+        if loop_at is not None and 0 <= loop_at[0] < loop_at[1] <= len(x):
+            # the recording's own loop (in GrandOrgue): its sustain ends where the loop does
+            end_t = loop_at[1] / sr
+            a = int(np.searchsorted(grid, loop_at[0] / sr))
+            b = int(np.searchsorted(grid, min(end_t, grid[a] + 4.0))) - 1
+        else:
+            end_t = cue / sr if cue else dur
+            # loop the steady noise: from 1 s after the start (the blower has spun up) for up
+            # to 4 s, ending before the cue
+            a = int(np.searchsorted(grid, min(1.0, 0.3 * end_t)))
+            b = int(np.searchsorted(grid, min(end_t - 0.2, grid[a] + 4.0)))
+        cue = int(end_t * sr) if end_t < dur - 0.3 else None   # the frames after it are its ending
         if b - a < 8:
             return None
         loop = (a, b)
@@ -389,7 +396,9 @@ def build_noises(organ: str, workers: int = min(4, os.cpu_count() or 4)) -> dict
             if p is None:
                 continue
             x, sr, cue = signal_of(p, 'on')
-            z = noise_zone(x, sr, 60, sustained=True, cue=cue, source=kind)
+            from grandorgue import wav_loops
+            loops = wav_loops((p[0] if isinstance(p, list) else p).attack)
+            z = noise_zone(x, sr, 60, sustained=True, cue=cue, loop_at=loops[0] if loops else None, source=kind)
             if z is not None:
                 write(f'{base}-{kind}', [z], cat, kind, 'natural')
                 out[kind] = f'{base}-{kind}'

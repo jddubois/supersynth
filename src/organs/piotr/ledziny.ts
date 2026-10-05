@@ -2,18 +2,18 @@ import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/ledziny/<id>.ssm.
 const STOPS: StopDefinition[] = [
-  { id: 'great-principal-8', model: 'organ/ledziny/great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0 },
-  { id: 'great-salicet-8', model: 'organ/ledziny/great-salicet-8', name: "Salicet 8'", division: 'great', family: 'string', transpose: 0 },
-  { id: 'great-portunal-flote-8', model: 'organ/ledziny/great-portunal-flote-8', name: "Portunal-Flöte 8'", division: 'great', family: 'flute', transpose: 0 },
-  { id: 'great-flaut-major-8', model: 'organ/ledziny/great-flaut-major-8', name: "Flaut major 8'", division: 'great', family: 'flute', transpose: 0 },
-  { id: 'great-principal-4', model: 'organ/ledziny/great-principal-4', name: "Principal 4'", division: 'great', family: 'principal', transpose: 12 },
-  { id: 'great-flauto-traverse-4', model: 'organ/ledziny/great-flauto-traverse-4', name: "Flauto traverse 4'", division: 'great', family: 'flute', transpose: 12 },
-  { id: 'great-quinte-2-2-3-octave-2', model: 'organ/ledziny/great-quinte-2-2-3-octave-2', name: "Quinte 2 2/3' Octave 2'", division: 'great', family: 'mixture', transpose: 0 },
-  { id: 'great-mixtur-2-fach', model: 'organ/ledziny/great-mixtur-2-fach', name: 'Mixtur 2 fach', division: 'great', family: 'mixture', transpose: 0 },
+  { id: 'great-principal-8', model: 'organ/ledziny/great-principal-8', name: "Principal 8'", division: 'great', family: 'principal', transpose: 0, actionNoise: [13, 14] },
+  { id: 'great-salicet-8', model: 'organ/ledziny/great-salicet-8', name: "Salicet 8'", division: 'great', family: 'string', transpose: 0, actionNoise: [17, 18] },
+  { id: 'great-portunal-flote-8', model: 'organ/ledziny/great-portunal-flote-8', name: "Portunal-Flöte 8'", division: 'great', family: 'flute', transpose: 0, actionNoise: [9, 10] },
+  { id: 'great-flaut-major-8', model: 'organ/ledziny/great-flaut-major-8', name: "Flaut major 8'", division: 'great', family: 'flute', transpose: 0, actionNoise: [3, 4] },
+  { id: 'great-principal-4', model: 'organ/ledziny/great-principal-4', name: "Principal 4'", division: 'great', family: 'principal', transpose: 12, actionNoise: [11, 12] },
+  { id: 'great-flauto-traverse-4', model: 'organ/ledziny/great-flauto-traverse-4', name: "Flauto traverse 4'", division: 'great', family: 'flute', transpose: 12, actionNoise: [5, 6] },
+  { id: 'great-quinte-2-2-3-octave-2', model: 'organ/ledziny/great-quinte-2-2-3-octave-2', name: "Quinte 2 2/3' Octave 2'", division: 'great', family: 'mixture', transpose: 0, actionNoise: [15, 16] },
+  { id: 'great-mixtur-2-fach', model: 'organ/ledziny/great-mixtur-2-fach', name: 'Mixtur 2 fach', division: 'great', family: 'mixture', transpose: 0, actionNoise: [7, 8] },
 
-  { id: 'pedal-subbass-16', model: 'organ/ledziny/pedal-subbass-16', name: "Subbaß 16'", division: 'pedal', family: 'flute', transpose: -12 },
-  { id: 'pedal-principal-bass-8', model: 'organ/ledziny/pedal-principal-bass-8', name: "Principal baß 8'", division: 'pedal', family: 'principal', transpose: 0 },
-  { id: 'pedal-violon-cello-8', model: 'organ/ledziny/pedal-violon-cello-8', name: "Violon Cello 8'", division: 'pedal', family: 'string', transpose: 0 },
+  { id: 'pedal-subbass-16', model: 'organ/ledziny/pedal-subbass-16', name: "Subbaß 16'", division: 'pedal', family: 'flute', transpose: -12, actionNoise: [21, 22] },
+  { id: 'pedal-principal-bass-8', model: 'organ/ledziny/pedal-principal-bass-8', name: "Principal baß 8'", division: 'pedal', family: 'principal', transpose: 0, actionNoise: [19, 20] },
+  { id: 'pedal-violon-cello-8', model: 'organ/ledziny/pedal-violon-cello-8', name: "Violon Cello 8'", division: 'pedal', family: 'string', transpose: 0, actionNoise: [23, 24] },
 ];
 
 const PRESETS: Record<string, OrganPreset> = {
@@ -68,4 +68,5 @@ export const LEDZINY_ORGAN: OrganDefinition = {
   divisions: { great: { pan: 0 }, swell: { pan: 0 }, positive: { pan: 0 }, pedal: { pan: 0 } },
   tremulant: [],
   wind: 0,
+  noises: { keys: { pedal: { down: 'organ/ledziny/noise-keys-pedal-down', up: 'organ/ledziny/noise-keys-pedal-up' }, great: { down: 'organ/ledziny/noise-keys-great-down', up: 'organ/ledziny/noise-keys-great-up' } }, stops: 'organ/ledziny/noise-stops', blower: { model: 'organ/ledziny/noise-blower' }, ambient: { model: 'organ/ledziny/noise-ambient' }, coupler: [25, 26] },
 };

@@ -5,11 +5,11 @@ import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 // Kwinta 1 1/3' (the 2' retuned) are borrowed, as in the sample set. The positive stands at
 // Baroque pitch, a semitone below A440: every key sounds its own pipe at that pitch.
 const STOPS: StopDefinition[] = [
-  { id: 'great-flet-kryty-8', model: 'organ/green-positiv/great-flet-kryty-8', name: "Flet kryty 8'", division: 'great', family: 'flute', transpose: -1 },
-  { id: 'great-flet-kryty-4', model: 'organ/green-positiv/great-flet-kryty-4', name: "Flet kryty 4'", division: 'great', family: 'flute', transpose: 11 },
-  { id: 'great-pryncypal-4', model: 'organ/green-positiv/great-pryncypal-4', name: "Pryncypał 4'", division: 'great', family: 'principal', transpose: 11 },
-  { id: 'great-pryncypal-2', model: 'organ/green-positiv/great-pryncypal-2', name: "Pryncypał 2'", division: 'great', family: 'principal', transpose: 23 },
-  { id: 'great-kwinta-1-1-3', model: 'organ/green-positiv/great-kwinta-1-1-3', name: "Kwinta 1 1/3'", division: 'great', family: 'mutation', transpose: 30 },
+  { id: 'great-flet-kryty-8', model: 'organ/green-positiv/great-flet-kryty-8', name: "Flet kryty 8'", division: 'great', family: 'flute', transpose: -1, actionNoise: [5, 6] },
+  { id: 'great-flet-kryty-4', model: 'organ/green-positiv/great-flet-kryty-4', name: "Flet kryty 4'", division: 'great', family: 'flute', transpose: 11, actionNoise: [3, 4] },
+  { id: 'great-pryncypal-4', model: 'organ/green-positiv/great-pryncypal-4', name: "Pryncypał 4'", division: 'great', family: 'principal', transpose: 11, actionNoise: [11, 12] },
+  { id: 'great-pryncypal-2', model: 'organ/green-positiv/great-pryncypal-2', name: "Pryncypał 2'", division: 'great', family: 'principal', transpose: 23, actionNoise: [9, 10] },
+  { id: 'great-kwinta-1-1-3', model: 'organ/green-positiv/great-kwinta-1-1-3', name: "Kwinta 1 1/3'", division: 'great', family: 'mutation', transpose: 30, actionNoise: [7, 8] },
 ];
 
 const PRESETS: Record<string, OrganPreset> = {
@@ -51,5 +51,6 @@ export const GREEN_POSITIV_ORGAN: OrganDefinition = {
   divisions: { great: { pan: 0 }, swell: { pan: 0 }, positive: { pan: 0 }, pedal: { pan: 0 } },
   tremulant: [],
   wind: 0,
+  noises: { keys: { great: { down: 'organ/green-positiv/noise-keys-great-down', up: 'organ/green-positiv/noise-keys-great-up' } }, stops: 'organ/green-positiv/noise-stops', blower: { model: 'organ/green-positiv/noise-blower' }, ambient: { model: 'organ/green-positiv/noise-ambient' } },
   reverb: 'chamber',
 };

@@ -1,0 +1,47 @@
+{
+ "keys": {
+  "pedal": {
+   "down": "organ/harmonium/noise-keys-pedal-down",
+   "up": "organ/harmonium/noise-keys-pedal-up"
+  },
+  "great": {
+   "down": "organ/harmonium/noise-keys-great-down",
+   "up": "organ/harmonium/noise-keys-great-up"
+  },
+  "swell": {
+   "down": "organ/harmonium/noise-keys-swell-down",
+   "up": "organ/harmonium/noise-keys-swell-up"
+  }
+ },
+ "stops": {
+  "great-diapason-8": [
+   3,
+   4
+  ],
+  "great-flote-4": [
+   5,
+   6
+  ],
+  "great-melodia-8": [
+   7,
+   8
+  ],
+  "great-viola-4": [
+   9,
+   10
+  ],
+  "swell-dulcet-8": [
+   11,
+   12
+  ],
+  "swell-flote-8": [
+   13,
+   14
+  ]
+ },
+ "tremulants": {},
+ "couplers": {},
+ "stopsModel": "organ/harmonium/noise-stops",
+ "blower": "organ/harmonium/noise-blower",
+ "ambient": "organ/harmonium/noise-ambient"
+}

@@ -7,13 +7,13 @@ import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 // whole instrument speaks through its expression box.
 const m = (id: string) => `organ/harmonium/${id}`;
 const STOPS: StopDefinition[] = [
-  { id: 'great-diapason-8', model: m('great-diapason-8'), forte: m('great-diapason-8-forte'), name: "Diapason 8'", division: 'great', family: 'reed', transpose: 0, keys: [36, 59] },
-  { id: 'great-melodia-8', model: m('great-melodia-8'), forte: m('great-melodia-8-forte'), name: "Melodia 8'", division: 'great', family: 'reed', transpose: 0, keys: [60, 96] },
-  { id: 'great-viola-4', model: m('great-viola-4'), forte: m('great-viola-4-forte'), name: "Viola 4'", division: 'great', family: 'reed', transpose: 12, keys: [36, 59] },
-  { id: 'great-flote-4', model: m('great-flote-4'), forte: m('great-flote-4-forte'), name: "Flöte 4'", division: 'great', family: 'reed', transpose: 12, keys: [60, 96] },
+  { id: 'great-diapason-8', model: m('great-diapason-8'), forte: m('great-diapason-8-forte'), name: "Diapason 8'", division: 'great', family: 'reed', transpose: 0, keys: [36, 59], actionNoise: [3, 4] },
+  { id: 'great-melodia-8', model: m('great-melodia-8'), forte: m('great-melodia-8-forte'), name: "Melodia 8'", division: 'great', family: 'reed', transpose: 0, keys: [60, 96], actionNoise: [7, 8] },
+  { id: 'great-viola-4', model: m('great-viola-4'), forte: m('great-viola-4-forte'), name: "Viola 4'", division: 'great', family: 'reed', transpose: 12, keys: [36, 59], actionNoise: [9, 10] },
+  { id: 'great-flote-4', model: m('great-flote-4'), forte: m('great-flote-4-forte'), name: "Flöte 4'", division: 'great', family: 'reed', transpose: 12, keys: [60, 96], actionNoise: [5, 6] },
 
-  { id: 'swell-dulcet-8', model: m('swell-dulcet-8'), forte: m('swell-dulcet-8-forte'), name: "Dulcet 8'", division: 'swell', family: 'reed', transpose: 0, keys: [36, 59] },
-  { id: 'swell-flote-8', model: m('swell-flote-8'), forte: m('swell-flote-8-forte'), name: "Flöte 8'", division: 'swell', family: 'reed', transpose: 0, keys: [60, 96] },
+  { id: 'swell-dulcet-8', model: m('swell-dulcet-8'), forte: m('swell-dulcet-8-forte'), name: "Dulcet 8'", division: 'swell', family: 'reed', transpose: 0, keys: [36, 59], actionNoise: [11, 12] },
+  { id: 'swell-flote-8', model: m('swell-flote-8'), forte: m('swell-flote-8-forte'), name: "Flöte 8'", division: 'swell', family: 'reed', transpose: 0, keys: [60, 96], actionNoise: [13, 14] },
   { id: 'swell-vox-jubilante-8', model: m('swell-vox-jubilante-8'), forte: m('swell-vox-jubilante-8-forte'), name: "Vox Jubilante 8'", division: 'swell', family: 'reed', transpose: 0, keys: [53, 96] },
 
   { id: 'pedal-diapason-16', model: m('pedal-diapason-16'), forte: m('pedal-diapason-16-forte'), name: "Diapason 16'", division: 'pedal', family: 'reed', transpose: -12, keys: [36, 65] },
@@ -76,5 +76,6 @@ export const HARMONIUM_ORGAN: OrganDefinition = {
   divisions: { great: { pan: 0, swellBox: true }, swell: { pan: 0, swellBox: true }, positive: { pan: 0 }, pedal: { pan: 0, swellBox: true } },
   tremulant: { division: 'swell', depth: 1.5, pitch: 5, rate: 4.3 },
   wind: 0,
+  noises: { keys: { pedal: { down: 'organ/harmonium/noise-keys-pedal-down', up: 'organ/harmonium/noise-keys-pedal-up' }, great: { down: 'organ/harmonium/noise-keys-great-down', up: 'organ/harmonium/noise-keys-great-up' }, swell: { down: 'organ/harmonium/noise-keys-swell-down', up: 'organ/harmonium/noise-keys-swell-up' } }, stops: 'organ/harmonium/noise-stops', blower: { model: 'organ/harmonium/noise-blower' }, ambient: { model: 'organ/harmonium/noise-ambient' } },
   reverb: 'room',
 };
