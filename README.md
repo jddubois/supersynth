@@ -87,6 +87,7 @@ Building from source needs Rust ([rustup.rs](https://rustup.rs)): `npm run build
 
 ```ts
 const synth = new Synth({ reverb: 'concert-hall' });
+const piano = synth.add('grand-piano');
 const violin = synth.add('violin', { preset: 'expressive' });
 const cellos = synth.add('cellos');
 

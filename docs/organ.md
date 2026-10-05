@@ -28,7 +28,7 @@ Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
 
 | Division | |
 |---|---|
-| `play`, `sequence`, `noteOn`, `noteOff`, `allNotesOff` | playing (organs are not velocity sensitive) |
+| `play`, `sequence`, `noteOn`, `noteOff`, `allNotesOff` | playing (organs are not velocity sensitive; a velocity is clamped to 1–127, so 0 is not a key release) |
 | `expression(0–1)` | swell pedal (shutters on the swell, volume elsewhere) |
 | `pull(stop \| stops)`, `push(stop \| stops)` | draw, retire |
 | `couple(division \| divisions)`, `uncouple(division \| divisions)` | couplers to this keyboard |
@@ -86,8 +86,10 @@ organ.midi({ great: 1, swell: 2, pedal: 3 }, { presets: ['flutes', 'principal-ch
 Each division plays its MIDI channel straight in the engine (no JavaScript in the note path),
 couplers included; CC 11 on a division's channel is its swell pedal. Program change *n* on any of
 the organ's channels selects the *n*-th preset of `presets` (default: all presets, in the order
-of `organ.presets()`; `false` ignores program changes). Calling `midi()` again replaces the
-organ's channels. MIDI files play an organ with
+of `organ.presets()`; `false` ignores program changes). The preset names are checked when
+`midi()` is called; a preset that cannot be applied when its program change arrives is emitted
+as the synth's `'error'` event if it has listeners, and ignored otherwise (it never throws out of
+the MIDI callback). Calling `midi()` again replaces the organ's channels. MIDI files play an organ with
 `synth.renderMidi(file, { channels: { 1: organ.great, 2: organ.pedal } })`.
 
 ## A second organ: the VCSL church organ

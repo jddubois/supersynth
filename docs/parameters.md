@@ -54,7 +54,8 @@ touch-sensitive).
 ## Reverb
 
 The room is chosen with `new Synth({ reverb })` and changed with `synth.set({ reverb })`. By default
-(`'auto'`) it is the suggested room of the first instrument or organ added. A 16-line feedback-delay-network reverb with frequency-dependent decay, early reflections and
+(`'auto'`) it is the suggested room of the first instrument or organ added, and follows that
+instrument's presets until the room is set by hand. A 16-line feedback-delay-network reverb with frequency-dependent decay, early reflections and
 modulation. Presets: `room`, `studio`, `chamber`, `hall`, `concert-hall`, `church`, `cathedral`,
 `plate`.
 
@@ -70,6 +71,6 @@ synth.set({ reverb: false });
 | `lowDecay`, `highDecay` | RT60 multipliers below 250 Hz / above 4 kHz |
 | `size`, `predelay` (ms), `diffusion`, `early`, `width`, `modulation` | |
 | `lowCut`, `highCut` | Hz, on the reverb return |
-| `level` | dB |
+| `level` | return level, dB (0 at first). It stays as set when other fields or the preset change, and `reverb: false` then back on restores it |
 
 The master bus ends with a transparent look-ahead limiter (ceiling −0.3 dBFS).
