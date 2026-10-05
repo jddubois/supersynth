@@ -116,4 +116,5 @@ export const SAINT_JEAN_DE_LUZ_ORGAN: OrganDefinition = {
   divisions: { great: { pan: -0.1, swellBox: { closed: -8 } }, swell: { pan: 0.1, swellBox: { closed: -8 } }, positive: { pan: 0 }, pedal: { pan: 0 } },
   tremulant: { division: 'great', name: 'Tremulant 2 Division', depth: 1.55, pitch: 8.7, rate: 2.93 },
   wind: 0,
+  noises: { ambient: { model: 'organ/saint-jean-de-luz/noise-ambient' } },
 };

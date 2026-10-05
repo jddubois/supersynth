@@ -82,9 +82,13 @@ def main(organ: str, only: list[str]):
             continue
         keys = sorted(s.keys)
         for key in (keys[len(keys) // 4], keys[len(keys) // 2], keys[3 * len(keys) // 4]):
-            p = s.keys[key][0]
             for hold in HOLDS:
-                y, up = real(p, hold)
+                # every pipe of the key (ranks of a mixture, microphone perspectives), key-ups aligned
+                parts = [real(p, hold) for p in s.keys[key]]
+                up = max(u for _, u in parts)
+                y = np.zeros((max(up - u + len(x) for x, u in parts), 2))
+                for x, u in parts:
+                    y[up - u:up - u + len(x)] += x
                 a = levels(y, 48000, up)
                 x, sr, eup = engine(organ, st, key, hold)
                 b = levels(x, sr, eup)

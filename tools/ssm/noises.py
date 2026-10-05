@@ -69,7 +69,8 @@ def sources(odf: ODF, cat: dict) -> dict:
         if m:
             p = _pipe_from(odf, sec, 1, 60)
             if p is not None:
-                (on if m.group(1).lower() == 'attack' else off)[_norm(m.group(2))] = p
+                # the same noise once per microphone perspective: they sound together
+                (on if m.group(1).lower() == 'attack' else off).setdefault(_norm(m.group(2)), []).append(p)
     raw = {st['id']: _norm(odf.get(st['section'], 'Name', '') or '') for st in cat['stops']}
     for sid, rn in raw.items():
         if rn in on or rn in off:
@@ -178,6 +179,8 @@ def hw_sources(hw: HauptwerkODF, cat: dict) -> dict:
                 pair[0 if m.group(1).lower() == 'attack' else 1].append(pp)
             continue
         if re.match(r'noises$', fam, re.I):
+            if re.search(r'trem', switch_name.get(pallet, ''), re.I):
+                continue                    # the tremulant's motor
             kind = 'blower' if re.search(r'blower|dmuch', switch_name.get(pallet, ''), re.I) else 'ambient'
             out[kind] = (out[kind] or []) + [pp]
     out['stops'] = {k: (v[0] or None, v[1] or None) for k, v in out['stops'].items()}
@@ -308,11 +311,42 @@ def _header(path: str) -> bytes:
     return raw[8:8 + n]
 
 
+def _hauptwerk_beside(organ: str) -> HauptwerkODF | None:
+    import glob
+    xml = glob.glob(os.path.join(piotr.SAMPLES, organ, 'OrganDefinitions', '*.Organ_Hauptwerk_xml'))
+    return HauptwerkODF(xml[0]) if xml else None
+
+
+def _hw_catalog(cat: dict, hw: HauptwerkODF) -> dict:
+    """The catalogue as the Hauptwerk definition numbers it: its divisions in order are the
+    GrandOrgue manuals in order; its stops are matched by division and name."""
+    hw_divs = sorted(int(d['DivisionID']) for d in hw.all('Division'))
+    go_mans = sorted({st['manual'] for st in cat['stops']})
+    to_hw = dict(zip(go_mans, hw_divs))
+    stops = []
+    for x in hw.all('Stop'):
+        div = int(x['DivisionID'])
+        name = piotr.clean_name(x.get('Name', ''), '')
+        st = next((st for st in cat['stops'] if to_hw.get(st['manual']) == div and st['name'].lower() == name.lower()), None)
+        if st:
+            stops.append({**st, 'section': f"hwstop{x['StopID']}", 'manual': div})
+    return {**cat, 'stops': stops}
+
+
 def build_noises(organ: str, workers: int = min(4, os.cpu_count() or 4)) -> dict:
     """Every noise model of an organ; returns the map the organ's config needs."""
     cat = piotr.load_catalog(organ)
     odf = piotr.load_odf(organ)
     src = hw_sources(odf, cat) if isinstance(odf, HauptwerkODF) else sources(odf, cat)
+    hw = _hauptwerk_beside(organ)
+    if hw is not None and not isinstance(odf, HauptwerkODF):
+        # a GrandOrgue definition made from a Hauptwerk set may leave its noises out: take
+        # what is missing from the Hauptwerk definition
+        extra = hw_sources(hw, _hw_catalog(cat, hw))
+        for k in ('keys', 'stops', 'tremulants', 'couplers'):
+            src[k] = src[k] or extra[k]
+        for k in ('blower', 'ambient'):
+            src[k] = src[k] or extra[k]
     base = f'organ/{organ}/noise'
     out = {'keys': {}, 'stops': {}, 'tremulants': {}, 'couplers': {}}
     with ProcessPoolExecutor(workers, initializer=build._worker_init) as ex:
