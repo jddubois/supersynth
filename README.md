@@ -342,17 +342,51 @@ Measured on BWV 532, comparing third-octave band levels in 100 ms windows with t
 | `{ floorDb: -80 }` | 287 / 498 | up to 1.8 dB, and the end of the room tail is cut in pauses |
 
 Neither setting saves enough to fit fast pieces on the Friesach or Cracow plenum onto a Pi 5:
-they need about 4× its budget. On a Pi, use lighter registrations on the large organs, which
-should fit.
+they need about 4× its budget. On a Pi, either use lighter registrations on the large organs,
+which should fit, or turn on the overload guard and accept shorter tails when the CPU runs out.
 
-Suggested settings for a Raspberry Pi 5, based on these estimates: a 64-bit OS,
-`threads: 'auto'` (or 4 if nothing else is running), `bufferSize: 256` (5.3 ms) for organs, and
-the defaults for everything else. Check with `npm run live-test -- --repeat 3` and
-`npm run bench:organs` on the Pi itself. During real-time output the render threads get the
-same scheduling as the audio thread. With JACK or PipeWire that's the real-time priority of
-their audio thread; with ALSA on Linux, supersynth requests `SCHED_FIFO` for the audio and
-render threads together, which is granted if the user's real-time priority limit allows it.
-Render threads never run at a higher priority than the audio thread.
+### Overload guard
+
+`new Synth({ overloadGuard: true })` is opt-in and only applies to real-time output. It measures
+how long each audio buffer takes to render (wall clock, all threads). When that load, smoothed
+over about 100 ms, goes above 85 % of the buffer's duration, or a buffer is late on a busy
+engine, it ends the quietest notes that are in their release, with a 10 ms fade. It ends just
+as many as the measured cost per voice says are needed to bring the next buffers under 70 %.
+Only when there are no released notes left does it start fading out the upper partials of the
+quietest held notes, and never below a quarter of them. Held notes and attacks are never cut.
+It lets go once the load has stayed under 50 % for 0.5 s (and at least 1 s after it kicked in),
+and the partials fade back in. When nothing is overloaded it does nothing at all: the output is
+identical to running without it (tested on piano, strings and the Bureå plenum played live),
+and offline rendering is never guarded. `synth.guardActive` and `synth.guardStats`
+(`{ active, voicesShed, partialsReduced }`) report what it's doing.
+
+By the Pi 5 estimate, a large organ then degrades gracefully, with shorter tails under load
+instead of crackling. Results for BWV 532 played live (`live-test --guard --repeat 3`, SSE4.1).
+Dropouts are buffers that missed their deadline, out of 16,875. Band change compares
+third-octave levels in 100 ms windows with the full render while the guard is active
+(`bench/bands.ts`):
+
+| | Pi 5 estimate (3 threads, 1.7× slower) off → on | 1 thread on this VM off → on | voices (peak) off → on | band change, median / p90 / p99 |
+|---|---|---|---|---|
+| Bureå plenum | 2380 → 1 | 3430 → 0 | 113 → 54 | 0.09 / 0.98 / 5.5 dB |
+| Friesach plenum | 16209 → 0 | 16353 → 1 | 945 → 105 | 0.41 / 2.7 / 10.9 dB |
+| Cracow plein-jeu | 15817 → 0 | 16068 → 1 | 1029 → 119 | 0.40 / 2.9 / 18 dB |
+
+The large changes are in the quiet bands of the room between notes, where the shed releases
+were; the notes themselves aren't touched. On a machine that keeps up, the guard never engages.
+
+### Raspberry Pi 5 settings
+
+Suggested settings, based on the estimates above: a 64-bit OS, `threads: 'auto'` (or 4 if
+nothing else is running), `bufferSize: 256` (5.3 ms) for organs, and the defaults for everything
+else. Add `overloadGuard: true` to play the large organs (Friesach, Cracow, Szczecinek, Bureå at
+full registration) with shorter tails instead of dropouts. Check with
+`npm run live-test -- --repeat 3` and `npm run bench:organs` on the Pi itself. During real-time
+output the render threads get the same scheduling as the audio thread. With JACK or PipeWire
+that's the real-time priority of their audio thread; with ALSA on Linux, supersynth requests
+`SCHED_FIFO` for the audio and render threads together, which is granted if the user's
+real-time priority limit allows it. Render threads never run at a higher priority than the
+audio thread.
 
 Models are loaded off the JavaScript thread. Adding an organ only waits for the stops in its
 starting preset, which load in parallel; the rest load in the background, so drawing a stop

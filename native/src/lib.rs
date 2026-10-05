@@ -66,6 +66,17 @@ pub struct JsLayer {
     pub direct_only: Option<bool>,
 }
 
+/// What the overload guard has done (see `SynthEngine::set_overload_guard`).
+#[napi(object)]
+pub struct JsGuardStats {
+    /// Shedding load now.
+    pub active: bool,
+    /// Released notes ended early so far.
+    pub voices_shed: f64,
+    /// Partials faded out so far (last resort, when no released note was left).
+    pub partials_reduced: f64,
+}
+
 /// One organ coupler: also play `part`, `shift` semitones away (±12: octave couplers).
 #[napi(object)]
 pub struct JsCoupler {
@@ -130,6 +141,10 @@ pub struct SynthEngine {
     /// Set when rendering panicked (see `faulted`).
     fault: Arc<Fault>,
     threads: u32,
+    /// The overload guard is wanted (`set_overload_guard`); it is armed only while rendering
+    /// in real time (output running, or emulated).
+    guard: bool,
+    emulated: bool,
 }
 
 fn err(msg: impl Into<String>) -> Error {
@@ -188,6 +203,8 @@ impl SynthEngine {
             buffer_size: o.buffer_size,
             fault: Arc::new(Fault::default()),
             threads,
+            guard: false,
+            emulated: false,
         })
     }
 
@@ -243,6 +260,50 @@ impl SynthEngine {
     #[napi(getter)]
     pub fn is_running(&self) -> bool {
         self.output.is_some()
+    }
+
+    /// Opt-in overload guard: while rendering in real time, when buffers come close to their
+    /// deadline, end the quietest released notes early (then, as a last resort, fade out upper
+    /// partials). Offline `render()` is never guarded.
+    #[napi]
+    pub fn set_overload_guard(&mut self, on: bool) {
+        self.guard = on;
+        self.arm_guard();
+    }
+
+    /// Treat `render()` calls as real-time buffers (benchmarks and tests that drive the engine
+    /// buffer by buffer as an audio callback would).
+    #[napi]
+    pub fn set_realtime_emulation(&mut self, on: bool) {
+        self.emulated = on;
+        self.arm_guard();
+    }
+
+    fn arm_guard(&self) {
+        let st = &self.shared.status;
+        let armed = self.guard && (self.output.is_some() || self.emulated);
+        st.guard_armed.store(armed, Ordering::Relaxed);
+        if !armed {
+            // (the engine lets go at its next buffer; there may be none)
+            st.guard_active.store(false, Ordering::Relaxed);
+        }
+    }
+
+    /// The overload guard is shedding load now.
+    #[napi(getter)]
+    pub fn guard_active(&self) -> bool {
+        self.shared.status.guard_active.load(Ordering::Relaxed)
+    }
+
+    /// What the overload guard has done so far.
+    #[napi(getter)]
+    pub fn guard_stats(&self) -> JsGuardStats {
+        let st = &self.shared.status;
+        JsGuardStats {
+            active: st.guard_active.load(Ordering::Relaxed),
+            voices_shed: st.guard_voices_shed.load(Ordering::Relaxed) as f64,
+            partials_reduced: st.guard_partials_reduced.load(Ordering::Relaxed) as f64,
+        }
     }
 
     // ── models ──────────────────────────────────────────────────────────────
@@ -513,6 +574,7 @@ impl SynthEngine {
                 return Err(err(e));
             }
         }
+        self.arm_guard();
         self.shared.running.store(true, Ordering::Release);
         Ok(())
     }
@@ -521,6 +583,7 @@ impl SynthEngine {
     pub fn stop(&mut self) {
         self.shared.running.store(false, Ordering::Release);
         self.output = None;
+        self.arm_guard();
         if let Ok(e) = self.engine.lock() {
             e.set_realtime(false);
         }

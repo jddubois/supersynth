@@ -100,6 +100,49 @@ describe('Synth offline rendering', () => {
     synth.close();
   });
 
+  test('the overload guard is off by default, and on it changes nothing while nothing is overloaded', async () => {
+    // played live, as by a performer: keys arrive between real-time buffers (emulated)
+    const play = async (kind: 'piano' | 'strings' | 'plenum', overloadGuard?: boolean) => {
+      const synth = new Synth({ sampleRate: 48000, ...(overloadGuard !== undefined ? { overloadGuard } : {}) });
+      synth['emulateRealtime'] = true;
+      const piano = kind === 'piano' ? synth.add('grand-piano') : undefined;
+      const kb: Playable = piano ?? (kind === 'strings' ? synth.add('strings') : synth.add('burea', { preset: 'plenum' }).great);
+      await synth.ready();
+      const BUF = 256;
+      const n = Math.round((2.5 * 48000) / BUF);
+      const out = new Float32Array(n * BUF * 2);
+      for (let b = 0; b < n; b++) {
+        if (b % 23 === 0) {
+          const note = 55 + ((b / 23) * 5) % 24;
+          kb.noteOn(note, 90);
+          if (b >= 46) kb.noteOff(55 + (((b - 46) / 23) * 5) % 24);
+          if (piano && b % 92 === 0) piano.sustain(b % 184 === 0);
+        }
+        out.set(synth._native().render(BUF), b * BUF * 2);
+      }
+      const stats = synth.guardStats;
+      synth.close();
+      return { out, stats };
+    };
+    for (const kind of ['piano', 'strings', 'plenum'] as const) {
+      const off = await play(kind);
+      expect(off.stats).toEqual({ active: false, voicesShed: 0, partialsReduced: 0 });
+      expect(rms(off.out)).toBeGreaterThan(1e-3);
+      // (other test files running at the same time can overload this machine for a while, and
+      // the guard then rightly acts: such a run is played again)
+      let on = await play(kind, true);
+      for (let i = 0; i < 4 && (on.stats.active || on.stats.voicesShed + on.stats.partialsReduced > 0); i++) on = await play(kind, true);
+      expect(on.stats).toEqual({ active: false, voicesShed: 0, partialsReduced: 0 });
+      expect(Buffer.from(on.out.buffer).equals(Buffer.from(off.out.buffer))).toBe(true);
+    }
+    // offline rendering is never guarded
+    const synth = new Synth({ sampleRate: 48000, overloadGuard: true });
+    expect(synth.guardActive).toBe(false);
+    synth.set({ overloadGuard: false }).set({ overloadGuard: true });
+    expect(() => synth.set({ overloadGuard: 'yes' as never })).toThrow(SupersynthError);
+    synth.close();
+  }, 120_000); // live performances of 2.5 s, rendered buffer by buffer
+
   test('many notes are limited below full scale', () => {
     const synth = new Synth({ sampleRate: 48000, volume: 1 });
     const p = synth.add('strings');

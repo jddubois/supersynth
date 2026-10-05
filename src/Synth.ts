@@ -30,6 +30,23 @@ export interface SynthSettings {
    *  recorded pipe and room tail) early, once they are quiet. `false` (the default) plays every
    *  tail out in full. See {@link ReleaseCulling}. */
   releaseCulling?: ReleaseCulling | false;
+  /** Opt-in, real-time output only: when audio buffers come close to their deadline (the
+   *  machine is too slow for what is playing), end the quietest notes in their release early,
+   *  with a short fade, instead of letting the sound crackle; only if no released note is left,
+   *  fade out upper partials of the quietest notes. Held notes and attacks are never touched,
+   *  and as long as nothing is overloaded the sound is bit-for-bit the same as without it.
+   *  Offline rendering is never guarded. See {@link Synth.guardStats}. @default false */
+  overloadGuard?: boolean;
+}
+
+/** What the overload guard has done ({@link Synth.guardStats}). */
+export interface GuardStats {
+  /** Shedding load now. */
+  active: boolean;
+  /** Released notes ended early so far. */
+  voicesShed: number;
+  /** Partials faded out so far (the last resort, when no released note was left). */
+  partialsReduced: number;
 }
 
 /**
@@ -149,8 +166,16 @@ export class Synth extends EventEmitter {
   private reverbOn = true;
   private maxPartials: number;
   private closed = false;
-  /** Behave as with real-time output running (benchmarks that drive the engine themselves). */
-  private emulateRealtime = false;
+  /** Behave as with real-time output running (benchmarks that drive the engine themselves:
+   *  each `render()` is then a real-time buffer, e.g. for the overload guard). */
+  private realtimeEmulated = false;
+  private get emulateRealtime(): boolean {
+    return this.realtimeEmulated;
+  }
+  private set emulateRealtime(on: boolean) {
+    this.realtimeEmulated = on;
+    this.engine.setRealtimeEmulation(on);
+  }
 
   constructor(options: SynthOptions = {}) {
     super();
@@ -177,6 +202,7 @@ export class Synth extends EventEmitter {
     this.set({
       volume: options.volume ?? 0.5,
       ...(options.releaseCulling ? { releaseCulling: options.releaseCulling } : {}),
+      ...(options.overloadGuard !== undefined ? { overloadGuard: options.overloadGuard } : {}),
       ...(options.reverb !== undefined && options.reverb !== 'auto' ? { reverb: options.reverb } : {}),
     });
   }
@@ -205,6 +231,19 @@ export class Synth extends EventEmitter {
   /** Threads rendering audio, the audio thread included (see {@link SynthOptions.threads}). */
   get threads(): number {
     return this.engine.threads;
+  }
+
+  /** The overload guard ({@link SynthSettings.overloadGuard}) is shedding load now: the machine
+   *  is too slow for what is playing, and release tails are being shortened. */
+  get guardActive(): boolean {
+    return this.engine.guardActive;
+  }
+
+  /** What the overload guard has done so far: whether it is active, released notes it ended
+   *  early, partials it faded out (all zero while it never had to act). */
+  get guardStats(): GuardStats {
+    const s = this.engine.guardStats;
+    return { active: s.active, voicesShed: s.voicesShed, partialsReduced: s.partialsReduced };
   }
 
   get isRunning(): boolean {
@@ -308,6 +347,8 @@ export class Synth extends EventEmitter {
     }
     const floorDb = culling?.floorDb === undefined ? -200 : inRange(culling.floorDb, -200, 0, 'releaseCulling.floorDb');
     const belowMixDb = culling?.belowMixDb === undefined ? 0 : inRange(culling.belowMixDb, 0, 200, 'releaseCulling.belowMixDb');
+    const guard = settings.overloadGuard;
+    if (guard !== undefined && typeof guard !== 'boolean') throw new SupersynthError(`overloadGuard must be true or false, got ${String(guard)}`);
     this._reserve(5 + 11 + Object.keys(REVERB_FIELDS).length);
     if (reverb !== undefined) {
       this.reverbMode = 'set';
@@ -331,6 +372,7 @@ export class Synth extends EventEmitter {
       n.setMasterParam('releaseBelowMix', belowMixDb, t);
       n.setMasterParam('releaseHold', culling.hold === 'smooth' ? 0 : 1, t);
     }
+    if (guard !== undefined) n.setOverloadGuard(guard); // (at once: it is not an event of the music)
     return this;
   }
 
