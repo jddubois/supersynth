@@ -13,9 +13,12 @@ use crate::dsp::{db_to_amp, noise::Rng, pan_gains, BLOCK};
 use crate::model::{a16_to_db, Kind, Model, ReleaseMode, MAX_PARTIALS, PULSE_BINS};
 
 pub const MAX_ZONES: usize = 4;
-pub const MAX_BANDS: usize = 32;
+pub const MAX_BANDS: usize = crate::model::MAX_NOISE_BANDS;
 const LANES: usize = 8;
 const SILENT_DB: f32 = -110.0;
+/// Partials fade out between these angular frequencies (rad/sample; π = Nyquist).
+const NYQ_FADE_LO: f32 = 0.92 * std::f32::consts::PI;
+const NYQ_FADE_HI: f32 = 0.95 * std::f32::consts::PI;
 
 /// Live, part-level parameters shared by all voices of a part (cheap to copy).
 #[derive(Clone, Copy, Debug)]
@@ -357,7 +360,16 @@ impl SpectralVoice {
     pub fn start(&mut self, on: NoteOn) {
         let m: &Model = on.model;
         let p = on.params;
-        self.model = Some(Arc::clone(on.model));
+        if m.zones.is_empty() || m.layers.is_empty() {
+            // nothing to play (`Model::from_bytes` rejects such models; hand-built ones may not)
+            self.state = State::Done;
+            return;
+        }
+        if !self.model.as_ref().is_some_and(|old| Arc::ptr_eq(old, on.model)) {
+            // the engine takes the previous model first (`take_model`) so that its last
+            // reference is never dropped here, on the audio thread
+            self.model = Some(Arc::clone(on.model));
+        }
         self.note = on.note;
         self.velocity = on.velocity;
         self.sr = on.sample_rate;
@@ -377,7 +389,7 @@ impl SpectralVoice {
         // ── zone selection: pitch × velocity ──────────────────────────────
         let pitch = on.pitch;
         let vel = on.velocity as f32;
-        let nl = m.layers.len().max(1);
+        let nl = m.layers.len();
         // velocity sensitivity: compress towards the loudest layer
         let top_v = m.layers.last().map(|l| l.velocity).unwrap_or(127.0);
         let v_eff = top_v + (vel - top_v) * p.velocity_sens;
@@ -385,9 +397,9 @@ impl SpectralVoice {
         let mut gain = m.params.gain_db + p.gain_db;
         // Loudness follows a fixed velocity curve anchored at the loudest layer; the
         // layers' own recorded level differences are compensated so they only carry timbre.
-        if nl > 0 {
-            let top_level = m.layers[nl - 1].level_db;
-            let rec = m.layers[la].level_db * (1.0 - lw) + m.layers[lb].level_db * lw;
+        if let (Some(top), Some(a), Some(b)) = (m.layers.last(), m.layers.get(la), m.layers.get(lb)) {
+            let top_level = top.level_db;
+            let rec = a.level_db * (1.0 - lw) + b.level_db * lw;
             let v_rel = v_eff.clamp(1.0, 127.0) / top_v.max(1.0);
             gain += m.params.velocity_db * 40.0 * v_rel.log10() - (rec - top_level);
         }
@@ -412,7 +424,7 @@ impl SpectralVoice {
             if lwt <= 1e-4 {
                 continue;
             }
-            let zs = &m.by_layer[layer.min(m.by_layer.len() - 1)];
+            let Some(zs) = m.by_layer.get(layer).or(m.by_layer.last()) else { continue };
             if zs.is_empty() {
                 continue;
             }
@@ -426,9 +438,7 @@ impl SpectralVoice {
         if self.nz == 0 {
             // layer without zones: fall back to nearest zone in the model
             let zi = (0..m.zones.len())
-                .min_by(|&a, &b| {
-                    (m.zones[a].note - pitch).abs().partial_cmp(&(m.zones[b].note - pitch).abs()).unwrap()
-                })
+                .min_by(|&a, &b| (m.zones[a].note - pitch).abs().total_cmp(&(m.zones[b].note - pitch).abs()))
                 .unwrap_or(0);
             self.zone[0] = zi;
             self.w[0] = 1.0;
@@ -438,7 +448,7 @@ impl SpectralVoice {
         for w in &mut self.w[..self.nz] {
             *w /= wsum;
         }
-        self.dominant = (0..self.nz).max_by(|&a, &b| self.w[a].partial_cmp(&self.w[b]).unwrap()).unwrap();
+        self.dominant = (0..self.nz).max_by(|&a, &b| self.w[a].total_cmp(&self.w[b])).unwrap_or(0);
         for j in 0..self.nz {
             self.pos[j] = 0.0;
             self.last[j] = m.zones[self.zone[j]].main_end - 1;
@@ -836,7 +846,10 @@ impl SpectralVoice {
         self.im[..n].copy_from_slice(&im[..n]);
         self.gl[..n].copy_from_slice(&gl[..n]);
         self.gr[..n].copy_from_slice(&gr[..n]);
-        let m = Arc::clone(self.model.as_ref().unwrap());
+        let Some(m) = self.model.clone() else { return };
+        if self.state != State::Playing {
+            return;
+        }
         for j in 0..self.nz {
             let z = &m.zones[self.zone[j]];
             self.pos[j] = match z.loop_range {
@@ -1075,7 +1088,46 @@ impl SpectralVoice {
         }
     }
 
+    /// Fading out after `kill` (stolen or all-sound-off).
+    pub fn is_killing(&self) -> bool {
+        self.state == State::Killing
+    }
+
+    /// Remaining gain of the kill fade (1 unless killing).
+    pub fn kill_gain(&self) -> f32 {
+        self.kill_gain
+    }
+
+    /// Hand over the voice's model reference, so the caller decides where it is dropped (the
+    /// last reference to a replaced model frees megabytes: never on the audio thread). The
+    /// voice must be restarted before it renders again.
+    pub fn take_model(&mut self) -> Option<Arc<Model>> {
+        self.model.take()
+    }
+
+    pub fn has_model(&self) -> bool {
+        self.model.is_some()
+    }
+
+    /// Stop at once and clear the oscillator state (recovery after a non-finite output).
+    pub fn reset(&mut self) {
+        self.state = State::Done;
+        self.re = [0.0; MAX_PARTIALS];
+        self.im = [0.0; MAX_PARTIALS];
+        self.pend = [0.0; MAX_PARTIALS];
+        self.gl = [0.0; MAX_PARTIALS];
+        self.gr = [0.0; MAX_PARTIALS];
+        self.grs = [0.0; MAX_PARTIALS];
+        self.gls = [0.0; MAX_PARTIALS];
+        self.noise_pow = [0.0; MAX_BANDS];
+        self.peak_db = -200.0;
+        self.noise_peak_db = -200.0;
+        self.glide_cents = 0.0;
+    }
+
     /// Render one block (n ≤ BLOCK) adding into `out_l`/`out_r`.
+    // the per-partial state lives in parallel arrays indexed by partial: index loops are clearer
+    #[allow(clippy::needless_range_loop)]
     pub fn render(&mut self, out_l: &mut [f32], out_r: &mut [f32], p: &SpectralParams, md: &BlockMod) {
         let n = out_l.len().min(BLOCK);
         if self.state == State::Done || n == 0 {
@@ -1128,13 +1180,12 @@ impl SpectralVoice {
             let last = self.last[j] as f32;
             if np >= last {
                 np = last;
-                if m.kind == Kind::Decaying
+                if (m.kind == Kind::Decaying
                     || self.in_rel_tail
-                    || z.loop_range.is_none() && m.kind == Kind::Sustained && self.state != State::Playing
+                    || z.loop_range.is_none() && m.kind == Kind::Sustained && self.state != State::Playing)
+                    && j == self.dominant
                 {
-                    if j == self.dominant {
-                        ended = true;
-                    }
+                    ended = true;
                 }
             }
             self.pos[j] = np.max(0.0);
@@ -1342,6 +1393,17 @@ impl SpectralVoice {
                 }
             }
             self.pulse_ph = ph;
+        }
+
+        // partials pushed up to Nyquist by bends, vibrato or glides fade out (smoothly with
+        // their frequency) instead of piling up just below it, and fade back in when they return
+        for i in 0..k {
+            let w = self.base_w[i] * ratio;
+            if w > NYQ_FADE_LO {
+                let g = 1.0 - smoothstep(NYQ_FADE_LO, NYQ_FADE_HI, w);
+                tgt_l[i] *= g;
+                tgt_r[i] *= g;
+            }
         }
 
         // ── oscillator bank ────────────────────────────────────────────────
@@ -1701,6 +1763,9 @@ static DB_LUT: [f32; 256] = {
 
 /// 2^x, relative error < 2e-7 for x in [-126, 127].
 #[inline]
+// The polynomial's first coefficient is a fitted minimax value that happens to be close to
+// ln 2; it is not meant to be `LN_2` (substituting it would change the fit).
+#[allow(clippy::approx_constant)]
 fn fast_exp2(x: f32) -> f32 {
     let x = x.clamp(-126.0, 126.0);
     let xi = x.floor();
@@ -1781,4 +1846,61 @@ fn bracket(n: usize, key: impl Fn(usize) -> f32, x: f32) -> (usize, usize, f32) 
         }
     }
     (n - 1, n - 1, 0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::testing;
+
+    /// Render `blocks` blocks at a fixed bend, returning the left channel.
+    fn run(v: &mut SpectralVoice, p: &SpectralParams, cents: f32, blocks: usize) -> Vec<f32> {
+        let md = BlockMod { cents, ..BlockMod::default() };
+        let mut out = Vec::new();
+        for _ in 0..blocks {
+            let (mut l, mut r) = ([0.0f32; BLOCK], [0.0f32; BLOCK]);
+            v.render(&mut l, &mut r, p, &md);
+            out.extend_from_slice(&l);
+        }
+        out
+    }
+
+    /// Fraction of the (Hann-windowed) power of the last 2048 samples above `frac` × Nyquist.
+    fn top_band_fraction(x: &[f32], frac: f32) -> f32 {
+        let n = 2048;
+        let x = &x[x.len() - n..];
+        let w: Vec<f32> = (0..n).map(|i| x[i] * (0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / n as f32).cos())).collect();
+        let total: f32 = w.iter().map(|v| v * v).sum::<f32>() * n as f32 / 2.0;
+        let mut top = 0.0f32;
+        for k in (frac * n as f32 / 2.0) as usize..=n / 2 {
+            let (mut re, mut im) = (0.0f32, 0.0f32);
+            for (i, &v) in w.iter().enumerate() {
+                let a = std::f32::consts::TAU * (k * i % n) as f32 / n as f32;
+                re += v * a.cos();
+                im -= v * a.sin();
+            }
+            top += re * re + im * im;
+        }
+        top / total
+    }
+
+    #[test]
+    fn partials_bent_past_nyquist_fade_out_and_come_back() {
+        let m = Arc::new(Model::from_bytes(&testing::bytes()).unwrap());
+        let sr = 8000.0;
+        let p = SpectralParams { jitter: 0.0, shimmer: 0.0, ..SpectralParams::default() };
+        let mut rng = Rng::new(1);
+        let mut v = SpectralVoice::default();
+        // middle C at 8 kHz: harmonics up to 14 (3.66 kHz); an octave up, 8–14 lie above Nyquist
+        v.start(NoteOn { model: &m, note: 60, velocity: 100, pitch: 60.0, pan: 0.0, params: &p, sample_rate: sr, rng: &mut rng });
+        let flat = run(&mut v, &p, 0.0, 125);
+        let bent = run(&mut v, &p, 1200.0, 125);
+        let back = run(&mut v, &p, 0.0, 125);
+        let top = top_band_fraction(&bent, 0.95);
+        assert!(top < 1e-5, "power above 0.95 Nyquist under the bend: {top:e}");
+        assert!(bent.iter().all(|x| x.is_finite()));
+        let rms = |x: &[f32]| (x[x.len() - 4000..].iter().map(|v| v * v).sum::<f32>() / 4000.0).sqrt();
+        let db = 20.0 * (rms(&back) / rms(&flat)).log10();
+        assert!(db.abs() < 0.5, "partials come back after the bend: {db:.2} dB");
+    }
 }
