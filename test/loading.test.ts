@@ -183,7 +183,7 @@ describe('background model loading', () => {
         expect(rms(synth.render(0.4).left)).toBeGreaterThan(1e-4);
         synth.close();
       }
-    });
+    }, 30_000); // loads a whole organ three times: seconds on a busy or small machine
 
     test('in the starting preset: add() throws and leaves nothing behind', () => {
       const synth = new Synth({ sampleRate: 22050, modelsDirectory: tmp });
