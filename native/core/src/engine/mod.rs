@@ -407,6 +407,10 @@ pub struct Engine {
     parts: Vec<Part>,
     voices: Vec<SpectralVoice>,
     max_voices: usize,
+    /// voices restarted in place because every slot was busy (and how many of them were still
+    /// sounding rather than fading out)
+    hard_steals: u64,
+    hard_steals_sounding: u64,
     age: u64,
     rng: Rng,
     reverb: Reverb,
@@ -451,6 +455,8 @@ impl Engine {
             parts,
             voices,
             max_voices: cfg.max_voices,
+            hard_steals: 0,
+            hard_steals_sounding: 0,
             age: 0,
             rng: Rng::new(0x5EED_CAFE),
             reverb: Reverb::new(sr, cfg.reverb),
@@ -930,14 +936,18 @@ impl Engine {
         }
     }
 
+    /// A free voice slot. Beyond `max_voices` sounding voices, the least important one is
+    /// stolen: it fades out (~25 ms) in one of the spare slots while the new note starts.
     fn alloc_voice(&mut self) -> usize {
-        let active = self.voices.iter().filter(|v| v.is_active()).count();
-        if active >= self.max_voices {
-            // steal: prefer released voices, then the quietest, then the oldest
+        // voices already fading out after a steal no longer count, and are not stolen again:
+        // every voice needed beyond the limit takes its own victim
+        let live = self.voices.iter().filter(|v| v.is_active() && !v.is_killing()).count();
+        if live >= self.max_voices {
+            // prefer released voices, then the quietest, then the oldest
             let mut best = None;
             let mut best_score = f32::INFINITY;
             for (i, v) in self.voices.iter().enumerate() {
-                if !v.is_active() {
+                if !v.is_active() || v.is_killing() {
                     continue;
                 }
                 let score = v.level_db() - if v.is_released() { 60.0 } else { 0.0 } - (self.age - v.age) as f32 * 1e-3;
@@ -953,8 +963,23 @@ impl Engine {
         if let Some(i) = self.voices.iter().position(|v| !v.is_active()) {
             return i;
         }
-        // all slots busy (including spares): hard-steal the oldest
-        (0..self.voices.len()).min_by_key(|&i| self.voices[i].age).unwrap_or(0)
+        // Every slot busy, the spares with voices still fading out (more notes started within
+        // one fade than there are spares): cut short the least audible of those. Sounding
+        // voices never number more than `max_voices`, so there always is one.
+        let audible = |v: &SpectralVoice| {
+            let db = v.level_db() + 20.0 * v.kill_gain().max(1e-9).log10();
+            if v.is_killing() {
+                db
+            } else {
+                db + 1000.0
+            }
+        };
+        let i = (0..self.voices.len()).min_by(|&a, &b| audible(&self.voices[a]).total_cmp(&audible(&self.voices[b]))).unwrap_or(0);
+        self.hard_steals += 1;
+        if !self.voices[i].is_killing() {
+            self.hard_steals_sounding += 1;
+        }
+        i
     }
 
     fn note_off(&mut self, pi: usize, note: u8) {
@@ -1523,6 +1548,32 @@ mod tests {
         assert!(weak.upgrade().is_some(), "the audio thread must not drop the last reference");
         ctl.collect_garbage();
         assert!(weak.upgrade().is_none(), "the model is freed once the API thread collects");
+    }
+
+    #[test]
+    fn a_big_organ_chord_at_the_voice_limit_never_cuts_a_sounding_voice() {
+        let m = testing::model();
+        let (mut eng, mut ctl) = Engine::new(EngineConfig { max_voices: 16, ..EngineConfig::default() });
+        let mut inst = Instrument::default();
+        for t in 0..8 {
+            inst.layers.push(InstLayer { transpose: (t % 3) as f32 * 12.0, ..test_layer(m.clone()) });
+        }
+        ctl.send(0, Command::set_instrument(0, inst)).unwrap();
+        render(&mut eng, 480);
+        // 12 keys × 8 stops = 96 voices wanted at once, 16 allowed (+32 spare slots for fades)
+        for n in 48..60 {
+            ctl.send(0, Command::NoteOn { part: 0, note: n, velocity: 100 }).unwrap();
+        }
+        let (l, r) = render(&mut eng, 4800);
+        assert!(l.iter().chain(&r).all(|v| v.is_finite()));
+        assert!(eng.hard_steals > 0, "the chord must overrun the spare slots");
+        assert_eq!(eng.hard_steals_sounding, 0, "only voices already fading out may be cut");
+        let sounding = eng.voices.iter().filter(|v| v.is_active() && !v.is_killing()).count();
+        assert_eq!(sounding, 16);
+        // the newest notes are the ones left sounding
+        assert!(eng.voices.iter().filter(|v| v.is_active() && !v.is_killing()).all(|v| v.note >= 58));
+        render(&mut eng, 4800);
+        assert_eq!(eng.active_voices(), 16, "stolen voices finish their fade");
     }
 
     #[test]
