@@ -189,7 +189,7 @@ def hw_sources(hw: HauptwerkODF, cat: dict) -> dict:
 
 # ── analysis ───────────────────────────────────────────────────────────────────────────────
 def noise_zone(x: np.ndarray, sr: int, note: float, *, sustained: bool = False, cue: int | None = None,
-               loop_at: tuple[int, int] | None = None, source: str = '') -> Zone | None:
+               loop_at: tuple[int, int] | None = None, ending: bool = True, source: str = '') -> Zone | None:
     """One noise recording (stereo) as a zone: its noise-band envelope over time and, for a
     click, its first CLICK_S seconds as recorded. Sustained noises (blower, room) loop their
     steady part and keep the recording's own ending after the cue."""
@@ -241,7 +241,7 @@ def noise_zone(x: np.ndarray, sr: int, note: float, *, sustained: bool = False, 
             # to 4 s, ending before the cue
             a = int(np.searchsorted(grid, min(1.0, 0.3 * end_t)))
             b = int(np.searchsorted(grid, min(end_t - 0.2, grid[a] + 4.0)))
-        cue = int(end_t * sr) if end_t < dur - 0.3 else None   # the frames after it are its ending
+        cue = int(end_t * sr) if ending and end_t < dur - 0.3 else None   # the frames after it are its ending
         if b - a < 8:
             return None
         loop = (a, b)
@@ -399,7 +399,10 @@ def build_noises(organ: str, workers: int = min(4, os.cpu_count() or 4)) -> dict
             x, sr, cue = signal_of(p, 'on')
             from grandorgue import wav_loops
             loops = wav_loops((p[0] if isinstance(p, list) else p).attack)
-            z = noise_zone(x, sr, 60, sustained=True, cue=cue, loop_at=loops[0] if loops else None, source=kind)
+            # the blower spins down when switched off; the room just fades (its recording
+            # going on after the loop is more of the same, not an ending)
+            z = noise_zone(x, sr, 60, sustained=True, cue=cue if kind == 'blower' else None,
+                           loop_at=loops[0] if loops else None, ending=kind == 'blower', source=kind)
             if z is not None:
                 write(f'{base}-{kind}', [z], cat, kind, 'natural')
                 out[kind] = f'{base}-{kind}'
