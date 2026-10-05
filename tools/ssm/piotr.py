@@ -267,6 +267,9 @@ def tremulants(odf: ODF, stops: list[tuple[Stop, dict]]) -> list[dict]:
         if not divs:
             continue
         division = max(set(divs), key=divs.count)
+        # divisions most of whose stops stand on the tremulant's wind
+        per = {d: sum(1 for _, st in stops if st['division'] == d) for d in set(divs)}
+        also = sorted(d for d in set(divs) if d != division and divs.count(d) >= 0.5 * per[d])
         if any(o['division'] == division for o in out):
             continue
         if (odf.get(ts, 'TremulantType', 'Synth') or 'Synth').lower().startswith('wave'):
@@ -278,12 +281,12 @@ def tremulants(odf: ODF, stops: list[tuple[Stop, dict]]) -> list[dict]:
                     break
             if meas:
                 med = lambda k: float(np.median([m[k] for m in meas]))
-                out.append(dict(division=division, depth=round(med('depth'), 2), pitch=round(med('pitch'), 1),
-                                rate=round(med('rate'), 2), sampled=True, pipes=len(meas)))
+                out.append(dict(division=division, also=also, name=odf.get(ts, 'Name', ''), depth=round(med('depth'), 2),
+                                pitch=round(med('pitch'), 1), rate=round(med('rate'), 2), sampled=True, pipes=len(meas)))
         else:
             period = odf.float(ts, 'Period', 160.0)
             amp = odf.float(ts, 'AmpModDepth', 18.0)
-            out.append(dict(division=division, depth=round(20 * math.log10(1 + amp / 100), 2),
+            out.append(dict(division=division, also=also, name=odf.get(ts, 'Name', ''), depth=round(20 * math.log10(1 + amp / 100), 2),
                             pitch=round(0.6 * amp, 1), rate=round(1000.0 / period, 2), sampled=False))
     return out
 
@@ -292,7 +295,53 @@ def tremulants(odf: ODF, stops: list[tuple[Stop, dict]]) -> list[dict]:
 def load_odf(organ: str) -> ODF | HauptwerkODF:
     if ORGANS[organ].get('hauptwerk'):
         return HauptwerkODF(os.path.join(SAMPLES, organ, ORGANS[organ]['hauptwerk']))
-    return ODF(os.path.join(SAMPLES, organ, ORGANS[organ]['odf']))
+    path = os.path.join(SAMPLES, organ, ORGANS[organ]['odf'])
+    if not os.path.exists(path):
+        # the organ definition kept after the samples were deleted
+        path = os.path.join(SAMPLES + '-odf', organ, os.path.basename(ORGANS[organ]['odf']))
+    return ODF(path)
+
+
+def catalog_stops(odf: ODF | HauptwerkODF, cat: dict) -> list[tuple[Stop, dict]]:
+    """The catalogue's stops with their organ-definition stops."""
+    ps = pipe_stops(odf)
+    return [(next(x for x in ps if x.section == st['section'] and x.manual == st['manual']), st) for st in cat['stops']]
+
+
+def tremulant_winds(odf: ODF, stops: list[tuple[Stop, dict]]) -> list[dict]:
+    """Name and divisions of each GrandOrgue tremulant (the divisions most of whose stops stand
+    on its wind), in the order of {@link tremulants}."""
+    if isinstance(odf, HauptwerkODF):
+        return []
+    out = []
+    for t in range(1, odf.int('organ', 'NumberOfTremulants') + 1):
+        divs = [st['division'] for s, st in stops if t in tremulant_ids(odf, s)]
+        if not divs:
+            continue
+        per = {d: sum(1 for _, st in stops if st['division'] == d) for d in set(divs)}
+        main = max(set(divs), key=divs.count)
+        if any(o['division'] == main for o in out):
+            continue
+        also = sorted(d for d in set(divs) if d != main and divs.count(d) >= 0.5 * per[d])
+        out.append(dict(division=main, also=also, name=odf.get(f'tremulant{t:03d}', 'Name', '')))
+    return out
+
+
+def swell_levels(odf: ODF, stops: list[tuple[Stop, dict]]) -> dict[str, float]:
+    """Closed level (dB) of each enclosed division's swell box (GrandOrgue AmpMinimumLevel)."""
+    if isinstance(odf, HauptwerkODF):
+        return {}
+    out: dict[str, list[float]] = {}
+    for s, st in stops:
+        for wc in _windchests(odf, s):
+            ws = f'windchestgroup{wc:03d}'
+            for e in range(1, odf.int(ws, 'NumberOfEnclosures') + 1):
+                es = f"enclosure{odf.int(ws, f'enclosure{e:03d}'):03d}"
+                if NOT_A_BOX.search(odf.get(es, 'Name', '')):
+                    continue
+                lvl = max(1.0, odf.float(es, 'AmpMinimumLevel', 1.0))
+                out.setdefault(st['division'], []).append(round(20 * math.log10(lvl / 100), 1))
+    return {d: max(set(v), key=v.count) for d, v in out.items()}
 
 
 def pipe_stops(odf: ODF | HauptwerkODF) -> list[Stop]:

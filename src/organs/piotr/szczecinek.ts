@@ -1,4 +1,3 @@
-import { CHURCH_DIVISIONS } from '../defaults.js';
 import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/szczecinek/<id>.ssm.
@@ -133,6 +132,7 @@ export const SZCZECINEK_ORGAN: OrganDefinition = {
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'foundations',
-  divisions: CHURCH_DIVISIONS,
-  tremulant: { division: 'swell', depth: 0.83, pitch: 6.0, rate: 5.0 },
+  divisions: { great: { pan: 0 }, swell: { pan: 0.15, swellBox: { closed: -4.4 } }, positive: { pan: -0.15 }, pedal: { pan: 0 } },
+  tremulant: { division: 'swell', name: 'Tremulant 2 Man', depth: 0.83, pitch: 6, rate: 5 },
+  wind: 0,
 };

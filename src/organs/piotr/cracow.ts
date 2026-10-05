@@ -1,4 +1,3 @@
-import { CHURCH_DIVISIONS } from '../defaults.js';
 import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/cracow/<id>.ssm.
@@ -13,7 +12,7 @@ const STOPS: StopDefinition[] = [
   { id: 'great-prestant-4', model: 'organ/cracow/great-prestant-4', name: "Prestant 4'", division: 'great', family: 'principal', transpose: 12 },
   { id: 'great-flute-douce-4', model: 'organ/cracow/great-flute-douce-4', name: "Flûte douce 4'", division: 'great', family: 'flute', transpose: 12 },
   { id: 'great-doublette-2', model: 'organ/cracow/great-doublette-2', name: "Doublette 2'", division: 'great', family: 'principal', transpose: 24 },
-  { id: 'great-cornet-5x', model: 'organ/cracow/great-cornet-5x', name: "Cornet 5x", division: 'great', family: 'mixture', transpose: 0 },
+  { id: 'great-cornet-5x', model: 'organ/cracow/great-cornet-5x', name: "Cornet 5x", division: 'great', family: 'mixture', transpose: 0, keys: [53, 96] },
   { id: 'great-plein-jeu-5x', model: 'organ/cracow/great-plein-jeu-5x', name: "Plein Jeu 5x", division: 'great', family: 'mixture', transpose: 0 },
   { id: 'great-trompette-8', model: 'organ/cracow/great-trompette-8', name: "Trompette 8'", division: 'great', family: 'reed', transpose: 0 },
   { id: 'great-clairon-4', model: 'organ/cracow/great-clairon-4', name: "Clairon 4'", division: 'great', family: 'reed', transpose: 12 },
@@ -21,7 +20,7 @@ const STOPS: StopDefinition[] = [
   { id: 'swell-flute-traversiere-8', model: 'organ/cracow/swell-flute-traversiere-8', name: "Flûte Traversière 8'", division: 'swell', family: 'flute', transpose: 0 },
   { id: 'swell-bourdon-8', model: 'organ/cracow/swell-bourdon-8', name: "Bourdon 8'", division: 'swell', family: 'flute', transpose: 0 },
   { id: 'swell-aeoline-8', model: 'organ/cracow/swell-aeoline-8', name: "Aeoline 8'", division: 'swell', family: 'string', transpose: 0 },
-  { id: 'swell-voix-celeste-8', model: 'organ/cracow/swell-voix-celeste-8', name: "Voix Céleste 8'", division: 'swell', family: 'string', transpose: 0 },
+  { id: 'swell-voix-celeste-8', model: 'organ/cracow/swell-voix-celeste-8', name: "Voix Céleste 8'", division: 'swell', family: 'string', transpose: 0, keys: [48, 96] },
   { id: 'swell-flute-octaviante-4', model: 'organ/cracow/swell-flute-octaviante-4', name: "Flûte Octaviante 4'", division: 'swell', family: 'flute', transpose: 12 },
   { id: 'swell-fugara-4', model: 'organ/cracow/swell-fugara-4', name: "Fugara 4'", division: 'swell', family: 'string', transpose: 12 },
   { id: 'swell-doublette-2', model: 'organ/cracow/swell-doublette-2', name: "Doublette 2'", division: 'swell', family: 'principal', transpose: 24 },
@@ -33,7 +32,7 @@ const STOPS: StopDefinition[] = [
 
   { id: 'positive-cor-de-nuit-8', model: 'organ/cracow/positive-cor-de-nuit-8', name: "Cor de Nuit 8'", division: 'positive', family: 'flute', transpose: 0 },
   { id: 'positive-salicional-8', model: 'organ/cracow/positive-salicional-8', name: "Salicional 8'", division: 'positive', family: 'string', transpose: 0 },
-  { id: 'positive-unda-maris-8', model: 'organ/cracow/positive-unda-maris-8', name: "Unda Maris 8'", division: 'positive', family: 'string', transpose: 0 },
+  { id: 'positive-unda-maris-8', model: 'organ/cracow/positive-unda-maris-8', name: "Unda Maris 8'", division: 'positive', family: 'string', transpose: 0, keys: [48, 96] },
   { id: 'positive-clarinette-8', model: 'organ/cracow/positive-clarinette-8', name: "Clarinette 8'", division: 'positive', family: 'reed', transpose: 0 },
   { id: 'positive-prestant-4', model: 'organ/cracow/positive-prestant-4', name: "Prestant 4'", division: 'positive', family: 'principal', transpose: 12 },
   { id: 'positive-dolce-4', model: 'organ/cracow/positive-dolce-4', name: "Dolce 4'", division: 'positive', family: 'string', transpose: 12 },
@@ -141,6 +140,7 @@ export const CRACOW_ORGAN: OrganDefinition = {
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'fonds',
-  divisions: CHURCH_DIVISIONS,
-  tremulant: { division: 'swell', depth: 0.83, pitch: 6.0, rate: 5.0 },
+  divisions: { great: { pan: 0 }, swell: { pan: 0.15, swellBox: { closed: -4.4 } }, positive: { pan: -0.15 }, pedal: { pan: 0 } },
+  tremulant: [{ division: 'positive', name: 'Tremulant 2 Man', depth: 0.98, pitch: 7.2, rate: 6.41 }, { division: 'swell', name: 'Tremulant 3 Man', depth: 0.83, pitch: 6, rate: 5 }],
+  wind: 0,
 };

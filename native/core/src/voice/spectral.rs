@@ -125,6 +125,10 @@ pub struct SpectralVoice {
     zone: [usize; MAX_ZONES],
     w: [f32; MAX_ZONES],
     pos: [f32; MAX_ZONES],
+    /// last frame of the segment each zone plays (the main recording, or the alternative
+    /// release chosen at note-off)
+    last: [usize; MAX_ZONES],
+    first: [usize; MAX_ZONES],
     dir: [f32; MAX_ZONES],
     /// current ping-pong turning points (frames) per zone: re-drawn at every turn, so long
     /// notes never repeat the loop with a fixed period
@@ -242,6 +246,8 @@ impl Default for SpectralVoice {
             zone: [0; MAX_ZONES],
             w: [0.0; MAX_ZONES],
             pos: [0.0; MAX_ZONES],
+            last: [0; MAX_ZONES],
+            first: [0; MAX_ZONES],
             dir: [1.0; MAX_ZONES],
             turn_lo: [0.0; MAX_ZONES],
             turn_hi: [f32::MAX; MAX_ZONES],
@@ -433,6 +439,8 @@ impl SpectralVoice {
         self.dominant = (0..self.nz).max_by(|&a, &b| self.w[a].partial_cmp(&self.w[b]).unwrap()).unwrap();
         for j in 0..self.nz {
             self.pos[j] = 0.0;
+            self.last[j] = m.zones[self.zone[j]].main_end - 1;
+            self.first[j] = 0;
             self.dir[j] = 1.0;
             let (a, b) = m.zones[self.zone[j]].loop_range.map(|(a, b)| (a as f32, b as f32)).unwrap_or((0.0, f32::MAX));
             self.turn_lo[j] = a;
@@ -866,11 +874,11 @@ impl SpectralVoice {
                 match (&z.image, &z.stereo) {
                     (Some(im), _) if im.row.get(ii).map(|&r| r != u16::MAX).unwrap_or(false) => {
                         let ri = im.row[ii] as usize;
-                        let f0 = (self.pos[j].floor() as usize).min(z.frames - 1);
-                        let f1 = (f0 + 1).min(z.frames - 1);
+                        let f0 = (self.pos[j].floor() as usize).min(self.last[j]);
+                        let f1 = (f0 + 1).min(self.last[j]);
                         let ft = self.pos[j] - f0 as f32;
                         let (am, a0, a1, a2) =
-                            (f0.saturating_sub(1) * im.k + ri, f0 * im.k + ri, f1 * im.k + ri, (f1 + 1).min(z.frames - 1) * im.k + ri);
+                            (f0.saturating_sub(1).max(self.first[j]) * im.k + ri, f0 * im.k + ri, f1 * im.k + ri, (f1 + 1).min(self.last[j]) * im.k + ri);
                         // phases as unit vectors, cubic between frames (a phase interpolated
                         // linearly has a stepped frequency: FM at the frame rate)
                         let vec = |tab: &[u8]| {
@@ -973,7 +981,7 @@ impl SpectralVoice {
         let z = &m.zones[self.zone[dj]];
         // Measure the decay over [end − 1.0 s, end − 0.25 s]: the last moments of a
         // recording are often an edit fade-out, not the instrument's own decay.
-        let end = z.frames - 1;
+        let end = self.last[dj];
         let g = &z.grid;
         let t_end = g[end.min(g.len() - 1)];
         let mut last = end;
@@ -1034,9 +1042,21 @@ impl SpectralVoice {
                 let natural = m.kind == Kind::Sustained && m.params.release_mode == ReleaseMode::Natural;
                 if natural && self.nz > 0 && (0..self.nz).all(|j| m.zones[self.zone[j]].rel_frame.is_some()) {
                     for j in 0..self.nz {
-                        let rf = m.zones[self.zone[j]].rel_frame.unwrap() as f32;
-                        if self.pos[j] < rf {
-                            self.pos[j] = rf;
+                        let z = &m.zones[self.zone[j]];
+                        // a short key press has its own release recording (the pipe had not
+                        // reached full speech, and the room had not filled)
+                        match z.alt_rel.iter().find(|&&(hold, _)| self.t <= hold) {
+                            Some(&(_, start)) => {
+                                self.pos[j] = start as f32;
+                                self.first[j] = start;
+                                self.last[j] = z.segment_end(start) - 1;
+                            }
+                            None => {
+                                let rf = z.rel_frame.unwrap() as f32;
+                                if self.pos[j] < rf {
+                                    self.pos[j] = rf;
+                                }
+                            }
                         }
                         self.dir[j] = 1.0;
                     }
@@ -1076,7 +1096,7 @@ impl SpectralVoice {
         for j in 0..self.nz {
             let z = &m.zones[self.zone[j]];
             let fi = self.pos[j].floor() as usize;
-            let fi = fi.min(z.frames - 1);
+            let fi = fi.min(self.last[j]);
             let seg = if fi + 1 < z.grid.len() { (z.grid[fi + 1] - z.grid[fi]).max(1e-4) } else { 0.05 };
             let in_attack = z.loop_range.map(|(a, _)| fi < a).unwrap_or(self.t < 0.25);
             let rate = if self.in_rel_tail {
@@ -1103,7 +1123,7 @@ impl SpectralVoice {
                     }
                 }
             }
-            let last = (z.frames - 1) as f32;
+            let last = self.last[j] as f32;
             if np >= last {
                 np = last;
                 if m.kind == Kind::Decaying
@@ -1177,10 +1197,10 @@ impl SpectralVoice {
         let mut zgain = [0.0f32; MAX_ZONES];
         for j in 0..self.nz {
             let z = &m.zones[self.zone[j]];
-            let f0 = (self.pos[j].floor() as usize).min(z.frames - 1);
-            let f1 = (f0 + 1).min(z.frames - 1);
-            let fm = f0.saturating_sub(1);
-            let f2 = (f1 + 1).min(z.frames - 1);
+            let f0 = (self.pos[j].floor() as usize).min(self.last[j]);
+            let f1 = (f0 + 1).min(self.last[j]);
+            let fm = f0.saturating_sub(1).max(self.first[j]);
+            let f2 = (f1 + 1).min(self.last[j]);
             rowm[j] = &z.amps[fm * z.partials..(fm + 1) * z.partials];
             row0[j] = &z.amps[f0 * z.partials..(f0 + 1) * z.partials];
             row1[j] = &z.amps[f1 * z.partials..(f1 + 1) * z.partials];
@@ -1286,13 +1306,14 @@ impl SpectralVoice {
         // ── pitch ──────────────────────────────────────────────────────────
         let dz = &m.zones[self.zone[self.dominant]];
         let pos = self.pos[self.dominant];
-        let f0i = (pos.floor() as usize).min(dz.frames - 1);
-        let f1i = (f0i + 1).min(dz.frames - 1);
+        let dl = self.last[self.dominant];
+        let f0i = (pos.floor() as usize).min(dl);
+        let f1i = (f0i + 1).min(dl);
         let rec_cents = cubic(
-            dz.pitch[f0i.saturating_sub(1)],
+            dz.pitch[f0i.saturating_sub(1).max(self.first[self.dominant])],
             dz.pitch[f0i],
             dz.pitch[f1i],
-            dz.pitch[(f1i + 1).min(dz.frames - 1)],
+            dz.pitch[(f1i + 1).min(dl)],
             pos - f0i as f32,
         ) * p.expression;
         let vib_depth = p.vibrato_cents * ((self.t - p.vibrato_delay) / 0.4).clamp(0.0, 1.0) + md.mod_vibrato;
@@ -1555,8 +1576,8 @@ impl SpectralVoice {
             let mut nrow1: [&[u8]; MAX_ZONES] = [&[]; MAX_ZONES];
             for j in 0..self.nz {
                 let z = &m.zones[self.zone[j]];
-                let f0 = (self.pos[j].floor() as usize).min(z.frames - 1);
-                let f1 = (f0 + 1).min(z.frames - 1);
+                let f0 = (self.pos[j].floor() as usize).min(self.last[j]);
+                let f1 = (f0 + 1).min(self.last[j]);
                 nrow0[j] = &z.noise[f0 * nb..(f0 + 1) * nb];
                 nrow1[j] = &z.noise[f1 * nb..(f1 + 1) * nb];
             }

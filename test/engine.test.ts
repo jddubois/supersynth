@@ -271,12 +271,13 @@ describe('organ', () => {
     const synth = new Synth({ sampleRate: 48000, reverb: false });
     const organ = synth.add('burea', { preset: 'flute-8' });
     organ.positive.noteOn('C4');
-    const before = rms(synth.render(0.5).right);
+    // treble (first difference): the Krummhorn's reedy upper partials over the Gedackt's
+    const treble = (x: Float32Array) => rms(x.map((v, i) => (i ? v - x[i - 1]! : 0)));
+    const before = treble(synth.render(0.5).right);
     organ.positive.pull("Krummhorn 8'");
     synth.render(0.2);
-    const after = rms(synth.render(0.5).right);
-    // the recorded Krummhorn C4 sounds ~4.5 dB below the Gedackt: about +1.4 dB together
-    expect(after).toBeGreaterThan(before * 1.1);
+    const after = treble(synth.render(0.5).right);
+    expect(after).toBeGreaterThan(before * 2);
   });
 
   test('preset changes can be scheduled, so a piece renders in one go', () => {
@@ -287,8 +288,11 @@ describe('organ', () => {
     organ.set({ tremulant: true }, { at: 1.5 });
     expect(organ.positive.drawn()).toEqual(["Gedackt 8'", "Krummhorn 8'"]);
     const a = synth.render(2);
-    const level = (from: number, to: number) => rms(a.right.subarray(from * 22050, to * 22050));
-    expect(level(1.2, 1.5)).toBeGreaterThan(level(0.5, 0.95) * 1.1);
+    // the Krummhorn's fundamental may add to the Gedackt's or partly cancel it (their phases
+    // differ from note to note, as real pipes'); its reedy upper partials always add treble
+    const treble = (x: Float32Array) => x.map((v, i) => (i ? v - x[i - 1]! : 0));
+    const level = (from: number, to: number) => rms(treble(a.right.subarray(from * 22050, to * 22050)));
+    expect(level(1.2, 1.5)).toBeGreaterThan(level(0.5, 0.95) * 2);
   });
 
   test('a stop pulled for later sounds only from then', () => {
@@ -368,6 +372,114 @@ describe('configurations', () => {
         }
       }
     }
+  });
+
+  /** Zero crossings per second: about twice the pitch of a flute. */
+  const crossings = (x: Float32Array, sr: number) => {
+    let n = 0;
+    for (let i = 1; i < x.length; i++) if ((x[i - 1]! < 0) !== (x[i]! < 0)) n++;
+    return n / (x.length / sr);
+  };
+
+  test('octave couplers and unison off', () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const organ = synth.add('burea', { preset: { swell: ["Rohrflöte 8'"] } });
+    const pitch = (play: () => void) => {
+      play();
+      synth.render(0.3);
+      const hz = crossings(synth.render(0.4).left, 22050) / 2;
+      organ.allNotesOff();
+      synth.render(2);
+      return hz;
+    };
+    const direct = pitch(() => organ.swell.noteOn('C5'));
+    expect(direct).toBeGreaterThan(450);
+    // Swell to Great 4' with the great's unison off: the great's C4 plays the swell's C5
+    organ.great.couple({ division: 'swell', octave: 1 }).unison(false);
+    expect(pitch(() => organ.great.noteOn('C4')) / direct).toBeCloseTo(1, 1);
+    expect(organ.great.coupled()).toEqual([{ division: 'swell', octave: 1 }]);
+    expect(organ.current()).toEqual({ swell: ["Rohrflöte 8'"], couple: { great: [{ division: 'swell', octave: 1 }] }, unisonOff: ['great'] });
+    // the swell's sub octave on itself with its unison off: C5 plays C4
+    const c4 = pitch(() => organ.swell.noteOn('C4'));
+    organ.preset({ swell: ["Rohrflöte 8'"], couple: { swell: [{ division: 'swell', octave: -1 }] }, unisonOff: ['swell'] });
+    expect(organ.great.unisonOn()).toBe(true);
+    expect(pitch(() => organ.swell.noteOn('C5')) / c4).toBeCloseTo(1, 1);
+    organ.swell.uncouple('swell').unison(true);
+    expect(organ.swell.coupled()).toEqual([]);
+    expect(() => organ.great.couple({ division: 'swell', octave: 2 as 1 })).toThrow(RangeError);
+  });
+
+  test('a stop with fewer pipes than keys is silent outside them', () => {
+    const def: OrganDefinition = {
+      ...BUREA_ORGAN,
+      stops: BUREA_ORGAN.stops.map((s) => (s.id === 'great-gedackt-8' ? { ...s, keys: [60, 96] as [number, number] } : s)),
+    };
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const organ = synth.add(def, { preset: { great: ["Gedackt 8'"] } });
+    organ.great.play('C3', { duration: 0.3 });
+    expect(rms(synth.render(0.5).left)).toBeLessThan(1e-6);
+    organ.great.play('C4', { duration: 0.3 });
+    expect(rms(synth.render(0.5).left)).toBeGreaterThan(1e-3);
+  });
+
+  test('tremulants per division, in presets', () => {
+    const def: OrganDefinition = {
+      ...BUREA_ORGAN,
+      tremulant: [
+        { division: 'swell', name: 'Tremulant II', depth: 2, pitch: 6, rate: 5 },
+        { division: ['positive', 'great'], name: 'Tremulant I', depth: 1, pitch: 4, rate: 6 },
+      ],
+    };
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const organ = synth.add(def, { tremulant: { swell: true } });
+    expect(organ.tremulants().map((t) => t.on)).toEqual([true, false]);
+    organ.set({ tremulant: { great: true } });
+    expect(organ.tremulants().map((t) => t.on)).toEqual([true, true]);
+    expect(organ.current().tremulant).toEqual(['swell', 'positive', 'great']);
+    organ.preset({ swell: ["Rohrflöte 8'"], tremulant: ['positive'] });
+    expect(organ.tremulants().map((t) => t.on)).toEqual([false, true]);
+    organ.preset({ swell: ["Rohrflöte 8'"] }); // tremulants left as they are
+    expect(organ.tremulants().map((t) => t.on)).toEqual([false, true]);
+    organ.set({ tremulant: false });
+    expect(organ.tremulants().map((t) => t.on)).toEqual([false, false]);
+    // the swell's tremulant pulses its pipes
+    organ.set({ tremulant: { swell: true } });
+    organ.swell.noteOn('C4');
+    synth.render(0.5);
+    const a = synth.render(1).left;
+    const env = [...Array(20).keys()].map((i) => rms(a.subarray(i * 1102, (i + 1) * 1102)));
+    expect(Math.max(...env) / Math.min(...env)).toBeGreaterThan(1.2);
+  });
+
+  test('how much a swell box closes is part of the definition', () => {
+    const level = (closed: number) => {
+      const def: OrganDefinition = { ...BUREA_ORGAN, divisions: { swell: { swellBox: { closed, shelf: 0 } } } };
+      const synth = new Synth({ sampleRate: 22050, reverb: false });
+      const organ = synth.add(def, { preset: { swell: ["Rohrflöte 8'"] }, wind: 0 });
+      organ.swell.noteOn('C4');
+      synth.render(0.5);
+      const open = rms(synth.render(0.5).left);
+      organ.swell.expression(0);
+      synth.render(0.2);
+      return 20 * Math.log10(rms(synth.render(0.5).left) / open);
+    };
+    expect(level(-20)).toBeCloseTo(-20, 0);
+    expect(level(-6)).toBeCloseTo(-6, 0);
+  });
+
+  test("a harmonium's Forte plays the forte recordings", () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const organ = synth.add('harmonium', { preset: { great: ["Melodia 8'"] }, wind: 0 });
+    organ.great.noteOn('C5');
+    synth.render(0.6);
+    const soft = rms(synth.render(0.5).left);
+    organ.great.forte(true);
+    synth.render(0.6);
+    const loud = rms(synth.render(0.5).left);
+    expect(loud).toBeGreaterThan(soft * 1.2);
+    expect(organ.current()).toEqual({ great: ["Melodia 8'"], forte: ['great'] });
+    organ.preset('diapason');
+    expect(organ.great.forteIsOn()).toBe(false);
   });
 
   test('a custom organ definition plays', () => {

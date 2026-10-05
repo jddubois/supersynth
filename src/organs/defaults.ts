@@ -16,4 +16,4 @@ export const CHURCH_DIVISIONS: Record<DivisionName, DivisionDefinition> = {
 export const SWELL_TREMULANT: TremulantDefinition = { division: 'swell', depth: 2.5, pitch: 8, rate: 6.2 };
 
 /** Defaults of the optional {@link OrganDefinition} fields. */
-export const ORGAN_DEFAULTS = { wind: 0.5, reverb: 'church', reverbSend: 0.07 } as const;
+export const ORGAN_DEFAULTS = { wind: 0.5, reverb: 'church', reverbSend: 0.07, speech: 12 } as const;

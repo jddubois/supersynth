@@ -15,7 +15,7 @@ export { BUREA_ORGAN } from './burea.js';
 export { VCSL_ORGAN } from './vcsl.js';
 export * from './piotr/index.js';
 export { CHURCH_DIVISIONS, SWELL_TREMULANT, ORGAN_DEFAULTS } from './defaults.js';
-export type { DivisionDefinition, DivisionName, OrganDefinition, OrganPreset, StopDefinition, StopFamily, TremulantDefinition } from './types.js';
+export type { CouplerLike, DivisionDefinition, DivisionName, OrganDefinition, OrganNoises, OrganPreset, StopDefinition, StopFamily, SwellBoxDefinition, TremulantDefinition } from './types.js';
 
 /** The built-in organs by id (`synth.add('vcsl')`). */
 export const ORGANS = { burea: BUREA_ORGAN, vcsl: VCSL_ORGAN, ...PIOTR_ORGANS } as const satisfies Record<string, OrganDefinition>;

@@ -180,7 +180,7 @@ export class Synth extends EventEmitter {
   /** Remove an instrument or an organ: its notes stop at once, and its channels and MIDI
    *  channels are freed. */
   remove(item: Instrument | Organ): void {
-    const channels = item instanceof Organ ? item.divisions().map((d) => d.channel) : [item.channel];
+    const channels = item instanceof Organ ? item._channels() : [item.channel];
     if (channels.some((ch) => this.slots[ch] !== item)) return;
     if (item instanceof Organ) item._detachMidi();
     for (const ch of channels) {

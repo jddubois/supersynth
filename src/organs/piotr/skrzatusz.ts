@@ -1,4 +1,3 @@
-import { CHURCH_DIVISIONS } from '../defaults.js';
 import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/skrzatusz/<id>.ssm.
@@ -11,7 +10,7 @@ const STOPS: StopDefinition[] = [
   { id: 'great-octave-4', model: 'organ/skrzatusz/great-octave-4', name: "Octave 4'", division: 'great', family: 'principal', transpose: 12 },
   { id: 'great-quinte-2-2-3', model: 'organ/skrzatusz/great-quinte-2-2-3', name: "Quinte 2 2/3'", division: 'great', family: 'mutation', transpose: 19 },
   { id: 'great-octave-2', model: 'organ/skrzatusz/great-octave-2', name: "Octave 2'", division: 'great', family: 'principal', transpose: 24 },
-  { id: 'great-cornett-4f', model: 'organ/skrzatusz/great-cornett-4f', name: 'Cornett 4f', division: 'great', family: 'mixture', transpose: 0 },
+  { id: 'great-cornett-4f', model: 'organ/skrzatusz/great-cornett-4f', name: 'Cornett 4f', division: 'great', family: 'mixture', transpose: 0, keys: [60, 89] },
   { id: 'great-mixtur-3f', model: 'organ/skrzatusz/great-mixtur-3f', name: 'Mixtur 3f', division: 'great', family: 'mixture', transpose: 0 },
 
   { id: 'positive-geigenprincipal-8', model: 'organ/skrzatusz/positive-geigenprincipal-8', name: "Geigenprincipal 8'", division: 'positive', family: 'principal', transpose: 0 },
@@ -95,6 +94,7 @@ export const SKRZATUSZ_ORGAN: OrganDefinition = {
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'principal-chorus',
-  divisions: CHURCH_DIVISIONS,
-  tremulant: { division: 'positive', depth: 0.98, pitch: 7.2, rate: 5.18 },
+  divisions: { great: { pan: 0 }, swell: { pan: 0.15 }, positive: { pan: -0.15 }, pedal: { pan: 0 } },
+  tremulant: { division: 'positive', name: 'Tremulant 2 Man', depth: 0.98, pitch: 7.2, rate: 5.18 },
+  wind: 0,
 };

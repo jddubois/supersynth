@@ -159,6 +159,12 @@ pub struct Zone {
     /// Frame where the recording's own release begins (sustained instruments whose analysed
     /// recording keeps its release and room tail after the loop).
     pub rel_frame: Option<usize>,
+    /// Alternative releases recorded after shorter key presses (GrandOrgue's
+    /// `MaxKeyPressTime`): (longest hold in seconds, first frame), by increasing hold. Each
+    /// is a frame segment after the main release, ending where the next begins.
+    pub alt_rel: Vec<(f32, usize)>,
+    /// End (exclusive) of the main recording: the frames before the first alternative release.
+    pub main_end: usize,
     /// Recorded stereo image per harmonic partial (spaced microphones in a room): left/right
     /// gains (l² + r² = 2) and the right channel's phase relative to the left.
     pub stereo: Option<ZoneStereo>,
@@ -167,6 +173,15 @@ pub struct Zone {
 }
 
 impl Zone {
+    /// End (exclusive) of the frame segment starting at `start`: the main recording ends at
+    /// the first alternative release, each alternative release at the next one.
+    pub fn segment_end(&self, start: usize) -> usize {
+        if start < self.main_end {
+            return self.main_end;
+        }
+        self.alt_rel.iter().map(|&(_, f)| f).filter(|&f| f > start).min().unwrap_or(self.frames)
+    }
+
     #[inline]
     pub fn amp_db(&self, frame: usize, partial: usize) -> f32 {
         if partial >= self.partials {
@@ -343,9 +358,19 @@ struct HZone {
     shimmer_tau: Option<f32>,
     #[serde(rename = "relFrame", default)]
     rel_frame: Option<usize>,
+    #[serde(rename = "altRel", default)]
+    alt_rel: Vec<(f32, usize)>,
     #[serde(default)]
     stereo: Option<HStereo>,
     o: HOffsets,
+}
+
+/// Valid alternative releases of a zone: inside the frames, after the main release, sorted.
+fn alt_rel(hz: &HZone, t: usize) -> Vec<(f32, usize)> {
+    let Some(rf) = hz.rel_frame else { return Vec::new() };
+    let mut v: Vec<(f32, usize)> = hz.alt_rel.iter().copied().filter(|&(h, f)| h > 0.0 && f > rf && f + 2 < t).collect();
+    v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    v
 }
 
 #[derive(Deserialize, Default)]
@@ -554,6 +579,8 @@ impl Model {
                 shimmer: hz.shimmer.iter().map(|&q| q as f32 / 100.0).collect(),
                 shimmer_tau: hz.shimmer_tau.unwrap_or(0.01).clamp(0.001, 0.2),
                 rel_frame: hz.rel_frame.filter(|&f| f + 2 < t),
+                alt_rel: alt_rel(hz, t),
+                main_end: hz.alt_rel.iter().map(|&(_, f)| f).min().unwrap_or(t).clamp(1, t),
                 image: match (hz.o.ild, hz.o.iph, hz.o.img_k) {
                     (Some(a), Some(b), Some(ik)) if ik > 0 => Some(ZoneImage {
                         k: ik,
