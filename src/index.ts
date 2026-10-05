@@ -16,5 +16,5 @@ export { parseMidiFile } from './midifile.js';
 export type { MidiFileData, MidiFileEvent } from './midifile.js';
 export { writeWav, encodeWav } from './wav.js';
 export type { AudioBuffer, WavOptions } from './wav.js';
-export { AudioBackendError, MidiError, SupersynthError } from './errors.js';
+export { AbortError, AudioBackendError, MidiError, SupersynthError } from './errors.js';
 export type { MidiEvent } from './types.js';

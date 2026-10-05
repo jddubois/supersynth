@@ -1,4 +1,5 @@
-import type { NoteLike } from './notes.js';
+import { noteNumber, type NoteLike } from './notes.js';
+import { atLeast, finite, positive } from './validate.js';
 
 /** When a change happens: every method that makes or changes sound takes these as its last
  *  argument. Without either, it happens now. */
@@ -51,40 +52,59 @@ export interface Playable {
 
 /** Absolute engine time of a {@link TimeOptions}, or undefined for "now". */
 export function resolveTime(now: number, o: TimeOptions): number | undefined {
-  if (o.at !== undefined) return o.at;
-  if (o.delay !== undefined) return now + o.delay;
+  if (o.at !== undefined) return finite(o.at, 'at');
+  if (o.delay !== undefined) return now + finite(o.delay, 'delay');
   return undefined;
 }
 
-/** Press notes together and release them after `options.duration`. */
-export function playNotes(kb: Pick<Playable, 'noteOn' | 'noteOff'>, now: number, notes: NoteLike | NoteLike[], options: PlayOptions, velocity: number): void {
-  const list = Array.isArray(notes) ? notes : [notes];
-  const dur = Math.max(0, options.duration ?? 1);
+/** What plays notes: key presses, and room for `n` events in the engine's queue. */
+export interface Keys {
+  noteOn(note: number, velocity: number, time: number | undefined): void;
+  noteOff(note: number, time: number): void;
+  /** Throw unless `events` more events fit in the engine's queue. */
+  reserve(events: number): void;
+}
+
+/** Press notes together and release them after `options.duration`. Everything is checked
+ *  before the first note is sent, so a call plays all its notes or none. */
+export function playNotes(kb: Keys, now: number, notes: NoteLike | NoteLike[], options: PlayOptions, velocity: number): void {
+  const list = (Array.isArray(notes) ? notes : [notes]).map(noteNumber);
+  const dur = Math.max(0, finite(options.duration ?? 1, 'duration'));
   const t = resolveTime(now, options);
   const start = t ?? now;
+  kb.reserve(2 * list.length);
   for (const note of list) {
-    kb.noteOn(note, velocity, t !== undefined ? { at: t } : {});
-    kb.noteOff(note, { at: start + dur });
+    kb.noteOn(note, velocity, t);
+    kb.noteOff(note, start + dur);
   }
 }
 
-/** Play steps one after another; returns the sequence's length in seconds. */
+/** Play steps one after another; returns the sequence's length in seconds. Every step is
+ *  checked before the first is played. */
 export function playSequence(
-  play: (notes: NoteLike | NoteLike[], options: PlayOptions) => unknown,
+  play: (notes: number[], options: PlayOptions) => unknown,
+  reserve: (events: number) => void,
   now: number,
   steps: SequenceStep[],
   options: SequenceOptions,
 ): number {
-  const beat = 60 / (options.tempo ?? 120);
-  const legato = options.legato ?? 0.95;
+  const beat = 60 / positive(options.tempo ?? 120, 'tempo');
+  const legato = atLeast(options.legato ?? 0.95, 0, 'legato');
+  const velocity = finite(options.velocity ?? 90, 'velocity');
   let t = resolveTime(now, options) ?? now;
   const start = t;
-  for (const s of steps) {
+  const checked = steps.map((s) => {
     const [note, beats, vel] = Array.isArray(s) ? [s[0], s[1], undefined] : [s.note, s.beats, s.velocity];
-    if (note !== null) {
-      play(note, { at: t, duration: beats * beat * legato, velocity: vel ?? options.velocity ?? 90 });
-    }
-    t += beats * beat;
+    return {
+      notes: note === null ? null : (Array.isArray(note) ? note : [note]).map(noteNumber),
+      beats: atLeast(beats, 0, 'beats'),
+      velocity: vel === undefined ? velocity : finite(vel, 'velocity'),
+    };
+  });
+  reserve(2 * checked.reduce((n, s) => n + (s.notes?.length ?? 0), 0));
+  for (const s of checked) {
+    if (s.notes !== null) play(s.notes, { at: t, duration: s.beats * beat * legato, velocity: s.velocity });
+    t += s.beats * beat;
   }
   return t - start;
 }
