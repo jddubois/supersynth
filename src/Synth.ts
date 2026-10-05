@@ -1,12 +1,12 @@
 import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
 
 import { INSTRUMENTS, type InstrumentDefinition, type InstrumentId, type LayerDefinition } from './catalog/index.js';
 import { AudioBackendError, MidiError, SupersynthError } from './errors.js';
 import { Instrument, type InstrumentOptions } from './Instrument.js';
 import { parseMidiFile, type MidiFileData, type MidiFileEvent } from './midifile.js';
-import { loadNative, packageRoot, type NativeEngine, type NativeLayer } from './native.js';
+import { assertOrganModels, resolveModelFile } from './models.js';
+import { loadNative, type NativeEngine, type NativeLayer } from './native.js';
 import type { ReverbOptions, ReverbPreset } from './parameters.js';
 import { REVERB_FIELDS } from './parameters.js';
 import { Organ, type Division, type OrganOptions } from './Organ.js';
@@ -40,7 +40,9 @@ export interface SynthOptions extends Omit<SynthSettings, 'reverb'> {
   maxVoices?: number;
   /** Audio buffer size in frames (smaller = lower latency, more CPU risk). Default: device default. */
   bufferSize?: number;
-  /** Directory with `.ssm` models. Default: the package's `models/` folder. */
+  /** Directory searched first for `.ssm` models, laid out like the package's `models/`
+   *  (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`). Default: the models shipped
+   *  with supersynth and the installed organ packages (`supersynth-organ-<id>`). */
   modelsDirectory?: string;
   /** CPU/quality trade-off: partials per note up to 512 (`'high'`), 128 (`'balanced'`) or 32 (`'eco'`,
    *  for small boards such as a Raspberry Pi). @default 'high' */
@@ -92,7 +94,7 @@ export class Synth extends EventEmitter {
   /** Engine channel each MIDI channel (1–16, index 0–15) plays, if any. */
   private routes: (number | null)[] = new Array(16).fill(null);
   private models = new Map<string, number>();
-  private modelsDirectory: string;
+  private modelsDirectory: string | undefined;
   private reverbMode: 'auto' | 'set';
   private maxPartials: number;
   private closed = false;
@@ -112,7 +114,7 @@ export class Synth extends EventEmitter {
     } catch (e) {
       throw new SupersynthError((e as Error).message);
     }
-    this.modelsDirectory = options.modelsDirectory ?? path.join(packageRoot(), 'models');
+    this.modelsDirectory = options.modelsDirectory;
     this.maxPartials = { high: 512, balanced: 128, eco: 32 }[options.quality ?? 'high'];
     this.reverbMode = options.reverb === undefined || options.reverb === 'auto' ? 'auto' : 'set';
     this.set({
@@ -163,6 +165,7 @@ export class Synth extends EventEmitter {
   add(what: InstrumentId | OrganId | InstrumentDefinition | OrganDefinition, options: InstrumentOptions | OrganOptions = {}): Instrument | Organ {
     const organ = typeof what === 'string' ? (ORGANS as Record<string, OrganDefinition>)[what] : 'stops' in what ? what : undefined;
     if (organ) {
+      assertOrganModels(organ, this.modelsDirectory); // a missing organ package fails before any channel is taken
       this._suggestRoom(organ.reverb ?? ORGAN_DEFAULTS.reverb);
       return new Organ(this, organ, options as OrganOptions);
     }
@@ -476,7 +479,7 @@ export class Synth extends EventEmitter {
   _model(name: string): number {
     const cached = this.models.get(name);
     if (cached !== undefined) return cached;
-    const file = path.join(this.modelsDirectory, `${name}.ssm`);
+    const file = resolveModelFile(name, this.modelsDirectory);
     let bytes = MODEL_BYTES.get(file);
     if (!bytes) {
       if (!existsSync(file)) throw new SupersynthError(`Instrument model '${name}' not found at ${file}`);

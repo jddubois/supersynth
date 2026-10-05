@@ -9,6 +9,7 @@ import {
 import * as instrumentConfigs from '../src/catalog/index.js';
 import { BUREA_ORGAN, ORGANS, PIOTR_ORGANS } from '../src/organs/index.js';
 import { stopModel } from '../src/Organ.js';
+import { resolveModelFile } from '../src/models.js';
 
 const peak = (a: Float32Array) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
 const rms = (a: Float32Array) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / Math.max(1, a.length));
@@ -305,7 +306,7 @@ describe('organ', () => {
 describe('configurations', () => {
   /** The JSON header of a model file. */
   const header = (model: string) => {
-    const raw = gunzipSync(readFileSync(path.join(process.cwd(), 'models', `${model}.ssm`)));
+    const raw = gunzipSync(readFileSync(resolveModelFile(model)));
     return JSON.parse(raw.subarray(8, 8 + raw.readUInt32LE(4)).toString('utf8'));
   };
 
