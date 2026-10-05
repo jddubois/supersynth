@@ -50,7 +50,7 @@ http://localhost:8080.
 | Option | Default | |
 |---|---|---|
 | `wasmUrl` | next to the module: `node_modules/supersynth/wasm/supersynth_bg.wasm` | the engine, `wasm/supersynth_bg.wasm` in the package |
-| `modelsDirectory` | next to the module: `node_modules/supersynth/models/`, `node_modules/@supersynth/organ-<id>/models/` | a URL laid out like the package's `models/` (`grand-piano.ssm`, `organ/friesach/<stop>.ssm`, Bureå `organ/<stop>.ssm`) |
+| `modelsDirectory` | next to the module: `node_modules/@supersynth/instruments/models/`, `node_modules/@supersynth/organ-<id>/models/` | a URL laid out like the package's `models/` (`grand-piano.ssm`, `organ/friesach/<stop>.ssm`, Bureå `organ/<stop>.ssm`) |
 
 The defaults work when the packages are served as installed: from `node_modules`, or by a CDN
 that serves npm packages unchanged. A bundled application knows neither location, so it serves

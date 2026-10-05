@@ -490,7 +490,7 @@ mod tests {
     }
 
     fn model_file() -> PathBuf {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models/piccolo.ssm");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packages/instruments/models/piccolo.ssm");
         assert!(root.exists());
         root
     }

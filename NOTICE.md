@@ -1,9 +1,10 @@
 # Third-party material
 
 The instrument models are spectral analyses (partial envelopes, noise spectra and short attack
-excerpts) of the following recordings. The `supersynth` package ships the CC0 models in
-`models/`; each organ sample set ships in an npm package of its own (`@supersynth/organ-<id>`,
-source in `packages/organ-<id>/`), which carries its own NOTICE.md and license.
+excerpts) of the following recordings. The CC0 models ship in `@supersynth/instruments`
+(`packages/instruments/`, installed with supersynth); each organ sample set ships in an npm
+package of its own (`@supersynth/organ-<id>`, source in `packages/organ-<id>/`), which carries
+its own NOTICE.md and license.
 
 ## Versilian Community Sample Library (VCSL)
 Versilian Studios LLC — https://github.com/sgossner/VCSL — **CC0 1.0** (public domain).

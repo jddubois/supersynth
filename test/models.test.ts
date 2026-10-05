@@ -47,8 +47,11 @@ describe('resolveModelFile', () => {
     return file;
   };
 
-  test('core models ship with supersynth', () => {
-    expect(resolveModelFile('grand-piano')).toBe(path.join(root, 'models', 'grand-piano.ssm'));
+  test('core models come from @supersynth/instruments', () => {
+    const instruments = findPackageDir('@supersynth/instruments');
+    expect(instruments).toBe(path.join(root, 'packages', 'instruments'));
+    expect(resolveModelFile('grand-piano')).toBe(path.join(instruments!, 'models', 'grand-piano.ssm'));
+    expect(() => resolveModelFile('grand-piano', undefined, none)).toThrow('npm install @supersynth/instruments');
   });
 
   test("organ models come from the organ's package", () => {
@@ -65,7 +68,7 @@ describe('resolveModelFile', () => {
     expect(resolveModelFile('organ/friesach/great-principal-8', path.join(tmp, 'a'))).toBe(mine);
     expect(resolveModelFile('organ/friesach/great-principal-8')).toBe(env);
     // anything not there falls back to the installed models
-    expect(resolveModelFile('grand-piano', path.join(tmp, 'a'))).toBe(path.join(root, 'models', 'grand-piano.ssm'));
+    expect(resolveModelFile('grand-piano', path.join(tmp, 'a'))).toBe(path.join(root, 'packages', 'instruments', 'models', 'grand-piano.ssm'));
   });
 
   test('a missing organ package names the package to install', () => {

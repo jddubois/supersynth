@@ -43,7 +43,6 @@
   "files": [
     "dist",
     "src",
-    "models",
     "wasm",
     "NOTICE.md"
   ],
@@ -110,6 +109,9 @@
   "homepage": "https://github.com/jddubois/supersynth#readme",
   "bugs": {
     "url": "https://github.com/jddubois/supersynth/issues"
+  },
+  "dependencies": {
+    "@supersynth/instruments": "^0.3.0"
   },
   "peerDependencies": {
     "@supersynth/organ-azzio": "*",

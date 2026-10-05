@@ -1,0 +1,27 @@
+{
+  "name": "@supersynth/instruments",
+  "version": "0.3.0",
+  "description": "The core instrument models for supersynth: piano, harpsichord, strings, winds, brass, mallets and the VCSL organs, analysed from CC0 recordings (installed with supersynth)",
+  "license": "CC0-1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jddubois/supersynth.git",
+    "directory": "packages/instruments"
+  },
+  "homepage": "https://github.com/jddubois/supersynth#readme",
+  "bugs": {
+    "url": "https://github.com/jddubois/supersynth/issues"
+  },
+  "files": [
+    "models",
+    "NOTICE.md"
+  ],
+  "keywords": [
+    "supersynth",
+    "spectral-model",
+    "piano",
+    "orchestra",
+    "vcsl",
+    "vsco"
+  ]
+}

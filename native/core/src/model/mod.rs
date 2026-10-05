@@ -1319,9 +1319,9 @@ mod tests {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut checked = 0;
         for (file, want) in [
-            ("models/piccolo.ssm", 0xf2b4f066de1e07b1u64),
-            ("models/flute-vibrato.ssm", 0x083da5ae8a225130),
-            ("models/grand-piano.ssm", 0xc81e687ca2ab0d26),
+            ("packages/instruments/models/piccolo.ssm", 0xf2b4f066de1e07b1u64),
+            ("packages/instruments/models/flute-vibrato.ssm", 0x083da5ae8a225130),
+            ("packages/instruments/models/grand-piano.ssm", 0xc81e687ca2ab0d26),
             ("packages/organ-friesach/models/organ/friesach/great-gambe-8.ssm", 0xeb675083369b8aed),
             ("packages/organ-harmonium/models/organ/harmonium/great-diapason-8-forte.ssm", 0x3f1d1b3079439eb8),
             ("packages/organ-saint-jean-de-luz/models/organ/saint-jean-de-luz/pedal-bourdon-8.ssm", 0x66f40dc18eefa477),

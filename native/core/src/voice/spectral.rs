@@ -2635,7 +2635,7 @@ mod tests {
 
     #[test]
     fn a_deferred_start_sounds_and_draws_exactly_like_a_start() {
-        let names = ["models/grand-piano", "models/violin", "models/marimba", "packages/organ-burea/models/organ/great-mixture", "packages/organ-friesach/models/organ/friesach/pedal-posaune-32"];
+        let names = ["packages/instruments/models/grand-piano", "packages/instruments/models/violin", "packages/instruments/models/marimba", "packages/organ-burea/models/organ/great-mixture", "packages/organ-friesach/models/organ/friesach/pedal-posaune-32"];
         let mut models: Vec<Arc<Model>> = names.iter().filter_map(|n| repo_model(n)).collect();
         models.push(Arc::new(Model::from_bytes(&testing::bytes()).unwrap()));
         let params = [
@@ -2672,8 +2672,8 @@ mod tests {
     #[test]
     fn a_note_sounds_the_same_whatever_its_voice_slot_played_before() {
         let names = [
-            "models/grand-piano",
-            "models/violin",
+            "packages/instruments/models/grand-piano",
+            "packages/instruments/models/violin",
             "packages/organ-burea/models/organ/great-principal-8",
             "packages/organ-friesach/models/organ/friesach/great-principal-8",
             "packages/organ-friesach/models/organ/friesach/great-mixtur-major-4-5f-2-2-3",

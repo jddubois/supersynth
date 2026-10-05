@@ -1,7 +1,7 @@
 // Browsers: the WebAssembly engine (src/platform/web/engine.ts), models fetched over HTTP, a
 // small EventEmitter. Bundlers pick this module through the `browser` condition of `#platform`.
 import { SupersynthError } from '../errors.js';
-import { modelPackage } from '../models.js';
+import { INSTRUMENTS_PACKAGE, modelPackage } from '../models.js';
 import type { Bytes, Platform } from './platform.js';
 import { prepareWasm, WasmEngine } from './web/engine.js';
 
@@ -18,7 +18,8 @@ function pageUrl(): string {
 /**
  * The URL of a model: in `modelsDirectory` (a URL, laid out like the package's `models/`:
  * `<dir>/grand-piano.ssm`, `<dir>/organ/friesach/<stop>.ssm`), else next to this module as
- * installed (`node_modules/supersynth/models/`, `node_modules/@supersynth/organ-<id>/models/`).
+ * installed (`node_modules/@supersynth/instruments/models/`,
+ * `node_modules/@supersynth/organ-<id>/models/`).
  * A bundled application gives `modelsDirectory` (it does not know where the files are served).
  */
 function modelUrl(name: string, modelsDirectory?: string): string {
@@ -27,9 +28,9 @@ function modelUrl(name: string, modelsDirectory?: string): string {
     const dir = modelsDirectory.endsWith('/') ? modelsDirectory : `${modelsDirectory}/`;
     return new URL(file, new URL(dir, pageUrl())).href;
   }
-  const owner = modelPackage(name);
+  const pkg = modelPackage(name)?.pkg ?? INSTRUMENTS_PACKAGE;
   // (not `new URL('literal', import.meta.url)`: bundlers would try to bundle the directory)
-  const dir = owner ? ['..', '..', '..', owner.pkg, 'models', ''].join('/') : ['..', '..', 'models', ''].join('/');
+  const dir = ['..', '..', '..', pkg, 'models', ''].join('/');
   return new URL(file, new URL(dir, import.meta.url)).href;
 }
 

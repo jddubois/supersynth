@@ -2379,7 +2379,7 @@ mod tests {
     /// A model of the repository (the organ ones live in the Burea organ's package).
     fn model(name: &str) -> Option<Arc<Model>> {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-        ["models", "packages/organ-burea/models"]
+        ["packages/instruments/models", "packages/organ-burea/models"]
             .iter()
             .find_map(|dir| std::fs::read(format!("{root}/{dir}/{name}.ssm")).ok())
             .map(|b| Arc::new(Model::from_bytes(&b).expect("model parses")))

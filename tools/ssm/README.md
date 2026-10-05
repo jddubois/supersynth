@@ -58,7 +58,7 @@ to its committed file through `paths.model_path(name)`:
 | ------------------------ | -------------------------------------------------------- |
 | `organ/<stop>` (Bureå)   | `packages/organ-burea/models/organ/<stop>.ssm`           |
 | `organ/<organ>/<stop>`   | `packages/organ-<organ>/models/organ/<organ>/<stop>.ssm` |
-| anything else            | `models/<name>.ssm`                                      |
+| anything else            | `packages/instruments/models/<name>.ssm`                 |
 
 With an explicit output directory (`SSM_OUT_DIR`, or `build.py --out DIR`), models are written
 flat to `<DIR>/<name>.ssm` instead. That's the layout the engine's `modelsDirectory` option

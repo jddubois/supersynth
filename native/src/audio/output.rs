@@ -142,7 +142,7 @@ mod tests {
     /// A failed engine also leaves integer output silent: no stale scratch buffer repeats.
     #[test]
     fn a_panic_while_rendering_silences_integer_output() {
-        let path = format!("{}/../models/marimba.ssm", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{}/../packages/instruments/models/marimba.ssm", env!("CARGO_MANIFEST_DIR"));
         let Ok(bytes) = std::fs::read(path) else { return };
         let mut m = Model::from_bytes(&bytes).unwrap();
         for z in m.zones.iter_mut() {

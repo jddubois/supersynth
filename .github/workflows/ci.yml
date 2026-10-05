@@ -21,11 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Organ models live in their packages (packages/organ-<id>/models/organ/…)
+      - name: Models live in their packages (packages/<package>/models/…)
         run: |
-          stray=$(find models/organ -name '*.ssm' 2>/dev/null || true)
+          stray=$(git ls-files '*.ssm' | grep -v '^packages/[^/]*/models/' || true)
           if [ -n "$stray" ]; then
-            echo "::error::Organ models under models/organ/ (they belong in packages/organ-<id>/models/organ/; tools/ssm/paths.py model_path):"
+            echo "::error::Models outside packages/<package>/models/ (core instruments in packages/instruments, organs in packages/organ-<id>; tools/ssm/paths.py model_path):"
             echo "$stray"
             exit 1
           fi

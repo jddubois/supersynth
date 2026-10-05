@@ -2,7 +2,7 @@
 //! field and value; floats as their shortest round-trip text, so bit for bit). Two builds of the
 //! parser decode the models identically when their outputs match.
 //!
-//!   cargo run --release --example fingerprint -- ../models/*.ssm > a.txt
+//!   cargo run --release --example fingerprint -- ../packages/instruments/models/*.ssm > a.txt
 
 use supersynth_core::model::Model;
 

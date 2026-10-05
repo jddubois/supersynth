@@ -1,11 +1,11 @@
-// Where `.ssm` models are in Node.js: files, in supersynth's own `models/`, a directory given,
-// or the organ's npm package.
+// Where `.ssm` models are in Node.js: files, in a directory given, or in the model's npm package
+// (`@supersynth/instruments` or the organ's).
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import { SupersynthError } from '../errors.js';
-import { modelPackage, organModels } from '../models.js';
+import { INSTRUMENTS_PACKAGE, modelPackage, organModels } from '../models.js';
 import { packageRoot } from '../native.js';
 
 /** @internal Finds the directory of an installed package, or `undefined`. */
@@ -15,7 +15,7 @@ const packageDirs = new Map<string, string>();
 
 /** @internal The directory of an installed model package: resolved from supersynth itself, then
  *  from the working directory (linked or global installs), then — in a git clone — from the
- *  workspace folder `packages/organ-<id>`. */
+ *  workspace folder `packages/<name>` (`packages/organ-<id>`, `packages/instruments`). */
 export const findPackageDir: PackageFinder = (pkg) => {
   const cached = packageDirs.get(pkg);
   if (cached) return cached;
@@ -40,13 +40,13 @@ export const findPackageDir: PackageFinder = (pkg) => {
 /**
  * @internal The file of a model (`grand-piano`, `organ/friesach/great-principal-8`, …). Searched
  * in order: `modelsDirectory` and `$SUPERSYNTH_MODELS_DIR` (each the whole tree:
- * `<dir>/organ/friesach/great-principal-8.ssm`), supersynth's own `models/`, then the
- * organ's package. Throws a {@link SupersynthError} naming the package to install when an organ's
- * package is missing.
+ * `<dir>/organ/friesach/great-principal-8.ssm`), then the model's package
+ * (`@supersynth/instruments`, or the organ's). Throws a {@link SupersynthError} naming the
+ * package to install when it is missing.
  */
 export function resolveModelFile(name: string, modelsDirectory?: string, findPackage: PackageFinder = findPackageDir): string {
   const file = `${name}.ssm`;
-  const dirs = [modelsDirectory, process.env.SUPERSYNTH_MODELS_DIR, path.join(packageRoot(), 'models')];
+  const dirs = [modelsDirectory, process.env.SUPERSYNTH_MODELS_DIR];
   const tried: string[] = [];
   for (const dir of dirs) {
     if (!dir) continue;
@@ -64,6 +64,14 @@ export function resolveModelFile(name: string, modelsDirectory?: string, findPac
     throw new SupersynthError(
       `Model '${name}' is not in ${owner.pkg} (${dir}); install the version of ${owner.pkg} that matches supersynth. Looked in:\n  ${tried.join('\n  ')}`,
     );
+  }
+  const dir = findPackage(INSTRUMENTS_PACKAGE);
+  if (dir) {
+    const candidate = path.join(dir, 'models', file);
+    if (existsSync(candidate)) return candidate;
+    tried.push(candidate);
+  } else {
+    tried.push(`${INSTRUMENTS_PACKAGE} (not installed: npm install ${INSTRUMENTS_PACKAGE})`);
   }
   throw new SupersynthError(`Instrument model '${name}' not found. Looked in:\n  ${tried.join('\n  ')}`);
 }
