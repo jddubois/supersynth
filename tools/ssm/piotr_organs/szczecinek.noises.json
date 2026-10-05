@@ -1,0 +1,185 @@
+{
+ "keys": {
+  "pedal": {
+   "down": "organ/szczecinek/noise-keys-pedal-down",
+   "up": "organ/szczecinek/noise-keys-pedal-up"
+  },
+  "great": {
+   "down": "organ/szczecinek/noise-keys-great-down",
+   "up": "organ/szczecinek/noise-keys-great-up"
+  },
+  "swell": {
+   "down": "organ/szczecinek/noise-keys-swell-down",
+   "up": "organ/szczecinek/noise-keys-swell-up"
+  }
+ },
+ "stops": {
+  "great-bordun-16": [
+   3,
+   4
+  ],
+  "great-cornett-2-4-fach": [
+   5,
+   6
+  ],
+  "great-flute-harmonique-8": [
+   7,
+   8
+  ],
+  "great-gambe-8": [
+   9,
+   10
+  ],
+  "great-hohlflote-4": [
+   11,
+   12
+  ],
+  "great-mixtur-5-fach": [
+   13,
+   14
+  ],
+  "great-octave-4": [
+   15,
+   16
+  ],
+  "great-piccolo-2": [
+   17,
+   18
+  ],
+  "great-principal-16": [
+   19,
+   20
+  ],
+  "great-principal-8": [
+   21,
+   22
+  ],
+  "great-rauschquinte-2-2-3-u-2": [
+   23,
+   24
+  ],
+  "great-rohrflote-8": [
+   25,
+   26
+  ],
+  "great-salicional-8": [
+   27,
+   28
+  ],
+  "great-trompete-8": [
+   29,
+   30
+  ],
+  "pedal-bassflote-8": [
+   31,
+   32
+  ],
+  "pedal-echobass-16": [
+   33,
+   34
+  ],
+  "pedal-octavbass-8": [
+   35,
+   36
+  ],
+  "pedal-octave-4": [
+   37,
+   38
+  ],
+  "pedal-posaune-16": [
+   39,
+   40
+  ],
+  "pedal-principalbass-16": [
+   41,
+   42
+  ],
+  "pedal-quintbass-10-2-3": [
+   43,
+   44
+  ],
+  "pedal-subbass-16": [
+   45,
+   46
+  ],
+  "pedal-violon-16": [
+   47,
+   48
+  ],
+  "pedal-violoncello-8": [
+   49,
+   50
+  ],
+  "swell-aeoline-8": [
+   51,
+   52
+  ],
+  "swell-fugara-4": [
+   53,
+   54
+  ],
+  "swell-gedackt-8": [
+   55,
+   56
+  ],
+  "swell-geigenprincipal-8": [
+   57,
+   58
+  ],
+  "swell-gemshorn-8": [
+   59,
+   60
+  ],
+  "swell-konzertfloete-8": [
+   61,
+   62
+  ],
+  "swell-lieblich-gedackt-16": [
+   63,
+   64
+  ],
+  "swell-progressio-2-4-fach": [
+   65,
+   66
+  ],
+  "swell-schalmey-8": [
+   67,
+   68
+  ],
+  "swell-traversfloete-4": [
+   69,
+   70
+  ],
+  "swell-vox-coelestis-8": [
+   71,
+   72
+  ]
+ },
+ "tremulants": {
+  "tremulant 2 man": [
+   73,
+   74
+  ]
+ },
+ "couplers": {
+  "coupler 1": [
+   75,
+   76
+  ],
+  "coupler 2": [
+   77,
+   78
+  ],
+  "coupler 3": [
+   79,
+   80
+  ],
+  "coupler 4": [
+   81,
+   82
+  ]
+ },
+ "stopsModel": "organ/szczecinek/noise-stops",
+ "blower": "organ/szczecinek/noise-blower",
+ "ambient": "organ/szczecinek/noise-ambient"
+}
