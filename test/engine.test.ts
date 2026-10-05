@@ -366,6 +366,16 @@ describe('configurations', () => {
     }
   });
 
+  test("every organ's noise models load and play", () => {
+    for (const organ of Object.values(PIOTR_ORGANS)) {
+      if (!organ.noises) continue;
+      const synth = new Synth({ sampleRate: 22050, reverb: false });
+      const o = synth.add(organ, { preset: {}, noises: true });
+      o.great.play('C4', { duration: 0.1 });
+      expect([organ.id, rms(synth.render(0.5).left) > 1e-7]).toEqual([organ.id, true]);
+    }
+  });
+
   test("an organ's noises play: blower and room while on, key and stop action", () => {
     const organ = Object.values(PIOTR_ORGANS).find((o) => o.noises?.blower && o.noises.keys && o.noises.stops);
     if (!organ) return;
