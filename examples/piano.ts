@@ -24,11 +24,11 @@ for (const v of [30, 60, 90, 120]) {
   t += 2;
 }
 
-// 3. Presets: mellow and bright
-piano.preset('mellow');
+// 3. Presets: mellow and bright (scheduled, so the music before keeps the default sound)
+piano.preset('mellow', { at: t });
 piano.play(chord('F3', 'add9'), { at: t, velocity: 85, duration: 2 });
 t += 2.5;
-piano.set({ brightness: 1.5 }, { at: t });
+piano.preset('bright', { at: t });
 piano.play(chord('F3', 'add9'), { at: t, velocity: 85, duration: 2 });
 t += 3;
 
