@@ -35,7 +35,7 @@ export interface SynthSettings {
 /**
  * When to end a released note early ({@link SynthSettings.releaseCulling}). This trades sound
  * for CPU: measured on BWV 532 on the Friesach plenum (hall reverb), `floorDb: -80` halves the
- * voices (mean 671 → 334) and changes third-octave band levels by at most 1.8 dB (p99 0.18 dB);
+ * voices (mean 586 → 287) and changes third-octave band levels by at most 1.8 dB (p99 0.18 dB);
  * on the smaller Bureå organ the savings are smaller and single bands of the room tail change
  * by up to 15 dB.
  */

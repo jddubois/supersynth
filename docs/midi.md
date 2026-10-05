@@ -18,7 +18,8 @@ reverb send (CC91) and pitch bend are honoured. Program changes and other contro
 ignored. Channel 10 (GM drums) is skipped unless mapped; with `byTrack` it is not skipped, so
 map or leave out drum tracks yourself. `byTrack: true` maps by track instead of channel: the
 keys of `channels` are then 0-based track indices (`0` is the first track). A channel or track
-without notes gets no instrument.
+without notes gets no instrument. A target is an instrument id, an `Instrument` or a
+`Division`; an organ id throws (pass one of its divisions, `organ.great`).
 
 An instrument or division you pass is played as it is (an organ division with its couplers).
 When the file ends (or is aborted), its notes are released and its sustain pedal, modulation,
@@ -50,22 +51,30 @@ Events are sent to the engine ahead of time, a second and a half at most and nev
 its queue holds (see [the event queue](synth.md#the-event-queue)), so files of any length and
 density play.
 
-`parseMidiFile(bytes)` gives the raw time-ordered events: `channel` is 1–16 and `track` the
-0-based track index. It reads Standard MIDI Files of format 0 and 1 timed in ticks per beat;
-format 2, SMPTE timing, and a file that is not a Standard MIDI File or is truncated or corrupt
-throw `MidiError`.
+`parseMidiFile(bytes)` gives the file as data, `{ events, duration, tracks, trackNames,
+ticksPerBeat }`: `events` in time order, each with `time` (seconds, the file's tempo changes
+applied), `track` (0-based), `channel` (1–16) and its `type` — `noteOn` (`note`, `velocity`),
+`noteOff` (`note`), `cc` (`controller`, `value`), `pitchBend` (`value`, −1 … 1) or `program`
+(`program`); `duration` is the time of the last event. It reads Standard MIDI Files of format 0
+and 1 timed in ticks per beat; format 2, SMPTE timing, and a file that is not a Standard MIDI
+File or is truncated or corrupt throw `MidiError`.
 
 ## Hardware input
 
 ```ts
 synth.add('grand-piano').midi(1);           // MIDI channel 1
 synth.add('strings').midi(2);               // MIDI channel 2
-await synth.start();                        // MIDI input plays only while output runs
+await synth.start();                        // real-time output: the keys sound only while it runs
 await synth.enableMidi('Arturia');          // substring of the device name; omit for the first device
 synth.on('midi', (e) => console.log(e.type, e.channel, e.note, e.velocity));
 ```
 
 An enabled MIDI input keeps Node.js running until `disableMidi()` or `synth.close()`.
+
+The `'midi'` event's `MidiEvent` has `type` (`'noteOn'`, `'noteOff'`, `'cc'`, `'programChange'`,
+`'pitchBend'` or `'unknown'`), `channel` (1–16), `raw` (the bytes) and, as the type has them,
+`note` and `velocity`, `controller` and `value` (0–127), `program`, or `value` (−1 … 1 for pitch
+bend). A note-on with velocity 0 arrives as `'noteOff'`.
 
 Nothing plays from a MIDI keyboard until it is given a channel: `instrument.midi(n)` (or
 `instrument.midi()` for every channel) and `organ.midi({ great: 1, … })`. A channel belongs to
@@ -73,10 +82,12 @@ one instrument or division at a time; giving it to another takes it over, and ca
 again replaces the channels an instrument or organ had.
 
 With `route: true` (default) notes and controllers go straight to the engine, with no
-JavaScript round trip, while real-time output runs. They apply at the start of the next audio
-buffer, so their timing varies by up to one buffer (`bufferSize`). Live input has room of its
-own in the engine's queue: events scheduled ahead by a program never crowd it out. Set `route: false` to handle everything yourself in the `'midi'` event,
-which is emitted for every message either way. `disableMidi()` disconnects.
+JavaScript round trip, while real-time output runs (`synth.start()`); stopped, nothing sounds.
+Offline (`render()`) a MIDI keyboard plays nothing. Messages apply at the start of the next
+audio buffer, so their timing varies by up to one buffer (`bufferSize`). Live input has room of
+its own in the engine's queue: events scheduled ahead by a program never crowd it out. Set
+`route: false` to handle everything yourself in the `'midi'` event, which is emitted for every
+message either way. `disableMidi()` disconnects.
 
 An organ assigns its divisions to channels with `organ.midi({ great: 1, swell: 2, pedal: 3 })`
 (couplers apply, program changes select presets; see [organ.md](organ.md#midi-keyboards)).

@@ -4,7 +4,7 @@ Sample set recorded and produced by **Piotr Grabowski** (Piotr Grabowski Wirtual
 https://piotrgrabowski.pl/instruments/ — distributed by him free of charge. The models in
 `models/organ/skrzatusz/` are spectral analyses (partial envelopes, noise spectra and short attack
 excerpts) of each stop, analysed from the sample set's recordings as its organ definition plays
-them.
+them, and of the organ's recorded machinery noises.
 
 These models are **not** covered by supersynth's MIT license. The sample set's terms
 (https://piotrgrabowski.pl, Terms and Conditions → Licence) do not allow free sample sets, as a

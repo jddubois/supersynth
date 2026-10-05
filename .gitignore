@@ -40,3 +40,4 @@ demos/
 # Python
 __pycache__/
 *.pyc
+docs/organ-stops.generated.md

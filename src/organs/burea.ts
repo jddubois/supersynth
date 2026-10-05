@@ -40,7 +40,7 @@ const STOPS: StopDefinition[] = [
   { id: 'positive-krummhorn-8', name: "Krummhorn 8'", division: 'positive', family: 'reed', transpose: 0 },
 
   { id: 'pedal-subbass-16', name: "Subbass 16'", division: 'pedal', family: 'flute', transpose: -12 },
-  { id: 'extra-violone-16', name: "Violon 16'", division: 'pedal', family: 'string', transpose: -12 },
+  { id: 'extra-violone-16', name: "Violon 16'", division: 'pedal', family: 'string', transpose: -12, keys: [36, 59] },
   { id: 'pedal-principal-8', name: "Principal 8'", division: 'pedal', family: 'principal', transpose: 0 },
   { id: 'pedal-gedackt-8', name: "Gedackt 8'", division: 'pedal', family: 'flute', transpose: 0 },
   { id: 'pedal-octave-4', name: "Octave 4'", division: 'pedal', family: 'principal', transpose: 12 },

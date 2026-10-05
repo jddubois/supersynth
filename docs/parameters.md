@@ -4,9 +4,9 @@
 smoothed; `{ at }` schedules them). All are relative to the model as analysed: the defaults
 change nothing, and are exported as `PARAMETER_DEFAULTS` (`reverbSend`, `spread` and `formant`
 default to each instrument's own value). `instrument.get(name)` reads one value,
-`instrument.parameters()` the ones that differ from the defaults, and `instrument.preset('default')`
-restores the defaults. A value outside its range (`PARAMETER_RANGES`, below) throws a
-`SupersynthError` and changes nothing.
+`instrument.parameters()` the ones set by the definition, its preset or `set()`, and
+`instrument.preset('default')` restores the defaults. A value outside its range
+(`PARAMETER_RANGES`, below) throws a `SupersynthError` and changes nothing.
 
 | Parameter | Default | Range, unit | |
 |---|---|---|---|
@@ -36,11 +36,11 @@ restores the defaults. A value outside its range (`PARAMETER_RANGES`, below) thr
 | `mono` | false | `true`, `false` | each note releases the previous |
 | `legato` | false | `true`, `false` | overlapping notes glide into each other without a new attack (implies mono) |
 | `glide` | 0.06 | 0 … 10 s | legato pitch-glide time constant |
-| `tremolo`, `tremoloPitch`, `tremoloRate` | off | 0 … 24 dB, 0 … 200 cents, 0 … 40 Hz | synchronous pulsation of the whole part (organ tremulant, vibraphone motor) |
+| `tremolo`, `tremoloPitch`, `tremoloRate` | 0, 0, 6 | 0 … 24 dB, 0 … 200 cents, 0 … 40 Hz | synchronous pulsation of the whole part (organ tremulant, vibraphone motor) |
 | `jitter` | 1 | 0 … 10 × | independent micro-fluctuation of each partial, as analysed (0 = lockstep) |
 | `shimmer` | 1 | 0 … 10 × | fast amplitude/phase fluctuation spreading each partial's energy around its line, as analysed (0 = clean lines) |
 | `gain` | 0 | −120 … 48 dB | voice gain before effects |
-| `eqLowGain/eqLowFreq`, `eqMidGain/eqMidFreq/eqMidQ`, `eqHighGain/eqHighFreq` | flat | gains −24 … 24 dB, frequencies 10 … 100000 Hz, Q 0.1 … 10 | 3-band EQ |
+| `eqLowGain/eqLowFreq`, `eqMidGain/eqMidFreq/eqMidQ`, `eqHighGain/eqHighFreq` | 0 dB at 200 / 1000 (Q 0.7) / 5000 Hz | gains −24 … 24 dB, frequencies 10 … 100000 Hz, Q 0.1 … 10 | 3-band EQ |
 | `lowCut`, `highCut` | off | 0 (off) … 100000 Hz | 12 dB/oct filters |
 | `chorus`, `chorusRate`, `chorusDepth` | off | mix 0 … 1, 0 … 20 Hz, 0 … 50 ms | ensemble |
 | `drive`, `driveTone`, `driveLevel` | off | 1 (off) … 20, 0 … 100000 Hz, 0 … 4 × | 4× oversampled tube drive |

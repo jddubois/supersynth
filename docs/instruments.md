@@ -12,6 +12,13 @@ import { GRAND_PIANO } from 'supersynth/instruments';
 synth.add({ ...GRAND_PIANO, id: 'dark-piano', parameters: { brightness: -1.5 } });
 ```
 
+An `InstrumentDefinition` has an `id`, `name`, `family` (`'keyboard'`, `'strings'`, …) and `description`;
+its `layers`, the models it plays; the `range` of keys `[low, high]` they cover; a suggested `reverb` room;
+`parameters` (see [parameters.md](parameters.md)) and its `presets` (`{ description, parameters, layers, reverb }`).
+A layer plays the model `models/<model>.ssm` with optional `transpose` (semitones), `gain` (dB), `pan`,
+`detune` (cents), `keyLow`/`keyHigh` (the keys it plays) and `trigger: 'release'` (it sounds at key-up:
+damper and jack noise).
+
 ## Keyboards
 
 ### `grand-piano` — Concert Grand Piano
@@ -222,7 +229,7 @@ Config: `FLUTE`. Suggested room: `hall`.
 | `default` | Straight tone |
 | `vibrato` | With natural flute vibrato |
 | `breathy` | More air in the tone |
-| `piccolo` | Piccolo |
+| `piccolo` | Piccolo (flute below its range) |
 
 ### `oboe` — Oboe
 

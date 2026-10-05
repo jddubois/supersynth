@@ -37,7 +37,7 @@ export const UPRIGHT_PIANO: InstrumentDefinition = {
   family: 'keyboard',
   description: 'Yamaha upright: intimate, a little brighter and boxier than the grand.',
   layers: [{ model: 'upright-piano' }, { model: 'upright-piano-release', trigger: 'release' }],
-  range: [21, 108],
+  range: [26, 101],
   reverb: 'room',
   presets: {
     default: { description: 'No adjustments' },
@@ -68,7 +68,7 @@ export const HARPSICHORD: InstrumentDefinition = {
     '8-4': {
       description: "8' + 4' (brilliant, octave coupled)",
       layers: [
-        { model: 'harpsichord' }, { model: 'harpsichord', transpose: 12, gain: -5 },
+        { model: 'harpsichord' }, { model: 'harpsichord', transpose: 12, gain: -5, keyHigh: 77 },
         { model: 'harpsichord-release', trigger: 'release' },
       ],
     },

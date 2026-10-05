@@ -69,7 +69,7 @@ const PRESETS: Record<string, OrganPreset> = {
 export const AZZIO_ORGAN: OrganDefinition = {
   id: 'azzio',
   name: 'Azzio',
-  description: 'Mascioni 2016, Azzio (Italy): 11 stops on two manuals and pedal in the Italian style, at a ≈ 420 Hz.',
+  description: 'Mascioni 2016, Azzio (Italy): 11 stops on two manuals and pedal in the Italian style (12 knobs here: the Sesquialtera\'s first rank alone, or both), at a ≈ 420 Hz.',
   stops: STOPS,
   presets: PRESETS,
   defaultPreset: 'ripieno',

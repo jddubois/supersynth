@@ -36,7 +36,7 @@ export const XYLOPHONE: InstrumentDefinition = {
   family: 'percussion',
   description: 'Xylophone.',
   layers: one('xylophone'),
-  range: [60, 108],
+  range: [62, 108],
   reverb: 'hall',
   presets: { default: { description: 'No adjustments' } },
 };
@@ -48,7 +48,7 @@ export const GLOCKENSPIEL: InstrumentDefinition = {
   family: 'percussion',
   description: 'Glockenspiel.',
   layers: one('glockenspiel'),
-  range: [72, 108],
+  range: [74, 108],
   reverb: 'hall',
   presets: { default: { description: 'No adjustments' } },
 };
@@ -59,7 +59,8 @@ export const TUBULAR_BELLS: InstrumentDefinition = {
   name: 'Tubular Bells',
   family: 'percussion',
   description: 'Orchestral chimes.',
-  layers: one('tubular-bells'),
+  // the recordings are named (and their model filed) an octave below the strike note they sound
+  layers: [{ model: 'tubular-bells', transpose: -12 }],
   range: [60, 77],
   reverb: 'church',
   presets: { default: { description: 'No adjustments' } },

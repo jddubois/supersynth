@@ -49,7 +49,7 @@ export const CONTRABASS_PIZZICATO: InstrumentDefinition = {
   family: 'strings',
   description: 'Plucked double bass.',
   layers: one('contrabass-pizzicato'),
-  range: [28, 67],
+  range: [28, 57],
   reverb: 'hall',
   presets: { default: { description: 'No adjustments' }, jazz: { description: 'Dry jazz-club bass', parameters: { reverbSend: 0.05, brightness: 0.5 }, reverb: 'room' } },
 };
@@ -61,7 +61,7 @@ export const VIOLIN: InstrumentDefinition = {
   family: 'strings',
   description: 'Solo violin with natural vibrato.',
   layers: one('violin'),
-  range: [55, 103],
+  range: [55, 101],
   reverb: 'hall',
   presets: {
     legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } },
@@ -79,7 +79,7 @@ export const VIOLINS: InstrumentDefinition = {
   family: 'strings',
   description: 'Orchestral first violins.',
   layers: one('violins'),
-  range: [55, 100],
+  range: [55, 91],
   reverb: 'hall',
   presets: {
     legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } },
@@ -122,7 +122,7 @@ export const CONTRABASS: InstrumentDefinition = {
   family: 'strings',
   description: 'Double bass, bowed.',
   layers: one('contrabass'),
-  range: [28, 67],
+  range: [28, 64],
   reverb: 'hall',
   presets: {
     legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' } },
@@ -140,13 +140,13 @@ export const STRINGS: InstrumentDefinition = {
     { model: 'violas', keyLow: 55, keyHigh: 72, gain: -2 },
     { model: 'violins', keyLow: 60 },
   ],
-  range: [28, 100],
+  range: [28, 91],
   reverb: 'hall',
   presets: {
     default: { description: 'Divisi across the keyboard' },
     octaves: {
       description: 'Violins doubled by cellos an octave below (classic film voicing)',
-      layers: [{ model: 'violins', keyLow: 55 }, { model: 'cellos', transpose: -12, gain: -3 }],
+      layers: [{ model: 'violins', keyLow: 55 }, { model: 'cellos', transpose: -12, gain: -3, keyLow: 43 }, { model: 'contrabass', keyHigh: 42, gain: -2 }],
     },
     lush: { description: 'Wider and softer', parameters: { chorus: 0.2, attack: 1.6, spread: 0.9 } },
   },
