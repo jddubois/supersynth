@@ -3,6 +3,15 @@
 Usage:
   python build.py <instrument-id> [<instrument-id> ...]     # ids from instruments.py
   python build.py --all
+  options: --out DIR     write <DIR>/<name>.ssm instead of the committed location (= SSM_OUT_DIR)
+           --force       let experiment flags (below) overwrite committed models (= SSM_FORCE=1)
+           --max-failed F, --allow-gaps   tolerance for lost recordings (see check_losses)
+
+Experiment flags (environment) change what a model contains: SSM_OVERRIDES (JSON spec
+overrides), SSM_ONLY (regex: analyse only matching recordings), SSM_NO_WEAK, SSM_MONO_NOISE,
+SSM_OLD_RELEASE (analysis.py). With any of them set, a build refuses to write into the committed
+model locations unless given an output directory or --force, and the model header records them
+under build.flags.
 """
 from __future__ import annotations
 
@@ -13,18 +22,26 @@ import math
 import os
 import re
 import struct
-import sys
 from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
 from analysis import NOISE_EDGES, Zone, analyze_zone, hz_to_midi, note_name_to_midi
-from paths import DATA_ROOT
+from paths import PACKAGES_DIR, DATA_ROOT, existing_model_path, is_committed_location, model_package, model_path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 DATA = os.path.join(DATA_ROOT, 'samples')
-OUT_DIR = os.environ.get('SSM_OUT_DIR', os.path.join(REPO, 'models'))
+# explicit output directory (flat <dir>/<name>.ssm); None = the committed locations (paths.model_path)
+OUT_DIR = os.environ.get('SSM_OUT_DIR') or None
+# experiment flags may overwrite committed models
+FORCE = os.environ.get('SSM_FORCE') == '1'
+
+# environment switches that change a model's content (read here and in analysis.py)
+EXPERIMENT_FLAGS = ('SSM_OVERRIDES', 'SSM_ONLY', 'SSM_NO_WEAK', 'SSM_MONO_NOISE', 'SSM_OLD_RELEASE')
+
+
+def experiment_flags() -> dict[str, str]:
+    """The experiment flags set in the environment (name → value)."""
+    return {k: os.environ[k] for k in EXPERIMENT_FLAGS if os.environ.get(k)}
 
 
 def q_db(db: np.ndarray) -> np.ndarray:
@@ -51,6 +68,11 @@ def delta_pm(q: np.ndarray) -> bytes:
     a = q.T.astype(np.int16)
     d = np.diff(a, axis=1, prepend=0)
     return (d % 256).astype(np.uint8).tobytes()
+
+
+def quantize_phase(ph: np.ndarray) -> np.ndarray:
+    """Radians → uint8 in 1/256 turns, wrapping (a phase that rounds to a full turn is 0)."""
+    return (np.round(np.asarray(ph, dtype=np.float64) / (2 * math.pi) * 256).astype(np.int64) % 256).astype(np.uint8)
 
 
 AMP_STEP = 1.0 / 16.0
@@ -83,7 +105,8 @@ def write_model(path: str, header: dict, zones: list[Zone]):
         T = len(z.times)
         o = {
             'ratios': put(np.asarray(z.ratios, '<f4').tobytes()),
-            'phases': put(np.round((np.mod(z.phases, 2 * math.pi)) / (2 * math.pi) * 256).astype(np.int64).clip(0, 255).astype(np.uint8).tobytes()),
+            # 1/256 turns; a phase just below 2π rounds to 256 ≡ 0 (wrap, don't clip to 255)
+            'phases': put(quantize_phase(z.phases).tobytes()),
             'amps16': put(delta_pm16(z.amps_db)),
             'ampsStep': AMP_STEP,
             'pitch': put(np.round(np.clip(z.pitch_cents, -300, 300) * 100).astype('<i2').tobytes()),
@@ -169,16 +192,64 @@ def _worker_init():
         pass
 
 
-def _analyze_job(args):
+def _analyze_job(args) -> tuple[Zone | None, str | None]:
+    """(zone, None), or (None, why) when the analysis of this recording failed."""
     path, note, layer, kw = args
     try:
         kw = dict(kw)
         if kw.pop('use_cue', False):
             kw['release_at_s'] = wav_cue_seconds(path)
-        return analyze_zone(path, note, layer, **kw)
+        return analyze_zone(path, note, layer, **kw), None
     except Exception as ex:  # noqa: BLE001
         print(f'  !! failed {os.path.basename(path)}: {ex}', flush=True)
-        return None
+        # (no local directories in what goes into the model header)
+        return None, f'{type(ex).__name__}: {ex}'.replace(path, os.path.basename(path)).replace(DATA_ROOT, '<data>')
+
+
+# Recordings that do not become zones (analysis failed, or pitch far from the nominal).
+# A lost recording at the top or bottom of a layer's key range only narrows it (the engine
+# stretches the outermost zone); one in the middle leaves a gap that the neighbouring zones
+# are pitch-shifted across — audible. Default policy: fail the build when any key in the
+# middle of a layer's range is lost (no other recording of that key and layer survives), or
+# when more than MAX_FAILED of all recordings are lost. "Middle" = every recorded key of the
+# layer except its lowest and highest 10 % (at least one at each end).
+MAX_FAILED = float(os.environ.get('SSM_MAX_FAILED', '0.08'))     # --max-failed
+ALLOW_GAPS = os.environ.get('SSM_ALLOW_GAPS') == '1'             # --allow-gaps
+
+
+def middle_gaps(items: list[tuple[str, float, str]], kept: set[str]) -> list[tuple[str, float]]:
+    """(layer, note) of keys in the middle of a layer's range with no surviving recording."""
+    out = []
+    for layer in sorted({l for _, _, l in items}):
+        notes = sorted({n for _, n, l in items if l == layer})
+        edge = max(1, int(round(0.1 * len(notes))))
+        alive = {n for f, n, l in items if l == layer and f in kept}
+        out += [(layer, n) for n in notes[edge:len(notes) - edge] if n not in alive]
+    return out
+
+
+def check_losses(inst_id: str, items: list[tuple[str, float, str]], kept: set[str], lost: list[dict],
+                 max_failed: float | None = None, allow_gaps: bool | None = None):
+    """Print a summary of the recordings that did not become zones; raise if the policy above
+    (or the given overrides) is violated."""
+    max_failed = MAX_FAILED if max_failed is None else max_failed
+    allow_gaps = ALLOW_GAPS if allow_gaps is None else allow_gaps
+    gaps = middle_gaps(items, kept)
+    print(f'  [{inst_id}] {len(items)} recordings → {len(kept)} zones, {len(lost)} lost'
+          + (f', {len(gaps)} gap(s) in the middle of the key range' if gaps else ''), flush=True)
+    gapset = set(gaps)
+    for d in lost:
+        mark = '  ← GAP' if (d['layer'], d['note']) in gapset else ''
+        print(f"     lost {d['src']} (layer {d['layer']}, note {d['note']:g}): {d['reason']}{mark}", flush=True)
+    problems = []
+    if gaps and not allow_gaps:
+        problems.append(f'{len(gaps)} key(s) in the middle of the range lost '
+                        f'({", ".join(f"{l}:{n:g}" for l, n in gaps)}; --allow-gaps / SSM_ALLOW_GAPS=1 to accept)')
+    if len(lost) > max_failed * len(items):
+        problems.append(f'{len(lost)}/{len(items)} recordings lost, more than {max_failed:.0%} '
+                        f'(--max-failed / SSM_MAX_FAILED to change)')
+    if problems:
+        raise RuntimeError(f'{inst_id}: ' + '; '.join(problems))
 
 
 def wav_cue_seconds(path: str) -> float | None:
@@ -238,10 +309,36 @@ def collect(spec: dict) -> list[tuple[str, int, str]]:
     return out
 
 
-def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) -> str:
+def gain_reference(inst_id: str, ref: str, out_dir: str | None, quiet: bool = False) -> str | None:
+    """The model whose gain `inst_id` shares (`fixed_gain_from`: the stops of one organ keep
+    their natural balance, a release sound its instrument's level): as built into the same
+    output directory, else the committed one. Missing: an error for a committed build (its own
+    level would silently break the balance), a warning (None) for a scratch build."""
+    cands = ([model_path(ref, out_dir)] if out_dir else []) + [existing_model_path(ref)]
+    path = next((p for p in cands if os.path.exists(p)), None)
+    if path is None:
+        msg = f'{inst_id}: gain reference {ref} is not built ({" / ".join(dict.fromkeys(cands))})'
+        if out_dir is None or is_committed_location(out_dir):
+            raise RuntimeError(msg + ': build it first')
+        if not quiet:
+            print(f"  !! {msg}: using this model's own level", flush=True)
+    return path
+
+
+def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), out_dir: str | None = None,
+          force: bool | None = None) -> str:
+    out_dir = out_dir or OUT_DIR
+    flags = experiment_flags()
+    if flags and not (FORCE if force is None else force) and (out_dir is None or is_committed_location(out_dir)):
+        # e.g. SSM_ONLY=… would replace a committed model with a partial one
+        raise SystemExit(f'{inst_id}: experiment flags set ({", ".join(sorted(flags))}): refusing to write '
+                         f'{model_path(inst_id, out_dir)}. Give an output directory (--out DIR or SSM_OUT_DIR) '
+                         f'or --force (SSM_FORCE=1).')
     if os.environ.get('SSM_OVERRIDES'):
         # experiments: e.g. SSM_OVERRIDES='{"phase_smooth_s": 0.1}'
         spec = {**spec, **json.loads(os.environ['SSM_OVERRIDES'])}
+    if spec.get('fixed_gain_from') and spec['fixed_gain_from'] != inst_id:
+        gain_reference(inst_id, spec['fixed_gain_from'], out_dir, quiet=True)     # fail before the analysis
     items = collect(spec)
     if 'stereo' not in spec and items:
         # stereo recordings keep their per-partial stereo image (and per-channel noise)
@@ -269,10 +366,20 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
     jobs = [(f, n, l, kw) for f, n, l in items]
     with ProcessPoolExecutor(workers, initializer=_worker_init) as ex:
         results = list(ex.map(_analyze_job, jobs))
-    failed = sum(1 for z in results if z is None)
-    zones = [z for z in results if z is not None]
-    if failed > max(1, 0.08 * len(jobs)):
-        raise RuntimeError(f'{failed}/{len(jobs)} recordings failed analysis')
+    lost: list[dict] = []          # recordings that did not become zones (recorded in the header)
+
+    def lose(path, note, layer, reason):
+        lost.append({'src': os.path.basename(path), 'note': round(float(note), 3), 'layer': layer, 'reason': reason})
+
+    zones = []
+    for (f, n, l), (z, err) in zip(items, results):
+        if z is None:
+            lose(f, n, l, f'analysis failed: {err}')
+        else:
+            zones.append(z)
+    if not zones:
+        check_losses(inst_id, items, set(), lost)
+        raise RuntimeError(f'{inst_id}: every recording failed analysis')
 
     # octave consistency: all zones of an instrument share one naming convention
     offs = [round((hz_to_midi(z.f0) - z.nominal_note) / 12) * 12 for z in zones]
@@ -283,17 +390,26 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
         kw2 = dict(kw, octave_search=False)
         with ProcessPoolExecutor(workers, initializer=_worker_init) as ex:
             fixed = list(ex.map(_analyze_job, [(f, n, l, kw2) for f, n, l in redo]))
-        fixmap = {z.source: z for z in fixed if z is not None}
-        zones = [fixmap.get(z.source, z) if o != med else z for z, o in zip(zones, offs)]
+        fixmap = {}
+        for (f, n, l), (z, err) in zip(redo, fixed):
+            if z is None:
+                lose(f, n - med, l, f're-analysis at octave offset {med:+d} failed: {err}')
+                continue
+            z.nominal_note = n - med       # the file's own naming, like every other zone's
+            fixmap[f] = z
+        zones = [z if o == med else fixmap.get(z.source) for z, o in zip(zones, offs)]
+        zones = [z for z in zones if z is not None]
     # detuning sanity: drop zones whose pitch is far from the nominal (mislabelled / failed)
     good = []
     for z in zones:
         dev = hz_to_midi(z.f0) - (z.nominal_note + med)
         if abs(dev) > 0.8:
             print(f'  dropping {os.path.basename(z.source)}: pitch off by {dev:+.2f} semitones', flush=True)
+            lose(z.source, z.nominal_note, z.layer, f'pitch off by {dev:+.2f} semitones')
             continue
         good.append(z)
     zones = good
+    check_losses(inst_id, items, {z.source for z in zones}, lost)
 
     # dynamic layers ordered by loudness (peak level, robust to decay length)
     layer_names = sorted({z.layer for z in zones})
@@ -313,10 +429,12 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
     # normalisation: loudest layer median RMS → target
     target = spec.get('target_rms_db', -20.0)
     gain = target - top
-    if spec.get('fixed_gain_from'):
-        # keep the natural balance between the stops of one organ: share one gain
-        ref_path = os.path.join(OUT_DIR, spec['fixed_gain_from'] + '.ssm')
-        if os.path.exists(ref_path) and spec['fixed_gain_from'] != inst_id:
+    gain_from = None
+    if spec.get('fixed_gain_from') and spec['fixed_gain_from'] != inst_id:
+        ref = spec['fixed_gain_from']
+        ref_path = gain_reference(inst_id, ref, out_dir)
+        gain_from = {'model': ref, 'found': ref_path is not None}
+        if ref_path is not None:
             with gzip.open(ref_path, 'rb') as fh:
                 raw = fh.read()
             n = struct.unpack('<I', raw[4:8])[0]
@@ -342,23 +460,65 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
     }
     if spec.get('stop'):
         header['stop'] = spec['stop']
-    os.makedirs(OUT_DIR, exist_ok=True)
-    path = os.path.join(OUT_DIR, f'{inst_id}.ssm')
+    # how this model was built: experiment flags in effect (empty for a release build), and the
+    # recordings that did not become zones
+    header['build'] = {'flags': flags, 'lost': lost}
+    if gain_from is not None:
+        header['build']['gainFrom'] = gain_from
+    path = model_path(inst_id, out_dir)
+    pkg = model_package(inst_id)
+    if not out_dir and pkg and not os.path.exists(os.path.join(PACKAGES_DIR, pkg, 'package.json')):
+        print(f'  !! {path}: packages/{pkg} is not a workspace package yet (no package.json)', flush=True)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    size = write_model(path, header, zones)
-    # per-layer recorded levels + family velocity range (used by the playback velocity curve)
-    from layer_levels import process as add_levels
-    add_levels(path)
+    # written next to the target and moved into place when complete: an interrupted build never
+    # leaves a truncated model where the old one was
+    tmp = path + '.partial'
+    try:
+        write_model(tmp, header, zones)
+        # per-layer recorded levels + family velocity range (used by the playback velocity curve)
+        from layer_levels import process as add_levels
+        add_levels(tmp)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
     size = os.path.getsize(path)
     print(f'  wrote {path} ({size/1024:.0f} KB, {len(zones)} zones, layers={[(l["name"], l["velocity"]) for l in layers]}, '
           f'notes {min(z.f0 for z in zones):.1f}-{max(z.f0 for z in zones):.1f} Hz, grid {grid_len})', flush=True)
     return path
 
 
-if __name__ == '__main__':
+def main():
+    import argparse
+    global OUT_DIR, FORCE, MAX_FAILED, ALLOW_GAPS
     from instruments import INSTRUMENTS
-    ids = sys.argv[1:]
-    if ids == ['--all']:
-        ids = list(INSTRUMENTS)
+    ap = argparse.ArgumentParser(description='Build .ssm models from recordings.')
+    ap.add_argument('ids', nargs='*', help='instrument ids (instruments.py)')
+    ap.add_argument('--all', action='store_true', help='every instrument')
+    ap.add_argument('--out', default=None, help='output directory (flat <DIR>/<name>.ssm); default: committed locations')
+    ap.add_argument('--force', action='store_true', help='let experiment flags overwrite committed models')
+    ap.add_argument('--max-failed', type=float, default=None,
+                    help=f'fraction of recordings that may be lost (default {MAX_FAILED:g}, SSM_MAX_FAILED)')
+    ap.add_argument('--allow-gaps', action='store_true',
+                    help='accept lost keys in the middle of the key range (SSM_ALLOW_GAPS=1)')
+    a = ap.parse_args()
+    if a.out:
+        OUT_DIR = a.out
+    if a.force:
+        FORCE = True
+    if a.max_failed is not None:
+        MAX_FAILED = a.max_failed
+    if a.allow_gaps:
+        ALLOW_GAPS = True
+    ids = list(INSTRUMENTS) if a.all else a.ids
+    if not ids:
+        ap.error('no instrument ids given')
+    unknown = [i for i in ids if i not in INSTRUMENTS]
+    if unknown:
+        ap.error(f'unknown instrument ids: {", ".join(unknown)}')
     for i in ids:
         build(i, INSTRUMENTS[i])
+
+
+if __name__ == '__main__':
+    main()

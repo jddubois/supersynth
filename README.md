@@ -43,7 +43,7 @@ blind listening tests (see `tools/ssm/blind.py`) are used to hunt down any remai
 | Family | Instruments (ids) |
 |---|---|
 | Keyboards | `grand-piano`, `upright-piano`, `harpsichord` |
-| Organs | `burea` — the full Bureå church organ (40 stops, 4 divisions); `vcsl` — the VCSL church organ with a Renaissance chamber organ; 15 organs from Piotr Grabowski's free sample sets (`friesach`, `cracow`, `szczecinek`, … — [docs/piotr-organs.md](docs/piotr-organs.md)); `pipe-organ`, `chamber-organ` (single sounds) |
+| Organs | `burea` — the full Bureå church organ (40 stops, 4 divisions); `vcsl` — the VCSL church organ with a Renaissance chamber organ; 15 organs from Piotr Grabowski's free sample sets (`friesach`, `cracow`, `szczecinek`, … — [docs/piotr-organs.md](docs/piotr-organs.md)); `pipe-organ`, `chamber-organ` (single sounds). The organs other than `vcsl` install separately ([Install](#install)) |
 | Strings | `violin`, `violins`, `violas`, `cellos`, `contrabass`, `strings` (full section), `harp`, `violin-pizzicato`, `cello-pizzicato`, `contrabass-pizzicato` |
 | Woodwinds | `flute`, `oboe`, `clarinet`, `bassoon`, `tenor-sax` |
 | Brass | `trumpet`, `french-horn`, `trombone`, `tuba`, `brass` (section) |
@@ -79,7 +79,25 @@ Reference: [docs/synth.md](docs/synth.md) (Synth, Instrument, the rules above),
 npm install supersynth
 ```
 
-Building from source needs Rust ([rustup.rs](https://rustup.rs)): `npm run build`.
+This brings the engine prebuilt for your platform — Linux x64 and arm64 (glibc 2.35+, e.g. a
+Raspberry Pi 5 on Raspberry Pi OS Bookworm), Linux x64 musl (Alpine), macOS (Intel and Apple
+silicon), Windows x64; Node 18 or later — and every instrument except the organs (36 MB). On
+Linux the engine uses ALSA's `libasound.so.2` (package `libasound2` or `alsa-lib`).
+
+Each organ's models are a package of their own, so you download only the organs you play:
+
+```bash
+npm install @supersynth/organ-burea      # the Bureå organ (71 MB)
+npm install @supersynth/organ-friesach   # one of Piotr Grabowski's organs: @supersynth/organ-<id>
+npm install @supersynth/organs           # all 16 organs (about 550 MB)
+```
+
+`synth.add('friesach')` without its package throws an error naming the package to install. The
+VCSL organ (`vcsl`) and the single organ sounds ship with supersynth.
+
+Building from source needs Rust ([rustup.rs](https://rustup.rs)): `npm ci && npm run build` in a
+clone. The git history holds every version of the models, so a full clone is about 1 GB
+(`git clone --depth 1` fetches only the current ones).
 
 ## Usage
 
@@ -87,6 +105,7 @@ Building from source needs Rust ([rustup.rs](https://rustup.rs)): `npm run build
 
 ```ts
 const synth = new Synth({ reverb: 'concert-hall' });
+const piano = synth.add('grand-piano');
 const violin = synth.add('violin', { preset: 'expressive' });
 const cellos = synth.add('cellos');
 
@@ -130,7 +149,7 @@ piano.presets();                            // the instrument's presets and your
 ### The church organ
 
 ```ts
-const organ = synth.add('burea', { preset: 'plenum' });
+const organ = synth.add('burea', { preset: 'plenum' });   // npm install @supersynth/organ-burea
 organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
 organ.pedal.play('C2', { duration: 4 });
 
@@ -223,7 +242,7 @@ whole core there.
 ## Architecture
 
 ```
-TypeScript API (src/)          Synth · Instrument · Organ · catalog · MIDI files · WAV
+TypeScript API (src/)          Synth · Instrument · Organ · catalog · MIDI files · WAV · model lookup
         │ napi-rs
 native/src/                    bindings, CPAL audio output, MIDI input
 native/core/                   supersynth-core (pure Rust)
@@ -232,8 +251,16 @@ native/core/                   supersynth-core (pure Rust)
   ├── engine/                  lock-free command queue, sample-accurate scheduling, parts, mixing
   └── fx/                      FDN reverb, EQ, chorus, drive, rotary speaker, limiter
 tools/ssm/                     Python analysis: recordings → models; evaluation; blind tests
-models/                        the analysed instruments
+models/                        the analysed instruments shipped with supersynth (CC0)
+packages/organ-<id>/           one npm package per organ: models/organ/<id>/*.ssm
+                               (Bureå: packages/organ-burea/models/organ/*.ssm)
+packages/organs/               @supersynth/organs: depends on every organ package
+npm/<platform>/                the engine prebuilt per platform (@supersynth/<platform>)
+scripts/                       build-native.mjs, release helpers, doc generators
 ```
+
+The repository is an npm workspace: `npm ci` links the organ packages into `node_modules`, where
+supersynth finds them as it does when they are installed from npm.
 
 Rebuild the models from the source recordings with `npm run models` (Python 3.12 with numpy,
 scipy, numba, soundfile; see `tools/ssm/`).
@@ -247,5 +274,7 @@ npm run test:rust    # engine and DSP
 
 ## License
 
-Code: MIT. Instrument models are derived from recordings under their own licenses — CC0 and
-CC BY-SA 2.5 SE (the Bureå organ, attribution: Lars Palo). See [NOTICE.md](NOTICE.md).
+Code: MIT. The instrument models in `supersynth` are derived from CC0 recordings. The organ
+packages carry their own licenses: `@supersynth/organ-burea` CC BY-SA 2.5 SE (attribution: Lars
+Palo); Piotr Grabowski's organs (`@supersynth/organ-<id>`) may be used freely but not sold or built
+into products for sale. See [NOTICE.md](NOTICE.md).

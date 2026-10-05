@@ -1,0 +1,16 @@
+{
+  "name": "@supersynth/darwin-x64",
+  "version": "0.2.0",
+  "description": "supersynth's native engine for macOS x64 (Intel)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jddubois/supersynth.git",
+    "directory": "npm/darwin-x64"
+  },
+  "homepage": "https://github.com/jddubois/supersynth#readme",
+  "main": "supersynth.darwin-x64.node",
+  "files": [
+    "supersynth.darwin-x64.node"
+  ]
+}

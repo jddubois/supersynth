@@ -1,0 +1,144 @@
+name: Release
+
+# Push a tag vX.Y.Z (after `npm version X.Y.Z`, which also moves the platform packages to X.Y.Z):
+# builds the engine for every platform, then publishes to npm, in order, the platform packages,
+# the organ model packages and @supersynth/organs (only versions not on npm yet), and supersynth.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Engine ${{ matrix.triple }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # glibc builds on the oldest supported Ubuntu (glibc 2.35), so the engine also loads on
+          # Debian 12 / Raspberry Pi OS Bookworm (glibc 2.36)
+          - triple: linux-x64-gnu
+            os: ubuntu-22.04
+          - triple: linux-arm64-gnu
+            os: ubuntu-22.04-arm
+          - triple: linux-x64-musl
+            os: ubuntu-latest
+            container: rust:1-alpine
+          # both macOS engines on Apple silicon; the x64 one cross-compiled
+          - triple: darwin-x64
+            os: macos-latest
+            rust-target: x86_64-apple-darwin
+          - triple: darwin-arm64
+            os: macos-latest
+          - triple: win32-x64-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    steps:
+      - name: Alpine packages
+        if: matrix.container
+        run: apk add --no-cache bash git nodejs musl-dev pkgconf alsa-lib-dev jack-dev
+
+      # the engine needs native/, scripts/ and npm/ only, not the models
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            native
+            scripts
+            npm
+
+      - name: Audio libraries (ALSA, JACK)
+        if: runner.os == 'Linux' && !matrix.container
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libasound2-dev libjack-jackd2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: '!matrix.container'
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - uses: actions/setup-node@v4
+        if: '!matrix.container'
+        with:
+          node-version: 22
+
+      - name: Build
+        shell: bash
+        env:
+          # a musl cdylib must link libc dynamically
+          RUSTFLAGS: ${{ matrix.container && '-C target-feature=-crt-static' || '' }}
+        run: node scripts/build-native.mjs --target ${{ matrix.triple }} ${{ matrix.rust-target && format('--rust-target {0}', matrix.rust-target) || '' }}
+
+      - name: Load check
+        if: '!matrix.rust-target'
+        shell: bash
+        run: node -e "const n = require('./npm/${{ matrix.triple }}/supersynth.${{ matrix.triple }}.node'); console.log('reverb presets:', n.reverbPresets().join(', '))"
+
+      - name: Required glibc
+        if: endsWith(matrix.triple, '-gnu')
+        run: objdump -T npm/${{ matrix.triple }}/supersynth.${{ matrix.triple }}.node | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-${{ matrix.triple }}
+          path: npm/${{ matrix.triple }}/supersynth.${{ matrix.triple }}.node
+          if-no-files-found: error
+
+  publish:
+    name: Publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Tag matches the version
+        run: node -e "const v = 'v' + require('./package.json').version; if (v !== process.env.GITHUB_REF_NAME) { console.error('tag', process.env.GITHUB_REF_NAME, 'but package.json is', v); process.exit(1); }"
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: engine-*
+          path: engines
+
+      - name: Engines into npm/<triple>/
+        run: |
+          for dir in engines/engine-*; do
+            triple="${dir#engines/engine-}"
+            mv "$dir/supersynth.$triple.node" "npm/$triple/"
+          done
+          ls -l npm/*/*.node
+
+      - name: Platform fields (os, cpu, libc) and checks
+        run: node scripts/prepare-platform-packages.mjs
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          publish() {
+            name=$(node -p "require('./$1/package.json').name")
+            version=$(node -p "require('./$1/package.json').version")
+            if [ -n "$(npm view "$name@$version" version 2>/dev/null)" ]; then
+              echo "::notice::$name@$version is already on npm"
+            else
+              npm publish "./$1" --provenance --access public
+            fi
+          }
+          for dir in npm/*/; do publish "${dir%/}"; done
+          # model packages (large): only versions not published yet
+          for dir in packages/organ-*/; do publish "${dir%/}"; done
+          publish packages/organs
+          publish .

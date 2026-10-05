@@ -21,7 +21,7 @@ use crate::fx::chorus::{Chorus, ChorusParams};
 use crate::fx::drive::Drive;
 use crate::fx::eq::{Eq as Equalizer, EqParams};
 use crate::fx::leslie::{Leslie, LeslieSpeed};
-use crate::fx::limiter::{soft_clip, Limiter};
+use crate::fx::limiter::{safety_clip, Limiter};
 use crate::fx::reverb::{Reverb, ReverbParams};
 use crate::fx::StereoEffect;
 use crate::model::Model;
@@ -1464,9 +1464,11 @@ impl Engine {
         }
         self.limiter.process(out_l, out_r);
         let mut pk = self.peak;
+        // Last-resort safety only: identity up to the limiter's ceiling.
+        let knee = self.limiter.output_ceiling();
         for i in 0..n {
-            out_l[i] = soft_clip(out_l[i]);
-            out_r[i] = soft_clip(out_r[i]);
+            out_l[i] = safety_clip(out_l[i], knee);
+            out_r[i] = safety_clip(out_r[i], knee);
             pk = pk.max(out_l[i].abs()).max(out_r[i].abs());
         }
         self.peak = pk;

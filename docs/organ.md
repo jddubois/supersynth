@@ -5,6 +5,16 @@
 Pipes keep their own tuning and voicing, stops keep their natural balance, and the pipes carry
 the church acoustic they were recorded in.
 
+Each organ's models are an npm package of their own (only the VCSL organ ships with supersynth):
+
+```bash
+npm install @supersynth/organ-burea        # the Bureå organ (71 MB)
+npm install @supersynth/organ-friesach     # one of Piotr Grabowski's organs
+npm install @supersynth/organs             # every organ (about 550 MB)
+```
+
+Adding an organ whose package is missing throws a `SupersynthError` naming the package to install.
+
 ```ts
 const organ = synth.add('burea', { preset: 'plenum' });
 
@@ -28,7 +38,7 @@ Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
 
 | Division | |
 |---|---|
-| `play`, `sequence`, `noteOn`, `noteOff`, `allNotesOff` | playing (organs are not velocity sensitive) |
+| `play`, `sequence`, `noteOn`, `noteOff`, `allNotesOff` | playing (organs are not velocity sensitive; a velocity is clamped to 1–127, so 0 is not a key release) |
 | `expression(0–1)` | swell pedal (shutters on the swell, volume elsewhere) |
 | `pull(stop \| stops)`, `push(stop \| stops)` | draw, retire |
 | `couple(division \| divisions)`, `uncouple(division \| divisions)` | couplers to this keyboard |
@@ -86,8 +96,10 @@ organ.midi({ great: 1, swell: 2, pedal: 3 }, { presets: ['flutes', 'principal-ch
 Each division plays its MIDI channel straight in the engine (no JavaScript in the note path),
 couplers included; CC 11 on a division's channel is its swell pedal. Program change *n* on any of
 the organ's channels selects the *n*-th preset of `presets` (default: all presets, in the order
-of `organ.presets()`; `false` ignores program changes). Calling `midi()` again replaces the
-organ's channels. MIDI files play an organ with
+of `organ.presets()`; `false` ignores program changes). The preset names are checked when
+`midi()` is called; a preset that cannot be applied when its program change arrives is emitted
+as the synth's `'error'` event if it has listeners, and ignored otherwise (it never throws out of
+the MIDI callback). Calling `midi()` again replaces the organ's channels. MIDI files play an organ with
 `synth.renderMidi(file, { channels: { 1: organ.great, 2: organ.pedal } })`.
 
 ## A second organ: the VCSL church organ
@@ -129,7 +141,8 @@ Cantius (Siedlar 2004), Szczecinek (Voelkner 1908), Lipiny, Skrzatusz (Sauer 187
 Melcer Chamber Music Hall (Walcker 1993), Saint-Jean-de-Luz (Gonzalez 1931), Lędziny, the Green
 Positiv and a two-manual Harmonium (Emil Müller). They keep their own pitch (Azzio sounds at
 a ≈ 420 Hz, the Green Positiv a semitone low), their borrowed and extended ranks, and the
-balance between their stops. Stops, presets and ids of every organ:
+balance between their stops. Each one's models are the package `@supersynth/organ-<id>`
+(`npm install @supersynth/organ-friesach`). Stops, presets, ids and package sizes of every organ:
 [piotr-organs.md](piotr-organs.md). These models are not covered by the MIT license — see
 NOTICE.md.
 
@@ -173,7 +186,9 @@ const box: OrganDefinition = {
 ```
 
 A stop plays the model `organ/<id>` (or its `model`), transposed by `transpose` semitones from
-the key. Optional fields default to `CHURCH_DIVISIONS` (great centre, swell right in its swell
+the key. A model `<name>` is the file `<name>.ssm`, looked up in the Synth's `modelsDirectory`
+(and `$SUPERSYNTH_MODELS_DIR`) first, then in supersynth's `models/`, then in the organ's package
+(`organ/friesach/…` in `@supersynth/organ-friesach`, `organ/…` in `@supersynth/organ-burea`). Optional fields default to `CHURCH_DIVISIONS` (great centre, swell right in its swell
 box, positive left, pedal centre), `SWELL_TREMULANT` and `ORGAN_DEFAULTS`. The rest of this page
 describes the Bureå organ.
 

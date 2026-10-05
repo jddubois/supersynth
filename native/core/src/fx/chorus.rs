@@ -8,7 +8,7 @@
 //! which gives the lush, non-static "ensemble" motion rather than a single
 //! obvious sweep.
 
-use super::StereoEffect;
+use super::{ParamRamp, StereoEffect, PARAM_RAMP_S};
 use std::f32::consts::TAU;
 
 // ---------------------------------------------------------------------------
@@ -160,9 +160,9 @@ pub struct Chorus {
     delay_s: f32,
     depth_s: f32,
     smooth_a: f32,
-    mix: f32,
-    fb: f32,
-    width: f32,
+    mix: ParamRamp,
+    fb: ParamRamp,
+    width: ParamRamp,
     sub_left: usize,
 }
 
@@ -189,9 +189,9 @@ impl Chorus {
             delay_s: p.delay_ms * 1e-3 * sr,
             depth_s: p.depth_ms * 1e-3 * sr,
             smooth_a: 1.0 - crate::dsp::one_pole_coeff(SMOOTH_S, sr / SUB as f32),
-            mix: p.mix,
-            fb: p.feedback,
-            width: p.width,
+            mix: ParamRamp::with_time(p.mix, PARAM_RAMP_S, sr),
+            fb: ParamRamp::with_time(p.feedback, PARAM_RAMP_S, sr),
+            width: ParamRamp::with_time(p.width, PARAM_RAMP_S, sr),
             sub_left: 0,
         };
         c.init_positions();
@@ -210,7 +210,11 @@ impl Chorus {
     }
 
     pub fn set_params(&mut self, p: ChorusParams) {
-        self.params = p.sanitized();
+        let p = p.sanitized();
+        self.params = p;
+        self.mix.set(p.mix);
+        self.fb.set(p.feedback);
+        self.width.set(p.width);
     }
 
     pub fn params(&self) -> ChorusParams {
@@ -255,13 +259,6 @@ impl StereoEffect for Chorus {
         if n == 0 {
             return;
         }
-        let p = self.params;
-        let inv = 1.0 / n as f32;
-        let d_mix = (p.mix - self.mix) * inv;
-        let d_fb = (p.feedback - self.fb) * inv;
-        let d_w = (p.width - self.width) * inv;
-        let (mut mix, mut fb, mut width) = (self.mix, self.fb, self.width);
-
         let mut i = 0;
         while i < n {
             if self.sub_left == 0 {
@@ -270,9 +267,7 @@ impl StereoEffect for Chorus {
             }
             let k = self.sub_left.min(n - i);
             for j in i..i + k {
-                mix += d_mix;
-                fb += d_fb;
-                width += d_w;
+                let (mix, fb, width) = (self.mix.next(), self.fb.next(), self.width.next());
                 let mut wet = [0.0f32; 2];
                 let mut avg = [0.0f32; 2];
                 for s in 0..2 {
@@ -299,9 +294,6 @@ impl StereoEffect for Chorus {
             self.sub_left -= k;
             i += k;
         }
-        self.mix = p.mix;
-        self.fb = p.feedback;
-        self.width = p.width;
     }
 
     fn reset(&mut self) {
@@ -357,9 +349,9 @@ mod tests {
         let sr = 48000.0;
         let mut c = Chorus::new(sr);
         c.set_params(ChorusParams { mix: 0.0, ..Default::default() });
-        // ramp from default mix (0.5) happens in the first block; skip it
-        let mut a = vec![0.0; 256];
-        let mut b = vec![0.0; 256];
+        // ramp from default mix (0.5) takes 20 ms; skip it
+        let mut a = vec![0.0; 2048];
+        let mut b = vec![0.0; 2048];
         c.process(&mut a, &mut b);
         let x: Vec<f32> = (0..256).map(|i| (i as f32 * 0.05).sin()).collect();
         let (mut l, mut r) = (x.clone(), x.clone());
@@ -377,6 +369,32 @@ mod tests {
         assert!(l.iter().chain(r.iter()).all(|v| v.is_finite() && v.abs() < 10.0));
         let diff: f32 = l.iter().zip(&r).map(|(a, b)| (a - b).abs()).sum::<f32>() / l.len() as f32;
         assert!(diff > 0.01, "no stereo difference: {diff}");
+    }
+
+    /// Mix / feedback changes right before a 1-frame block (the engine
+    /// splits blocks at events) must still be ramped, not applied as a step.
+    #[test]
+    fn param_change_in_one_frame_block_is_smooth() {
+        let sr = 48000.0;
+        let mut c = Chorus::new(sr);
+        c.set_params(ChorusParams { mix: 0.0, ..Default::default() });
+        run(&mut c, 200.0, 0.2, sr);
+        let x: Vec<f32> = (0..9600).map(|i| (2.0 * PI * 200.0 * i as f32 / sr).sin() * 0.5).collect();
+        let (mut l, mut r) = (x.clone(), x.clone());
+        c.process(&mut l[..1000], &mut r[..1000]);
+        c.set_params(ChorusParams { mix: 1.0, feedback: 0.7, ..Default::default() });
+        c.process(&mut l[1000..1001], &mut r[1000..1001]);
+        for (a, b) in l[1001..].chunks_mut(64).zip(r[1001..].chunks_mut(64)) {
+            c.process(a, b);
+        }
+        let reference = max_step(&l[5000..]).max(max_step(&x));
+        let step = max_step(&l[990..1100]);
+        println!("chorus mix 0 -> 1 in a 1-frame block: max step {step:.4} (steady {reference:.4})");
+        assert!(step < 1.5 * reference, "step {step} vs {reference}");
+    }
+
+    fn max_step(v: &[f32]) -> f32 {
+        v.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max)
     }
 
     #[test]

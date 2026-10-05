@@ -6,7 +6,10 @@ export type NoteLike = number | string;
 
 const LETTERS: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-const NOTE_RE = /^\s*([A-Ga-g])(#{1,2}|b{1,2}|♯|♭)?\s*(-?\d+)\s*$/;
+const ACCIDENTAL = '#{1,2}|b{1,2}|♯{1,2}|♭{1,2}';
+const NOTE_RE = new RegExp(`^\\s*([A-Ga-g])(${ACCIDENTAL})?\\s*(-?\\d+)\\s*$`);
+/** A chord symbol: a note name, then the quality. */
+const CHORD_RE = new RegExp(`^\\s*([A-Ga-g](?:${ACCIDENTAL})?\\s*-?\\d+)(.*)$`);
 
 /** Convert a note name or number to a MIDI note number (0–127). */
 export function noteNumber(note: NoteLike): number {
@@ -26,8 +29,11 @@ export function noteNumber(note: NoteLike): number {
   return midi;
 }
 
-/** MIDI note number → name, e.g. 61 → 'C#4'. */
+/** MIDI note number (an integer 0–127) → name, e.g. 61 → 'C#4'. */
 export function noteName(midi: number): string {
+  if (!Number.isInteger(midi) || midi < 0 || midi > 127) {
+    throw new RangeError(`MIDI note must be an integer 0-127, got ${midi}`);
+  }
   return `${NAMES[((midi % 12) + 12) % 12]}${Math.floor(midi / 12) - 1}`;
 }
 
@@ -51,7 +57,7 @@ export function chord(root: NoteLike, quality?: string): number[] {
   let r: number;
   let q = quality;
   if (typeof root === 'string' && q === undefined) {
-    const m = /^\s*([A-Ga-g](?:#|b)?-?\d+)(.*)$/.exec(root);
+    const m = CHORD_RE.exec(root);
     if (!m) throw new RangeError(`Invalid chord '${root}'`);
     r = noteNumber(m[1]!);
     q = m[2]!.trim();

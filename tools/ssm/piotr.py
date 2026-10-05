@@ -10,7 +10,7 @@ The sample sets are GrandOrgue organ definitions (samples in data/samples/piotr/
 is rendered key by key with `grandorgue.render_key` — attack, sustain, the release crossfaded in
 at key-up, the definition's retuning and level for every pipe, borrowed and extended ranks as the
 definition assigns them — into data/samples/piotr-prep/<organ>/<stop>/ and analysed into
-models/organ/<organ>/<stop>.ssm. All stops of an organ share one gain (their natural balance).
+packages/organ-<organ>/models/organ/<organ>/<stop>.ssm (paths.model_path). All stops of an organ share one gain (their natural balance).
 
 Keys of a manual where a stop has no pipe (a treble-only Cornet, a short-compass celeste) get a
 silent zone, so the stop is silent there as on the organ.
@@ -23,6 +23,7 @@ import math
 import os
 import re
 import shutil
+import stat
 import sys
 import unicodedata
 
@@ -30,7 +31,7 @@ import numpy as np
 
 from analysis import midi_to_hz
 from grandorgue import ODF, HauptwerkODF, Stop, read_hauptwerk_stops, read_stops, render_key, write_wav_cue
-from paths import DATA_ROOT
+from paths import DATA_ROOT, model_path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CATALOG_DIR = os.path.join(HERE, 'piotr_organs')
@@ -459,7 +460,7 @@ def build_organ(organ: str, only: list[str] | None = None, keep: bool = False):
     for st in order:
         if only and st['id'] not in only:
             continue
-        out = os.path.join(build.OUT_DIR, model_id(organ, st['id']) + '.ssm')
+        out = model_path(model_id(organ, st['id']), build.OUT_DIR)
         if not only and os.path.exists(out):
             continue
         t = time.time()
@@ -516,7 +517,7 @@ def patch_pitch_morph(organ: str) -> int:
     """Set pitchMorph off in the models of an organ built before it was part of spec_for."""
     import glob
     from patch_header import patch
-    files = glob.glob(os.path.join(HERE, '..', '..', 'models', 'organ', organ, '*.ssm'))
+    files = glob.glob(os.path.join(os.path.dirname(model_path(model_id(organ, 'x'))), '*.ssm'))
     for f in files:
         patch(f, {'pitchMorph': False})
     return len(files)
@@ -536,14 +537,29 @@ def prune(organ: str) -> int:
                     keep.add(os.path.realpath(p.attack))
                     if p.release:
                         keep.add(os.path.realpath(p.release))
+    if not keep:
+        raise SystemExit(f'{organ}: no stop plays any recording (definition not read?): refusing to prune')
+    return prune_tree(os.path.join(SAMPLES, organ), keep)
+
+
+def prune_tree(tree: str, keep: set[str]) -> int:
+    """Delete the .wav/.wv files under `tree` whose real path is not in `keep`; returns bytes
+    freed. Never touches anything outside `tree`: a symbolic link is judged by its target but
+    only the link itself is removed (its target may live elsewhere, or be shared), and links to
+    directories are not followed."""
+    top = os.path.realpath(tree)
     freed = 0
-    for root, _, files in os.walk(os.path.join(SAMPLES, organ)):
+    for root, _, files in os.walk(top):           # (followlinks=False)
         for f in files:
-            if f.lower().endswith(('.wav', '.wv')):
-                path = os.path.realpath(os.path.join(root, f))
-                if path not in keep:
-                    freed += os.path.getsize(path)
-                    os.remove(path)
+            if not f.lower().endswith(('.wav', '.wv')):
+                continue
+            path = os.path.join(root, f)
+            if os.path.realpath(path) in keep:
+                continue
+            st = os.lstat(path)                       # the entry itself, not a link's target
+            os.unlink(path)                           # a link: removes the link only
+            if stat.S_ISREG(st.st_mode):
+                freed += st.st_size
     return freed
 
 

@@ -39,21 +39,21 @@ Six rules hold everywhere:
 |---|---|---|
 | `sampleRate` | device rate (48000 without a device) | Hz |
 | `backend` | `'auto'` | `'coreaudio' \| 'wasapi' \| 'alsa' \| 'jack' \| 'pulseaudio' \| 'pipewire'` |
-| `reverb` | `'auto'` | preset name, `ReverbOptions`, `false`, or `'auto'` (the room suggested by the first instrument or organ added) |
+| `reverb` | `'auto'` | preset name, `ReverbOptions`, `false`, or `'auto'` (the room suggested by the first instrument or organ added; it follows that instrument's presets until the reverb is set by hand) |
 | `volume` | `0.5` | master volume 0–1 |
 | `quality` | `'high'` | partials per note: `'high'` 512, `'balanced'` 128, `'eco'` 32 (small boards such as a Raspberry Pi) |
 | `maxVoices` | `192` | quietest/oldest voices are stolen beyond this |
 | `bufferSize` | device default | frames per audio callback |
-| `modelsDirectory` | package `models/` | where `.ssm` models are loaded from |
+| `modelsDirectory` | none | a directory searched first for `.ssm` models, laid out like `models/` (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`); then supersynth's own models and the installed organ packages |
 
 | Method | |
 |---|---|
 | `add(id \| definition, options)` | add an instrument → `Instrument` (options `{ preset, parameters }`), or an organ → `Organ` (options `{ preset, presets, tremulant, wind }`) |
-| `instruments()`, `remove(instrument \| organ)` | the instruments and organs added; remove one |
+| `instruments()`, `remove(instrument \| organ)` | the instruments and organs added; remove one (its notes stop, its channels are freed and cleared, the models nothing else uses are unloaded; using it afterwards throws) |
 | `set({ volume, reverb }, { at })` | master volume and room, see [parameters.md](parameters.md#reverb) |
-| `start()` / `stop()` / `close()` | real-time output |
+| `start()` / `stop()` / `close()` | real-time output; `close()` also releases every instrument, organ and model, and the synth cannot be used afterwards |
 | `render(seconds)` | offline → `{ sampleRate, left, right, duration }` |
-| `renderToFile(path, seconds, { bitDepth, mono })` | offline → WAV |
+| `renderToFile(path, seconds, { bitDepth, mono, dither })` | offline → WAV: 16-bit (TPDF-dithered; digital silence stays 0) or 24-bit PCM, or 32-bit float |
 | `renderMidi(file, options)` / `playMidi(file, options)` | Standard MIDI Files, see [midi.md](midi.md) |
 | `allNotesOff({ at })`, `panic()` | release every note; silence everything at once |
 | `enableMidi(device?, { route })`, `disableMidi()` | hardware MIDI input, see [midi.md](midi.md) |
@@ -64,7 +64,17 @@ Six rules hold everywhere:
 | `currentTime` | engine clock, seconds — schedule with `{ at: synth.currentTime + x }` |
 | `sampleRate`, `activeVoices`, `cpuLoad`, `isRunning` | |
 
-Events: `'midi'` (`MidiEvent`) for every message once hardware MIDI is enabled.
+Events: `'midi'` (`MidiEvent`) for every message once hardware MIDI is enabled; `'error'` for an
+organ preset that fails on a MIDI program change (see [organ.md](organ.md#midi-keyboards)).
+
+### The event queue
+
+Everything scheduled — notes, controllers, parameter, preset and stop changes — waits in the
+engine's queue until it is rendered (offline) or played (real time). The queue holds 32,768
+events; a note is two (key down and key up). A call that does not fit throws `SupersynthError`
+before it sends anything, so a chord never leaves a key held. Offline, render (or, in real
+time, let the output play) what is scheduled before scheduling more; `renderMidi` and
+`playMidi` do this on their own.
 
 ## `Instrument`
 

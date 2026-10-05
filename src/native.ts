@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,23 +73,79 @@ export function packageRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 }
 
-/** @internal Load the compiled addon (platform-specific binary first). */
+/** @internal Platforms with a prebuilt engine, each in the npm package `@supersynth/<platform>`. */
+export const NATIVE_PLATFORMS = ['linux-x64-gnu', 'linux-x64-musl', 'linux-arm64-gnu', 'darwin-x64', 'darwin-arm64', 'win32-x64-msvc'] as const;
+
+/** @internal Whether this Linux uses musl (Alpine) rather than glibc. */
+export function isMusl(): boolean {
+  if (process.platform !== 'linux') return false;
+  try {
+    // glibc's ldd is a script naming GNU libc; musl's is a link to the musl loader
+    const ldd = readFileSync('/usr/bin/ldd', 'latin1');
+    if (ldd.includes('musl')) return true;
+    if (ldd.includes('GLIBC') || ldd.includes('GNU C Library')) return false;
+  } catch {
+    // no ldd: ask Node
+  }
+  try {
+    const report = process.report?.getReport() as { header?: { glibcVersionRuntime?: string } } | undefined;
+    return !report?.header?.glibcVersionRuntime;
+  } catch {
+    return false;
+  }
+}
+
+/** @internal This machine as a platform package suffix: `linux-x64-gnu`, `darwin-arm64`, `win32-x64-msvc`, … */
+export function nativePlatform(): string {
+  const base = `${process.platform}-${process.arch}`;
+  if (process.platform === 'linux') return `${base}-${isMusl() ? 'musl' : 'gnu'}`;
+  if (process.platform === 'win32') return `${base}-msvc`;
+  return base;
+}
+
+/**
+ * @internal Load the compiled engine: `supersynth.node` built in a source checkout
+ * (`npm run build:native`; never published), else the platform package
+ * (`@supersynth/<platform>`, an optional dependency), else `supersynth.<platform>.node` next to
+ * the package.
+ */
 export function loadNative(): NativeModule {
   if (native) return native;
   const require = createRequire(import.meta.url);
   const root = packageRoot();
-  const candidates = [`supersynth.${process.platform}-${process.arch}.node`, 'supersynth.node'];
+  const platform = nativePlatform();
+  const pkg = `@supersynth/${platform}`;
+  const candidates = [path.join(root, 'supersynth.node'), pkg, path.join(root, `supersynth.${platform}.node`)];
   const errors: string[] = [];
-  for (const name of candidates) {
+  for (const id of candidates) {
+    const file = path.isAbsolute(id);
+    if (file && !existsSync(id)) continue;
     try {
-      native = require(path.join(root, name)) as NativeModule;
+      native = require(id) as NativeModule;
       return native;
     } catch (e) {
-      errors.push(`${name}: ${(e as Error).message.split('\n')[0]}`);
+      const err = e as NodeJS.ErrnoException;
+      // the platform package not being installed is reported below; a binary that is there
+      // but does not load (wrong libc, missing libasound, …) is reported as is
+      if (!file && err.code === 'MODULE_NOT_FOUND' && err.message.includes(`'${pkg}'`)) continue;
+      errors.push(`${file ? path.basename(id) : id}: ${err.message.split('\n')[0]}`);
     }
   }
+  const prebuilt = (NATIVE_PLATFORMS as readonly string[]).includes(platform);
   throw new SupersynthError(
-    `No supersynth native binary for ${process.platform}-${process.arch}. ` +
-      `Build it with \`npm run build:native\` (requires Rust).\n  ${errors.join('\n  ')}`,
+    [
+      `supersynth's native engine could not be loaded for ${platform} (Node ${process.version}).`,
+      ...errors.map((e) => `  ${e}`),
+      ...(existsSync(path.join(root, 'native', 'Cargo.toml'))
+        ? ['In this source checkout, build it with `npm run build:native` (needs Rust, https://rustup.rs).']
+        : [
+            prebuilt
+              ? `It comes in the package ${pkg}, an optional dependency of supersynth: reinstall without --omit=optional ` +
+                `(if package-lock.json was made on another platform, delete it and node_modules first).`
+              : `There is no prebuilt engine for ${platform}; prebuilt: ${NATIVE_PLATFORMS.join(', ')}.`,
+            `To build it from source (needs Rust, https://rustup.rs): clone https://github.com/jddubois/supersynth, run ` +
+              `\`npm ci && npm run build\` in it, then install that folder (npm install /path/to/supersynth).`,
+          ]),
+    ].join('\n'),
   );
 }
