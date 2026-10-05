@@ -241,6 +241,12 @@ Voices render on one core, at roughly 0.8 % of such a core per sounding pipe. Sm
 registrations fit comfortably on a Raspberry Pi 5; a full organ with every coupler needs about one
 whole core there.
 
+Models load off the JavaScript thread. Adding an organ waits only for its starting preset's
+stops (loaded in parallel); the others load in the background, so drawing a stop never stalls
+playing ([organ.md](docs/organ.md#loading)). On a 4-core cloud VM, `npm run load-test`: Friesach with
+every stop drawn is ready in 0.56 s (325 MB decoded), and with its default preset `add()` returns
+in 0.07 s.
+
 ## Architecture
 
 ```

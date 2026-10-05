@@ -12,8 +12,6 @@
 //! ```
 //! Blob arrays are referenced by byte offsets in the header.
 
-use std::io::Read;
-
 use serde::Deserialize;
 
 #[derive(Clone, Debug)]
@@ -556,13 +554,9 @@ fn check_opt(x: Option<f32>, what: &str) -> Result<(), String> {
     x.map(|v| check_finite(v, what)).transpose().map(|_| ())
 }
 
-/// Decode partial-major, time-delta-coded u8 envelopes into frame-major values,
-/// keeping the first `keep` of `k` columns.
-/// Moving average of quantised dB rows (frames × partials) over ±`half_s` of grid time.
-fn smooth_rows(amps: &[u16], frames: usize, partials: usize, grid: &[f32], half_s: f32) -> Vec<u16> {
-    if frames == 0 || partials == 0 {
-        return amps.to_vec();
-    }
+/// Frames whose grid times lie within ±`half_s` of each frame's: (first, last), both
+/// non-decreasing.
+fn smooth_windows(frames: usize, grid: &[f32], half_s: f32) -> (Vec<usize>, Vec<usize>) {
     let t = |f: usize| grid.get(f).copied().unwrap_or(f as f32 * 0.05);
     let (mut lo, mut hi) = (vec![0usize; frames], vec![0usize; frames]);
     let (mut a, mut b) = (0usize, 0usize);
@@ -576,30 +570,62 @@ fn smooth_rows(amps: &[u16], frames: usize, partials: usize, grid: &[f32], half_
         lo[f] = a;
         hi[f] = b.max(f);
     }
+    (lo, hi)
+}
+
+/// Moving average of quantised dB rows (frames × partials) over ±`half_s` of grid time,
+/// rounded half up.
+///
+/// A running sum per partial slides along the frames (each row is added once and taken away
+/// once). The sums are integers held exactly in f64; the rounded mean ⌊(S + ⌊n/2⌋)/n⌋ is
+/// computed as ⌊(S + ⌊n/2⌋)·(1/n) + 2⁻²⁰⌋, which is exact: the product is within 2⁻³⁵ of the true
+/// quotient (≤ 65536), and a quotient that is not an integer is at least 1/n ≥ 2⁻¹⁷ below the
+/// next one (n ≤ `MAX_FRAMES`).
+fn smooth_rows(amps: &[u16], frames: usize, partials: usize, grid: &[f32], half_s: f32) -> Vec<u16> {
+    if frames == 0 || partials == 0 {
+        return amps.to_vec();
+    }
+    debug_assert!(frames <= MAX_FRAMES);
+    let (lo, hi) = smooth_windows(frames, grid, half_s);
     let mut out = vec![0u16; amps.len()];
-    let mut cum = vec![0u64; frames + 1];
-    for k in 0..partials {
-        for f in 0..frames {
+    let mut sum = vec![0f64; partials];
+    // rows a..b are in `sum`
+    let (mut a, mut b) = (0usize, 0usize);
+    for f in 0..frames {
+        while b <= hi[f] {
             // silence (0) counts as the floor of the scale, not as −200 dB
-            cum[f + 1] = cum[f] + amps[f * partials + k].max(1) as u64;
+            for (s, &v) in sum.iter_mut().zip(&amps[b * partials..(b + 1) * partials]) {
+                *s += v.max(1) as i32 as f64;
+            }
+            b += 1;
         }
-        for f in 0..frames {
-            let n = (hi[f] + 1 - lo[f]) as u64;
-            let v = (cum[hi[f] + 1] - cum[lo[f]] + n / 2) / n;
-            out[f * partials + k] = if amps[f * partials + k] == 0 { 0 } else { v.min(u16::MAX as u64) as u16 };
+        while a < lo[f] {
+            for (s, &v) in sum.iter_mut().zip(&amps[a * partials..(a + 1) * partials]) {
+                *s -= v.max(1) as i32 as f64;
+            }
+            a += 1;
+        }
+        let n = b - a;
+        let (half, inv) = ((n / 2) as f64, 1.0 / n as f64);
+        let row = f * partials..(f + 1) * partials;
+        for ((o, &v), &s) in out[row.clone()].iter_mut().zip(&amps[row]).zip(&sum) {
+            // (≤ 65535.5: no overflow)
+            let m = ((s + half) * inv + 1.0 / (1u32 << 20) as f64) as i32;
+            *o = if v == 0 { 0 } else { m.min(u16::MAX as i32) as u16 };
         }
     }
     out
 }
 
+/// Decode partial-major, time-delta-coded u8 envelopes into frame-major values,
+/// keeping the first `keep` of `k` columns.
 fn undelta_pm(b: &[u8], t: usize, _k: usize, keep: usize) -> Vec<u8> {
     let mut out = vec![0u8; t * keep];
-    for c in 0..keep {
-        let col = &b[c * t..(c + 1) * t];
+    for (c, col) in b.chunks_exact(t.max(1)).take(keep).enumerate() {
         let mut acc = 0u8;
-        for (f, &d) in col.iter().enumerate() {
+        for (o, &d) in out[c..].iter_mut().step_by(keep).zip(col) {
             acc = acc.wrapping_add(d);
-            out[f * keep + c] = acc;
+            *o = acc;
         }
     }
     out
@@ -610,27 +636,66 @@ fn undelta_pm(b: &[u8], t: usize, _k: usize, keep: usize) -> Vec<u8> {
 fn undelta_pm16(b: &[u8], t: usize, k: usize, keep: usize, step_db: f32) -> Vec<u16> {
     let (lo, hi) = b.split_at(t * k);
     let mut out = vec![0u16; t * keep];
+    if t == 0 {
+        return out;
+    }
     let scale = step_db / AMP_UNIT_DB;
-    for c in 0..keep {
+    // A whole-number scale (1/16 dB steps: ×2, every model so far) is an integer product: the
+    // same values as rounding the float product (exact below 2²⁴), without the float rounding.
+    let int_scale = ((1.0..=512.0).contains(&scale) && scale.fract() == 0.0).then_some(scale as u32);
+    for (c, (lo, hi)) in lo.chunks_exact(t).zip(hi.chunks_exact(t)).take(keep).enumerate() {
         let mut acc = 0i16;
-        for f in 0..t {
-            let i = c * t + f;
-            acc = acc.wrapping_add(i16::from_le_bytes([lo[i], hi[i]]));
-            out[f * keep + c] = if acc <= 0 { 0 } else { ((acc as f32 * scale).round() as u32).min(u16::MAX as u32) as u16 };
+        let col = out[c..].iter_mut().step_by(keep).zip(lo.iter().zip(hi));
+        match int_scale {
+            Some(s) => {
+                for (o, (&l, &h)) in col {
+                    acc = acc.wrapping_add(i16::from_le_bytes([l, h]));
+                    *o = (acc.max(0) as u32 * s).min(u16::MAX as u32) as u16;
+                }
+            }
+            None => {
+                for (o, (&l, &h)) in col {
+                    acc = acc.wrapping_add(i16::from_le_bytes([l, h]));
+                    *o = if acc <= 0 { 0 } else { ((acc as f32 * scale).round() as u32).min(u16::MAX as u32) as u16 };
+                }
+            }
         }
     }
     out
 }
 
-/// Decompress gzip data of at most `limit` bytes (a small file can inflate to any size).
+/// Decompress gzip data (the first member) of at most `limit` bytes (a small file can inflate
+/// to any size). The data's CRC and length are checked.
 fn gunzip(bytes: &[u8], limit: usize) -> Result<Vec<u8>, String> {
-    let mut d = flate2::read::GzDecoder::new(bytes).take(limit as u64 + 1);
-    let mut v = Vec::new();
-    d.read_to_end(&mut v).map_err(|e| format!("gzip: {e}"))?;
-    if v.len() > limit {
-        return Err(format!("model larger than {} MiB uncompressed", limit >> 20));
+    use flate2::{Decompress, FlushDecompress, Status};
+    let too_large = || format!("model larger than {} MiB uncompressed", limit >> 20);
+    // the trailer's length field sizes the output in one allocation (when it is plausible:
+    // deflate expands at most ~1032×), so the data is neither copied nor zeroed while it grows
+    let hint = match bytes.len().checked_sub(4).and_then(|i| bytes.get(i..)) {
+        Some(t) => (u32::from_le_bytes([t[0], t[1], t[2], t[3]]) as usize).min(bytes.len().saturating_mul(1032)),
+        None => 0,
+    };
+    let mut out: Vec<u8> = Vec::with_capacity(hint.min(limit) + 1);
+    let mut d = Decompress::new_gzip(15);
+    loop {
+        let input = bytes.get(d.total_in() as usize..).unwrap_or(&[]);
+        let before = (d.total_in(), d.total_out());
+        let status = d.decompress_vec(input, &mut out, FlushDecompress::Finish).map_err(|e| format!("gzip: {e}"))?;
+        if out.len() > limit {
+            return Err(too_large());
+        }
+        match status {
+            Status::StreamEnd => return Ok(out),
+            _ if out.len() < out.capacity() && (d.total_in(), d.total_out()) == before => {
+                return Err("gzip: unexpected end of file".into());
+            }
+            _ => {
+                if out.len() == out.capacity() {
+                    out.reserve((out.capacity() / 2).max(1 << 16).min(limit + 1 - out.len()));
+                }
+            }
+        }
     }
-    Ok(v)
 }
 
 fn f32s(b: &[u8]) -> Vec<f32> {
@@ -695,7 +760,9 @@ impl Model {
                 None => {
                     // u8 0.5 dB codes → 1/32 dB units
                     let a8 = undelta_pm(slice(blob, hz.o.amps, dims(&[t, kk], "amps")?, "amps")?, t, kk, k);
-                    a8.iter().map(|&q| if q == 0 { 0 } else { ((q_to_db(q) - AMP_FLOOR_DB) / AMP_UNIT_DB).round().max(1.0) as u16 }).collect()
+                    let lut: [u16; 256] =
+                        std::array::from_fn(|q| if q == 0 { 0 } else { ((q_to_db(q as u8) - AMP_FLOOR_DB) / AMP_UNIT_DB).round().max(1.0) as u16 });
+                    a8.iter().map(|&q| lut[q as usize]).collect()
                 }
             };
             let pitch_q = slice(blob, hz.o.pitch, dims(&[t, 2], "pitch")?, "pitch")?;
@@ -768,7 +835,7 @@ impl Model {
                         let decode = |o: usize, scale: f32| -> Result<Vec<f32>, String> {
                             let b = slice(blob, o, dims(&[t.n, 2], "transient")?, "transient")?;
                             let k = scale / 32767.0;
-                            let pcm: Vec<i16> = if t.enc.as_deref() == Some("dp16") {
+                            Ok(if t.enc.as_deref() == Some("dp16") {
                                 // first differences, low byte plane then high byte plane
                                 let (lo, hi) = b.split_at(t.n);
                                 let mut acc = 0i16;
@@ -776,13 +843,12 @@ impl Model {
                                     .zip(hi)
                                     .map(|(&l, &h)| {
                                         acc = acc.wrapping_add(i16::from_le_bytes([l, h]));
-                                        acc
+                                        acc as f32 * k
                                     })
                                     .collect()
                             } else {
-                                b.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect()
-                            };
-                            Ok(pcm.iter().map(|&v| v as f32 * k).collect())
+                                b.chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 * k).collect()
+                            })
                         };
                         let data_r = match t.o_r {
                             Some(o) => Some(decode(o, t.scale_r.unwrap_or(t.scale))?),
@@ -863,6 +929,39 @@ impl Model {
 
     pub fn noise_bands(&self) -> usize {
         self.noise_edges.len().saturating_sub(1)
+    }
+
+    /// Bytes of decoded data the model holds on the heap (its arrays; small fields not counted).
+    pub fn heap_bytes(&self) -> usize {
+        fn b<T>(v: &[T]) -> usize {
+            std::mem::size_of_val(v)
+        }
+        let zones: usize = self
+            .zones
+            .iter()
+            .map(|z| {
+                let st = z.stereo.as_ref().map_or(0, |s| b(&s.l) + b(&s.r) + b(&s.ph));
+                let im = z.image.as_ref().map_or(0, |i| b(&i.row) + b(&i.ild) + b(&i.iph) + b(&i.lph));
+                let tr = z.transient.as_ref().map_or(0, |t| b(&t.data) + t.data_r.as_deref().map_or(0, b));
+                b(&z.ratios)
+                    + b(&z.phases)
+                    + b(&z.amps)
+                    + b(&z.amps_smooth)
+                    + b(&z.grid)
+                    + b(&z.pitch)
+                    + b(&z.noise)
+                    + b(&z.release)
+                    + b(&z.jitter)
+                    + b(&z.pulse)
+                    + b(&z.shimmer)
+                    + b(&z.alt_rel)
+                    + st
+                    + im
+                    + tr
+                    + std::mem::size_of::<Zone>()
+            })
+            .sum();
+        zones + b(&self.grid) + b(&self.noise_edges) + self.by_layer.iter().map(|v| b(v)).sum::<usize>()
     }
 
     /// Damper extra decay (dB/s) for a note.
@@ -1116,6 +1215,126 @@ mod tests {
         assert!(gunzip(&gz, 1 << 20).is_err(), "4 MiB inflated past a 1 MiB limit");
         assert_eq!(gunzip(&gz, 8 << 20).unwrap().len(), 4 << 20);
         assert!(Model::from_bytes(&gz).is_err());
+    }
+
+    /// FNV-1a over a model's whole `Debug` text: every field and value (floats as their
+    /// shortest round-trip text, so bit for bit). Same as `examples/fingerprint.rs`.
+    fn fingerprint(m: &Model) -> u64 {
+        struct Fnv(u64);
+        impl std::fmt::Write for Fnv {
+            fn write_str(&mut self, s: &str) -> std::fmt::Result {
+                for &b in s.as_bytes() {
+                    self.0 = (self.0 ^ b as u64).wrapping_mul(0x100_0000_01b3);
+                }
+                Ok(())
+            }
+        }
+        let mut h = Fnv(0xcbf2_9ce4_8422_2325);
+        std::fmt::write(&mut h, format_args!("{m:?}")).unwrap();
+        h.0
+    }
+
+    /// The faster decoder gives exactly the models the original one did (fingerprints taken
+    /// with the parser before the loading optimisations; all 416 shipped models were compared
+    /// with `examples/fingerprint.rs`). Covers u8 and 16-bit envelopes, transients (mono,
+    /// stereo, dp16), stereo images, zone grids, pulse envelopes and alternative releases.
+    #[test]
+    fn real_models_decode_exactly_as_before() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut checked = 0;
+        for (file, want) in [
+            ("models/piccolo.ssm", 0xf2b4f066de1e07b1u64),
+            ("models/flute-vibrato.ssm", 0x083da5ae8a225130),
+            ("models/grand-piano.ssm", 0xc81e687ca2ab0d26),
+            ("packages/organ-friesach/models/organ/friesach/great-gambe-8.ssm", 0xc0da277fd1bfbc49),
+            ("packages/organ-harmonium/models/organ/harmonium/great-diapason-8-forte.ssm", 0x15f4061705216fb7),
+            ("packages/organ-saint-jean-de-luz/models/organ/saint-jean-de-luz/pedal-bourdon-8.ssm", 0x2c2f503eb979e637),
+            ("packages/organ-skrzatusz/models/organ/skrzatusz/great-principal-8.ssm", 0xf3bac61a0445321a),
+            ("packages/organ-skrzatusz/models/organ/skrzatusz/noise-keys-pedal-down.ssm", 0xb305e0ceed422c23),
+        ] {
+            let Ok(bytes) = std::fs::read(root.join(file)) else {
+                eprintln!("not found, skipped: {file}");
+                continue;
+            };
+            let m = Model::from_bytes(&bytes).unwrap_or_else(|e| panic!("{file}: {e}"));
+            assert_eq!(fingerprint(&m), want, "{file} decodes differently");
+            checked += 1;
+        }
+        assert!(checked >= 3, "the shipped models are part of the repository");
+    }
+
+    /// The original moving average (prefix sums and integer division per value).
+    fn smooth_rows_reference(amps: &[u16], frames: usize, partials: usize, grid: &[f32], half_s: f32) -> Vec<u16> {
+        let (lo, hi) = smooth_windows(frames, grid, half_s);
+        let mut out = vec![0u16; amps.len()];
+        let mut cum = vec![0u64; frames + 1];
+        for k in 0..partials {
+            for f in 0..frames {
+                cum[f + 1] = cum[f] + amps[f * partials + k].max(1) as u64;
+            }
+            for f in 0..frames {
+                let n = (hi[f] + 1 - lo[f]) as u64;
+                let v = (cum[hi[f] + 1] - cum[lo[f]] + n / 2) / n;
+                out[f * partials + k] = if amps[f * partials + k] == 0 { 0 } else { v.min(u16::MAX as u64) as u16 };
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_sliding_moving_average_matches_the_exact_one() {
+        let mut rng = Rng::new(7);
+        for case in 0..300 {
+            let frames = 1 + rng.next_u32() as usize % if case < 290 { 400 } else { 20_000 };
+            let partials = 1 + rng.next_u32() as usize % 9;
+            // dense and sparse grids: windows of 1 to all frames
+            let step = [0.001f32, 0.01, 0.05, 0.3, 1.0][case % 5];
+            let grid: Vec<f32> = (0..frames).map(|f| f as f32 * step).collect();
+            let amps: Vec<u16> = (0..frames * partials)
+                .map(|_| match rng.next_u32() % 8 {
+                    0 => 0,
+                    1 => u16::MAX,
+                    2 => u16::MAX - (rng.next_u32() % 3) as u16,
+                    3 => 1,
+                    _ => rng.next_u32() as u16,
+                })
+                .collect();
+            assert_eq!(
+                smooth_rows(&amps, frames, partials, &grid, 0.3),
+                smooth_rows_reference(&amps, frames, partials, &grid, 0.3),
+                "{frames} frames × {partials}, step {step}"
+            );
+        }
+        // every window length with sums that are exact multiples of it (the rounding edge)
+        for n in 1..400 {
+            let grid: Vec<f32> = (0..n).map(|f| f as f32 * (0.6 / n as f32) * 0.999).collect();
+            for v in [1u16, 2, 3, 7, 1000, 32767, 65534, 65535] {
+                let amps = vec![v; n];
+                assert_eq!(smooth_rows(&amps, n, 1, &grid, 0.3), smooth_rows_reference(&amps, n, 1, &grid, 0.3));
+            }
+        }
+    }
+
+    #[test]
+    fn gzip_errors_are_reported() {
+        use std::io::Write;
+        let raw = bytes();
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(&raw).unwrap();
+        let gz = enc.finish().unwrap();
+        assert_eq!(gunzip(&gz, MAX_MODEL_BYTES).unwrap(), raw);
+        assert!(Model::from_bytes(&gz).is_ok());
+        // a wrong length in the trailer is only a size hint, and then a checked error
+        let mut bad_len = gz.clone();
+        let n = bad_len.len();
+        bad_len[n - 4..].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(gunzip(&bad_len, MAX_MODEL_BYTES).is_err());
+        let mut bad_crc = gz.clone();
+        bad_crc[n - 8] ^= 1;
+        assert!(gunzip(&bad_crc, MAX_MODEL_BYTES).is_err());
+        for cut in [3, 10, gz.len() / 2, gz.len() - 9, gz.len() - 1] {
+            assert!(Model::from_bytes(&gz[..cut]).is_err(), "cut at {cut}");
+        }
     }
 
     #[test]

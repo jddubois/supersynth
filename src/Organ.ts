@@ -2,6 +2,7 @@ import { SupersynthError } from './errors.js';
 import type { NativeEngine, NativeLayer } from './native.js';
 import { noteNumber, type NoteLike } from './notes.js';
 import { CHURCH_DIVISIONS, ORGAN_DEFAULTS, SWELL_TREMULANT } from './organs/defaults.js';
+import { organModels } from './models.js';
 import { ORGANS, type OrganId } from './organs/index.js';
 import type { CouplerLike, DivisionName, OrganDefinition, OrganPreset, StopDefinition, TremulantDefinition } from './organs/types.js';
 import { playNotes, playSequence, resolveTime, type Keys, type Playable, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
@@ -398,9 +399,33 @@ export interface OrganSettings {
   wind?: number;
 }
 
+/** Which of an organ's models {@link Synth.add} loads in the background (see
+ *  {@link OrganOptions.preload}). */
+export type OrganPreload = 'all' | 'preset' | false;
+
 export interface OrganOptions extends OrganSettings {
   /** Preset to start with: a name or a preset. @default the organ's `defaultPreset` */
   preset?: string | OrganPreset;
+  /**
+   * Model loading. The models of the preset the organ starts with are always loaded by
+   * `synth.add()` (in parallel, on several cores), so that preset sounds at once.
+   *
+   * - `'all'`: every other stop's model (and the Forte and noise models) then loads in the
+   *   background, off the JavaScript thread, so drawing stops and changing presets later is
+   *   instant. `await organ.ready` waits for it. The largest organs take 250–330 MB decoded.
+   * - `'preset'`: only the starting preset's models; another stop's model is loaded when the
+   *   stop is first drawn (tens of milliseconds per stop on a desktop, several times that on a
+   *   Raspberry Pi), and the memory grows only with the stops used.
+   * - `false`: nothing in the background: every model, the preset's too, is loaded on the
+   *   JavaScript thread when first needed, one after another.
+   *
+   * A stop drawn before its model has loaded still sounds at once: the call waits for that one
+   * model (on a desktop, a few tens of milliseconds at most).
+   *
+   * @default `'all'` when the organ's models take at most a quarter of the machine's memory
+   * decoded, else `'preset'`
+   */
+  preload?: OrganPreload;
   /** Presets added to the organ's own (a preset of the same name replaces the built-in one). */
   presets?: Record<string, OrganPreset>;
 }
@@ -438,6 +463,8 @@ export class Organ {
   readonly pedal: Division;
   /** The organ's definition: stops, presets, layout. */
   readonly definition: OrganDefinition;
+  /** Models loading in the background (see {@link ready}); `keptAlive` once awaited. */
+  private loading: { promise: Promise<void>; settled: boolean; keptAlive: boolean } | undefined;
   /** @internal Longest speech delay of a pipe (ms). */
   readonly _speech: number;
   private saved: Record<string, OrganPreset>;
@@ -493,6 +520,7 @@ export class Organ {
     this.positive = new Division(this, 'positive', channels[2]!);
     this.pedal = new Division(this, 'pedal', channels[3]!);
     try {
+      this.preload(def, this.lookup(preset), options);
       const n = synth._native();
       synth._reserve(32);
       for (const d of this.divisions()) {
@@ -518,6 +546,31 @@ export class Organ {
       synth._detach(this, this._channels());
       throw e;
     }
+  }
+
+  /**
+   * Resolves once the models the organ loads in the background (see {@link OrganOptions.preload})
+   * have loaded, or the organ was removed. Rejects with a {@link SupersynthError} when one fails
+   * to load (drawing that stop then throws the same error); the synth also emits it as an
+   * `'error'` event when it has listeners. Awaiting it is optional: loading goes on regardless
+   * (and does not keep Node.js running unless awaited).
+   *
+   * ```ts
+   * const organ = synth.add('friesach');
+   * await organ.ready;          // every stop can now be drawn without loading
+   * ```
+   */
+  get ready(): Promise<void> {
+    const l = this.loading;
+    if (!l) return Promise.resolve();
+    if (!l.settled && !l.keptAlive) {
+      // the native wait does not hold the event loop: whoever awaits this does
+      l.keptAlive = true;
+      const timer = setInterval(() => {}, 1 << 30);
+      const done = () => clearInterval(timer);
+      l.promise.then(done, done);
+    }
+    return l.promise;
   }
 
   /** The four divisions: great, swell, positive, pedal. */
@@ -803,6 +856,39 @@ export class Organ {
     if (want.action !== was.action) {
       for (const d of this.divisions()) for (const li of this.noise.keyLayers.get(d.name) ?? []) n.setLayerEnabled(d.channel, li, want.action, time);
     }
+  }
+
+  /** Start loading the models `options.preload` asks for: the starting preset's first. */
+  private preload(def: OrganDefinition, preset: OrganPreset, options: OrganOptions): void {
+    const mode = options.preload;
+    if (mode !== undefined && mode !== 'all' && mode !== 'preset' && mode !== false) {
+      throw new SupersynthError(`preload must be 'all', 'preset' or false, got ${String(mode)}`);
+    }
+    if (mode === false) return;
+    const first = new Set<string>();
+    for (const d of DIVISIONS) {
+      for (const name of preset[d] ?? []) {
+        const stop = findStop(def, d, name);
+        first.add(stopModel(stop));
+        if (stop.forte) first.add(stop.forte);
+      }
+    }
+    if (options.noises && def.noises) for (const m of organModels({ stops: [], noises: def.noises })) first.add(m);
+    const all = organModels(def);
+    const names = (mode ?? this.synth._defaultPreload(all)) === 'all' ? [...first, ...all.filter((m) => !first.has(m))] : [...first];
+    const ids = this.synth._preload(names, this);
+    if (!ids.length) return;
+    const promise = new Promise<void>((resolve, reject) => {
+      this.synth._native().watchModels(ids, (error) => {
+        if (this.loading) this.loading.settled = true;
+        if (error === null) return resolve();
+        const err = new SupersynthError(`The organ ${def.name}: ${error}`);
+        if (!this.removed && this.synth.listenerCount('error') > 0) this.synth.emit('error', err);
+        reject(err);
+      });
+    });
+    promise.catch(() => {}); // (awaiting it is optional: not an unhandled rejection)
+    this.loading = { promise, settled: false, keptAlive: false };
   }
 
   private lookup(preset: string | OrganPreset): OrganPreset {
