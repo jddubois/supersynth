@@ -8,22 +8,30 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./instruments": {
       "types": "./dist/catalog/index.d.ts",
-      "import": "./dist/catalog/index.js"
+      "import": "./dist/catalog/index.js",
+      "default": "./dist/catalog/index.js"
     },
     "./organs": {
       "types": "./dist/organs/index.d.ts",
-      "import": "./dist/organs/index.js"
-    }
+      "import": "./dist/organs/index.js",
+      "default": "./dist/organs/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
+    "src",
     "models",
     "NOTICE.md"
   ],
+  "engines": {
+    "node": ">=18"
+  },
   "workspaces": [
     "packages/*",
     "npm/*"
@@ -43,7 +51,8 @@
     "example:midi": "node --import tsx examples/midi-file.ts examples/jsbwv532.mid",
     "demos": "node --import tsx examples/render-demos.ts",
     "models": "cd tools/ssm && python build_all.py",
-    "version": "node scripts/sync-versions.mjs && git add npm package-lock.json"
+    "version": "node scripts/sync-versions.mjs && git add npm package-lock.json",
+    "prepack": "npm run build:ts"
   },
   "keywords": [
     "additive",
