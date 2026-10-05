@@ -3,9 +3,9 @@ name: Release
 # Push a tag vX.Y.Z (after `npm version X.Y.Z`, which also moves the platform packages to X.Y.Z),
 # or run it by hand from main (Actions → Release → Run workflow): publishes package.json's version.
 # builds the engine for every platform and the browser's (WebAssembly, shipped in supersynth's
-# wasm/), then publishes to npm, in order, the platform packages, the model packages
-# (@supersynth/instruments and the organs'), @supersynth/organs (only versions not on npm yet),
-# and supersynth.
+# wasm/), then publishes to npm, in order, the platform packages, @supersynth/organs (only
+# versions not on npm yet) and @supersynth/core. The model packages are published on their own
+# (npm run models:publish), since their models are not in git.
 on:
   push:
     tags: ['v*']
@@ -188,8 +188,7 @@ jobs:
             fi
           }
           for dir in npm/*/; do publish "${dir%/}"; done
-          # model packages (large): only versions not published yet
-          publish packages/instruments
-          for dir in packages/organ-*/; do publish "${dir%/}"; done
+          # the model packages (packages/instruments, packages/organ-*) are not in git: they are
+          # published with their models, by `npm run models:publish`
           publish packages/organs
           publish .

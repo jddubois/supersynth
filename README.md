@@ -161,9 +161,10 @@ To build from source you need Rust ([rustup.rs](https://rustup.rs)). On Linux yo
 `pkg-config` and the ALSA and JACK development headers (`libasound2-dev libjack-jackd2-dev` on
 Debian/Ubuntu); JACK itself is only loaded at run time if it's installed. Then run
 `npm ci && npm run build` in a clone (the browser engine: `npm run build:wasm`, see
-[docs/browser.md](docs/browser.md#building-it)). The current models are about 1 GB and the git
-history contains every version of them, so a full clone is bigger than that.
-`git clone --depth 1` fetches only the current ones.
+[docs/browser.md](docs/browser.md#building-it)). The models aren't in git: they're published
+on npm with their packages, and `npm run models:fetch` downloads them into a clone
+(`packages/*/models/`, about 1 GB for everything; `npm run models:fetch -- instruments organ-burea`
+fetches only those).
 
 ## Usage
 

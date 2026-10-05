@@ -21,12 +21,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Models live in their packages (packages/<package>/models/…)
+      - name: No models in git (they are on npm; npm run models:fetch)
         run: |
-          stray=$(git ls-files '*.ssm' | grep -v '^packages/[^/]*/models/' || true)
-          if [ -n "$stray" ]; then
-            echo "::error::Models outside packages/<package>/models/ (core instruments in packages/instruments, organs in packages/organ-<id>; tools/ssm/paths.py model_path):"
-            echo "$stray"
+          tracked=$(git ls-files '*.ssm')
+          if [ -n "$tracked" ]; then
+            echo "::error::Models committed to git (publish them with npm run models:publish; packages/*/models/ is ignored):"
+            echo "$tracked"
             exit 1
           fi
 
@@ -47,6 +47,13 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: |
+            packages/*/models
+            packages/*/.models-version
+          key: models-${{ hashFiles('packages/*/package.json') }}
+      - run: npm run models:fetch
       - run: npm run build:native
       - run: npm run typecheck
 
@@ -103,6 +110,13 @@ jobs:
         run: cargo install wasm-bindgen-cli --locked --version "$(sed -n 's/^wasm-bindgen = "=\(.*\)"/\1/p' native/wasm/Cargo.toml)"
 
       - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: |
+            packages/*/models
+            packages/*/.models-version
+          key: models-${{ hashFiles('packages/*/package.json') }}
+      - run: npm run models:fetch
       - run: npm run build:native
       - run: npm run build:wasm
       - run: npm run build:ts
@@ -138,6 +152,13 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: |
+            packages/*/models
+            packages/*/.models-version
+          key: models-${{ hashFiles('packages/*/package.json') }}
+      - run: npm run models:fetch
       - run: npm run build:native
       - run: npm run test:unit
       - run: npm run build:ts
@@ -163,6 +184,13 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: |
+            packages/*/models
+            packages/*/.models-version
+          key: models-${{ hashFiles('packages/*/package.json') }}
+      - run: npm run models:fetch
 
       - uses: actions/download-artifact@v4
         with:

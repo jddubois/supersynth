@@ -52,7 +52,7 @@ evaluation scripts measure and what they don't. None of their results are in the
 ## Where models go
 
 A model's *name* (`grand-piano`, `organ/great-principal-8`, `organ/friesach/great-principal-8`) maps
-to its committed file through `paths.model_path(name)`:
+to its file in a model package through `paths.model_path(name)`:
 
 | name                     | file                                                     |
 | ------------------------ | -------------------------------------------------------- |
@@ -63,6 +63,12 @@ to its committed file through `paths.model_path(name)`:
 With an explicit output directory (`SSM_OUT_DIR`, or `build.py --out DIR`), models are written
 flat to `<DIR>/<name>.ssm` instead. That's the layout the engine's `modelsDirectory` option
 expects, and the `.ts` render helpers here use it.
+
+The `models/` folders aren't in git; the model packages carry them on npm. `npm run models:fetch`
+downloads the published versions. After rebuilding an organ (or the core instruments), bump that
+package's `version` in `packages/<package>/package.json`, publish it with
+`npm run models:publish -- <package>` (for example `organ-friesach`), and commit the version bump:
+a clone then fetches the new models.
 
 ## Experiment flags
 

@@ -75,6 +75,8 @@
     "example:browser": "node examples/browser/serve.mjs",
     "demos": "node --import tsx examples/render-demos.ts",
     "models": "cd tools/ssm && python build_all.py",
+    "models:fetch": "node scripts/models.mjs fetch",
+    "models:publish": "node scripts/models.mjs publish",
     "version": "node scripts/sync-versions.mjs && git add npm package-lock.json",
     "prepack": "npm run build:ts"
   },

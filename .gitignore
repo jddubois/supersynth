@@ -44,3 +44,8 @@ docs/organ-stops.generated.md
 
 # Browser engine (scripts/build-wasm.mjs)
 /wasm/
+
+# Models: on npm, not in git (npm run models:fetch downloads them)
+/models/
+packages/*/models/
+packages/*/.models-version
