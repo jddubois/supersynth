@@ -80,7 +80,7 @@ describe('Synth offline rendering', () => {
   });
 
   test('release culling is off by default and ends quiet tails early when asked', () => {
-    const voicesAfterRelease = (releaseCulling?: { floorDb: number }) => {
+    const voicesAfterRelease = (releaseCulling?: { floorDb?: number; belowMixDb?: number; hold?: 'peak' | 'smooth' }) => {
       const synth = new Synth({ sampleRate: 48000, ...(releaseCulling ? { releaseCulling } : {}) });
       const organ = synth.add('burea', { preset: 'plenum' });
       organ.great.play(['C3', 'E3', 'G3', 'C4'], { duration: 0.5 });
@@ -92,8 +92,10 @@ describe('Synth offline rendering', () => {
     const full = voicesAfterRelease();
     expect(full).toBeGreaterThan(0);
     expect(voicesAfterRelease({ floorDb: -60 })).toBeLessThan(full);
+    expect(voicesAfterRelease({ belowMixDb: 20, hold: 'smooth' })).toBeLessThanOrEqual(full);
     const synth = new Synth({ sampleRate: 48000 });
     expect(() => synth.set({ releaseCulling: { floorDb: Number.NaN } })).toThrow(SupersynthError);
+    expect(() => synth.set({ releaseCulling: { belowMixDb: 60, hold: 'long' as never } })).toThrow(SupersynthError);
     synth.set({ releaseCulling: false });
     synth.close();
   });
