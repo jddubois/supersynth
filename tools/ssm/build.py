@@ -27,7 +27,7 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 
 from analysis import NOISE_EDGES, Zone, analyze_zone, hz_to_midi, note_name_to_midi
-from paths import DATA_ROOT, existing_model_path, is_committed_location, model_path
+from paths import PACKAGES_DIR, DATA_ROOT, existing_model_path, is_committed_location, model_package, model_path
 
 DATA = os.path.join(DATA_ROOT, 'samples')
 # explicit output directory (flat <dir>/<name>.ssm); None = the committed locations (paths.model_path)
@@ -309,6 +309,22 @@ def collect(spec: dict) -> list[tuple[str, int, str]]:
     return out
 
 
+def gain_reference(inst_id: str, ref: str, out_dir: str | None, quiet: bool = False) -> str | None:
+    """The model whose gain `inst_id` shares (`fixed_gain_from`: the stops of one organ keep
+    their natural balance, a release sound its instrument's level): as built into the same
+    output directory, else the committed one. Missing: an error for a committed build (its own
+    level would silently break the balance), a warning (None) for a scratch build."""
+    cands = ([model_path(ref, out_dir)] if out_dir else []) + [existing_model_path(ref)]
+    path = next((p for p in cands if os.path.exists(p)), None)
+    if path is None:
+        msg = f'{inst_id}: gain reference {ref} is not built ({" / ".join(dict.fromkeys(cands))})'
+        if out_dir is None or is_committed_location(out_dir):
+            raise RuntimeError(msg + ': build it first')
+        if not quiet:
+            print(f"  !! {msg}: using this model's own level", flush=True)
+    return path
+
+
 def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), out_dir: str | None = None,
           force: bool | None = None) -> str:
     out_dir = out_dir or OUT_DIR
@@ -321,6 +337,8 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), 
     if os.environ.get('SSM_OVERRIDES'):
         # experiments: e.g. SSM_OVERRIDES='{"phase_smooth_s": 0.1}'
         spec = {**spec, **json.loads(os.environ['SSM_OVERRIDES'])}
+    if spec.get('fixed_gain_from') and spec['fixed_gain_from'] != inst_id:
+        gain_reference(inst_id, spec['fixed_gain_from'], out_dir, quiet=True)     # fail before the analysis
     items = collect(spec)
     if 'stereo' not in spec and items:
         # stereo recordings keep their per-partial stereo image (and per-channel noise)
@@ -411,10 +429,12 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), 
     # normalisation: loudest layer median RMS → target
     target = spec.get('target_rms_db', -20.0)
     gain = target - top
-    if spec.get('fixed_gain_from'):
-        # keep the natural balance between the stops of one organ: share one gain
-        ref_path = existing_model_path(spec['fixed_gain_from'], out_dir)
-        if os.path.exists(ref_path) and spec['fixed_gain_from'] != inst_id:
+    gain_from = None
+    if spec.get('fixed_gain_from') and spec['fixed_gain_from'] != inst_id:
+        ref = spec['fixed_gain_from']
+        ref_path = gain_reference(inst_id, ref, out_dir)
+        gain_from = {'model': ref, 'found': ref_path is not None}
+        if ref_path is not None:
             with gzip.open(ref_path, 'rb') as fh:
                 raw = fh.read()
             n = struct.unpack('<I', raw[4:8])[0]
@@ -443,12 +463,25 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), 
     # how this model was built: experiment flags in effect (empty for a release build), and the
     # recordings that did not become zones
     header['build'] = {'flags': flags, 'lost': lost}
+    if gain_from is not None:
+        header['build']['gainFrom'] = gain_from
     path = model_path(inst_id, out_dir)
+    pkg = model_package(inst_id)
+    if not out_dir and pkg and not os.path.exists(os.path.join(PACKAGES_DIR, pkg, 'package.json')):
+        print(f'  !! {path}: packages/{pkg} is not a workspace package yet (no package.json)', flush=True)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    size = write_model(path, header, zones)
-    # per-layer recorded levels + family velocity range (used by the playback velocity curve)
-    from layer_levels import process as add_levels
-    add_levels(path)
+    # written next to the target and moved into place when complete: an interrupted build never
+    # leaves a truncated model where the old one was
+    tmp = path + '.partial'
+    try:
+        write_model(tmp, header, zones)
+        # per-layer recorded levels + family velocity range (used by the playback velocity curve)
+        from layer_levels import process as add_levels
+        add_levels(tmp)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
     size = os.path.getsize(path)
     print(f'  wrote {path} ({size/1024:.0f} KB, {len(zones)} zones, layers={[(l["name"], l["velocity"]) for l in layers]}, '
           f'notes {min(z.f0 for z in zones):.1f}-{max(z.f0 for z in zones):.1f} Hz, grid {grid_len})', flush=True)

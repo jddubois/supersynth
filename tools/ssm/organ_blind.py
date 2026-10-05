@@ -58,7 +58,8 @@ def single_pairs(n: int, rng: random.Random):
 
 
 def chord_pairs(cases):
-    subprocess.run([sys.executable, 'organ_eval.py', *cases], check=True)
+    subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'organ_eval.py'), *cases],
+                   check=True)
     out = []
     for name in cases:
         a, sr = sf.read(os.path.join(REF, f'{name}__real_st.wav'), always_2d=True)

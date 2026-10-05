@@ -52,10 +52,15 @@ def real_sum(organ, odf, sections, play, couplers, seconds):
                 for k in sorted(keys):
                     if k not in s.keys:
                         continue
-                    y, sr, up = render_key(s.keys[k])
-                    y = y[:int(seconds * sr)]
+                    y, ysr, up = render_key(s.keys[k])
                     if acc is None:
+                        sr = ysr
                         acc = np.zeros((int(seconds * sr), 2))
+                    elif ysr != sr:
+                        # (keys recorded at another rate: summed at the first key's rate)
+                        from scipy import signal
+                        y = signal.resample_poly(y, sr, ysr, axis=0)
+                    y = y[:int(seconds * sr)]
                     acc[:len(y)] += y
     return acc, sr
 
