@@ -46,7 +46,7 @@ Adding an organ whose package is not installed throws a `SupersynthError` that n
 
 ## `azzio` — Azzio
 
-Mascioni 2016, Azzio (Italy): 11 stops on two manuals and pedal in the Italian style, at a ≈ 420 Hz.
+Mascioni 2016, Azzio (Italy): 11 stops on two manuals and pedal in the Italian style (12 knobs here: the Sesquialtera's first rank alone, or both), at a ≈ 420 Hz.
 
 Install: `npm install @supersynth/organ-azzio`. Config: `AZZIO_ORGAN`. Default preset: `ripieno`. Tremulant on the great and positive. Noises: key action, stop action, blower, room.
 
@@ -211,7 +211,7 @@ Install: `npm install @supersynth/organ-harmonium`. Config: `HARMONIUM_ORGAN`. D
 |---|---|
 | `diapason` | Diapason + Melodia 8' — the full 8' voice of manual I |
 | `soft` | Dulcet + Flöte 8' — the soft 8' of manual II |
-| `celeste` | Flöte 8' with Vox Jubilante — the beating treble celeste |
+| `celeste` | Dulcet 8' and Flöte 8' with Vox Jubilante — the beating treble celeste |
 | `8-4` | Manual I at 8' and 4' |
 | `solo` | Melodia 8' with the Forte: a melody in the treble against the soft manual II |
 | `full` | Every register, manual II coupled |

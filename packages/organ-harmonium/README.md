@@ -1,6 +1,6 @@
 # @supersynth/organ-harmonium
 
-The models of the **Harmonium Emil Müller organ** for [supersynth](https://www.npmjs.com/package/supersynth):
+The models of the **Emil Müller harmonium** for [supersynth](https://www.npmjs.com/package/supersynth):
 every stop analysed from the recordings of its sample set. supersynth finds them by itself once
 this package is installed next to it.
 

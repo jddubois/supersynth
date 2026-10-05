@@ -4,8 +4,8 @@
 smoothed; `{ at }` schedules them). All are relative to the instrument as recorded: the defaults
 reproduce the recording, and are exported as `PARAMETER_DEFAULTS` (`reverbSend`, `spread` and
 `formant` default to each instrument's own value). `instrument.get(name)` reads one value,
-`instrument.parameters()` the ones that differ from the defaults, and `instrument.preset('default')`
-restores the instrument as recorded.
+`instrument.parameters()` the ones set by the definition, its preset or `set()`, and
+`instrument.preset('default')` restores the instrument as recorded.
 
 | Parameter | Default | Range / unit | |
 |---|---|---|---|
@@ -35,11 +35,11 @@ restores the instrument as recorded.
 | `mono` | false | | each note releases the previous |
 | `legato` | false | | overlapping notes slur into each other without re-attacking (implies mono) |
 | `glide` | 0.06 | s | legato pitch-glide time constant |
-| `tremolo`, `tremoloPitch`, `tremoloRate` | off | dB / cents / Hz | synchronous pulsation of the whole part (organ tremulant, vibraphone motor) |
+| `tremolo`, `tremoloPitch`, `tremoloRate` | 0, 0, 6 | dB / cents / Hz | synchronous pulsation of the whole part (organ tremulant, vibraphone motor) |
 | `jitter` | 1 | × | independent micro-fluctuation of each partial, as recorded (0 = lockstep) |
 | `shimmer` | 1 | × | fast amplitude/phase fluctuation spreading each partial's energy around its line, as recorded (0 = clean lines) |
 | `gain` | 0 | dB | voice gain before effects |
-| `eqLowGain/eqLowFreq`, `eqMidGain/eqMidFreq/eqMidQ`, `eqHighGain/eqHighFreq` | flat | dB / Hz | 3-band EQ |
+| `eqLowGain/eqLowFreq`, `eqMidGain/eqMidFreq/eqMidQ`, `eqHighGain/eqHighFreq` | 0 dB at 200 / 1000 (Q 0.7) / 5000 Hz | dB / Hz | 3-band EQ |
 | `lowCut`, `highCut` | off | Hz | 12 dB/oct filters |
 | `chorus`, `chorusRate`, `chorusDepth` | off | mix / Hz / ms | ensemble |
 | `drive`, `driveTone`, `driveLevel` | off | 1–20 / Hz / × | 4× oversampled tube drive |

@@ -17,7 +17,7 @@ For every recording (one note at one dynamic):
    to the residual.
 4. **Free partials.** Stable spectral peaks in the residual — sympathetic and duplex resonances,
    bell and bar modes — become extra, inharmonic oscillators.
-5. **Noise.** The residual's power in 28 bands, over time (breath, bow, hammer, key and wind noise).
+5. **Noise.** The residual's power in 30 bands, over time (breath, bow, hammer, key and wind noise).
    For sustained tones the level is set by the residual's density *between* the harmonics;
    leftover energy right at the harmonics is partial fluctuation (rendered as shimmer).
 6. **Attack.** For struck and plucked instruments the first 20–100 ms of the recording are kept and
