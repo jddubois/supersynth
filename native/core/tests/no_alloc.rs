@@ -111,6 +111,7 @@ fn rendering_and_commands_do_not_allocate() {
             Command::SetPartParam { part: 0, param: PartParam::Leslie, value: 3.0 },
             Command::SetMasterParam { param: MasterParam::Volume, value: -3.0 },
             Command::SetMasterParam { param: MasterParam::ReverbReturn, value: -2.0 },
+            Command::SetMasterParam { param: MasterParam::ReverbDecay, value: 3.5 },
         ],
         9600,
     );
@@ -176,7 +177,6 @@ fn rendering_and_commands_do_not_allocate() {
 }
 
 #[test]
-#[ignore = "ReverbParams::sanitized builds a String (via preset(\"hall\")) on every reverb parameter change"]
 fn reverb_parameter_changes_do_not_allocate() {
     let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
     render(&mut eng, 4800);
