@@ -2,8 +2,13 @@
 //!
 //! Gain computer (per sample, on the *undelayed* input):
 //!
-//! 1. `req(t) = min(1, c' / max(|L|, |R|))` — the gain that sample needs
-//!    (`c'` is the ceiling minus a 1e-4 dB rounding guard).
+//! 1. `req(t) = min(1, c' / p(t))` — the gain that sample needs (`c'` is the
+//!    ceiling minus a 1e-4 dB rounding guard). `p(t)` is the stereo *true
+//!    peak* around the sample: `max(|L|, |R|)` and the 4x-oversampled
+//!    inter-sample peaks of the two segments adjacent to it (12-tap-per-phase
+//!    windowed-sinc interpolator, within ±0.2 dB up to 0.4 fs). Sample-peak
+//!    detection alone lets reconstructed peaks exceed the ceiling by up to
+//!    several dB (e.g. +3 dB for a sine at fs/4 sampled at ±45°).
 //! 2. `m(t)` = sliding minimum of `req` over the last `LA + 1` samples
 //!    (monotonic-deque, amortised O(1)).
 //! 3. Release envelope `e(t)` (see below): it has an instant-attack component,
@@ -11,11 +16,16 @@
 //! 4. Two cascaded moving averages whose combined support is exactly `LA + 1`
 //!    samples (a smooth, S-shaped attack ramp spread over the lookahead).
 //!
-//! The audio is delayed by `LA` samples. Because the averaging kernel only
-//! spans samples whose `m` window contains the sample currently leaving the
-//! delay line, the applied gain is provably `<= req` of that sample, so the
-//! output never exceeds the ceiling. A final clamp to ±ceiling guards against
-//! float rounding only (it is counted; the tests assert it never acts).
+//! The audio is delayed by `LA` samples (plus the interpolator's 6). Because
+//! the averaging kernel only spans samples whose `m` window contains the
+//! sample currently leaving the delay line, the applied gain is provably
+//! `<= req` of that sample, so the output never exceeds the ceiling. A final
+//! clamp to ±ceiling guards against float rounding only (it is counted; the
+//! tests assert it never acts).
+//!
+//! Ceiling changes glide over 20 ms, and the final clamp uses the ceiling the
+//! sample was gained for (delayed with it), so samples already inside the
+//! lookahead are never hard-clipped by a lowered ceiling.
 //!
 //! Below the ceiling the gain is exactly 1.0 (the averaging stages track how
 //! many non-unity values they hold and snap back to an exact sum), so the
@@ -28,10 +38,16 @@
 //! sustained limiting also pulls the slow envelope down, which then governs a
 //! gentler release (less pumping and LF distortion).
 
-use super::StereoEffect;
+use super::{ParamRamp, StereoEffect};
 use crate::dsp::{amp_to_db, db_to_amp, one_pole_coeff};
 
 const LOOKAHEAD_S: f32 = 0.0015;
+/// Ceiling glide time (at least the lookahead is enforced).
+const CEILING_RAMP_S: f32 = 0.02;
+/// True-peak interpolator: taps per phase, and its delay (samples).
+const TP_TAPS: usize = 12;
+const TP_LAG: usize = TP_TAPS / 2;
+const TP_KAISER_BETA: f64 = 3.0;
 const SLOW_ATTACK_S: f32 = 0.12;
 const SLOW_FACTOR: f32 = 3.0;
 /// Gain-computer target relative to the ceiling (-0.0001 dB).
@@ -40,19 +56,46 @@ const GUARD: f32 = 0.999_988;
 /// limiting is required; the step is further smoothed by the attack ramp.
 const SNAP: f32 = 0.999;
 
-/// Smooth saturating safety curve: identity for |x| <= 0.9, then a tanh knee
-/// that approaches ±1.0 asymptotically (C1-continuous at the knee).
+/// Last-resort output safety: identity for |x| <= `ceiling` (so it never
+/// touches limiter output, which is already within the ceiling), above it a
+/// tanh knee that approaches ±1.0 asymptotically (C1-continuous at the knee);
+/// a hard clamp at ±1.0 when the ceiling is 0 dBFS.
 #[inline]
-pub fn soft_clip(x: f32) -> f32 {
-    const KNEE: f32 = 0.9;
-    const HEAD: f32 = 1.0 - KNEE;
+pub fn safety_clip(x: f32, ceiling: f32) -> f32 {
     let a = x.abs();
-    if a <= KNEE {
+    if a <= ceiling {
         x
     } else {
-        let y = KNEE + HEAD * ((a - KNEE) / HEAD).tanh();
+        let head = 1.0 - ceiling;
+        let y = if head > 1e-6 { ceiling + head * ((a - ceiling) / head).tanh() } else { 1.0 };
         y.copysign(x)
     }
+}
+
+/// Polyphase taps of the 4x true-peak interpolator: phase `p` gives the
+/// signal at `(p + 1) / 4` of the way between history samples `TP_LAG - 1`
+/// and `TP_LAG` (history is oldest-first). Kaiser-windowed sinc, each phase
+/// normalized to unity DC gain.
+fn tp_taps() -> [[f32; TP_TAPS]; 3] {
+    let i0 = |x: f64| {
+        let (mut sum, mut term, q) = (1.0, 1.0, x * x / 4.0);
+        for k in 1..50 {
+            term *= q / (k * k) as f64;
+            sum += term;
+        }
+        sum
+    };
+    let half = TP_LAG as f64;
+    std::array::from_fn(|p| {
+        let mut h = [0.0f64; TP_TAPS];
+        for (j, v) in h.iter_mut().enumerate() {
+            let t = (TP_LAG - 1) as f64 + (p + 1) as f64 / 4.0 - j as f64;
+            let sinc = (std::f64::consts::PI * t).sin() / (std::f64::consts::PI * t);
+            *v = sinc * i0(TP_KAISER_BETA * (1.0 - (t / half).powi(2)).max(0.0).sqrt()) / i0(TP_KAISER_BETA);
+        }
+        let s: f64 = h.iter().sum();
+        h.map(|v| (v / s) as f32)
+    })
 }
 
 /// Moving average over a fixed window with exact recovery to unity.
@@ -147,11 +190,23 @@ impl SlidingMin {
 
 pub struct Limiter {
     sr: f32,
-    ceiling: f32,
+    ceiling: ParamRamp,
     release_ms: f32,
     la: usize,
+    /// Audio delay (`la + TP_LAG`) and the ceiling each sample was gained for
+    /// (`la`, gain-computer time).
     delay: [Vec<f32>; 2],
     didx: usize,
+    ceil_delay: Vec<f32>,
+    cidx: usize,
+    /// Highest ceiling among the samples output by the last `process` call.
+    out_ceiling: f32,
+    /// True-peak detector: per-channel history (each sample written twice so
+    /// the last `TP_TAPS` are contiguous), taps, previous segment peak.
+    tp_hist: [[f32; 2 * TP_TAPS]; 2],
+    tp_pos: usize,
+    tp_taps: [[f32; TP_TAPS]; 3],
+    tp_prev: f32,
     min: SlidingMin,
     env_fast: f32,
     env_slow: f32,
@@ -171,13 +226,21 @@ impl Limiter {
         // which must equal the min window LA + 1.
         let n1 = (la + 2) / 2;
         let n2 = la + 2 - n1;
+        let ceiling = db_to_amp(-1.0);
         let mut l = Self {
             sr: sample_rate,
-            ceiling: db_to_amp(-1.0),
+            ceiling: ParamRamp::new(ceiling, ((CEILING_RAMP_S * sample_rate) as u32).max(la as u32)),
             release_ms: 80.0,
             la,
-            delay: [vec![0.0; la], vec![0.0; la]],
+            delay: [vec![0.0; la + TP_LAG], vec![0.0; la + TP_LAG]],
             didx: 0,
+            ceil_delay: vec![ceiling; la],
+            cidx: 0,
+            out_ceiling: ceiling,
+            tp_hist: [[0.0; 2 * TP_TAPS]; 2],
+            tp_pos: 0,
+            tp_taps: tp_taps(),
+            tp_prev: 0.0,
             min: SlidingMin::new(la + 1),
             env_fast: 1.0,
             env_slow: 1.0,
@@ -194,9 +257,17 @@ impl Limiter {
     }
 
     /// Output ceiling in dBFS (clamped to -40 .. 0). Default -1 dBFS.
+    /// Changes glide over 20 ms.
     pub fn set_ceiling_db(&mut self, db: f32) {
         let db = if db.is_finite() { db.clamp(-40.0, 0.0) } else { -1.0 };
-        self.ceiling = db_to_amp(db);
+        self.ceiling.set(db_to_amp(db));
+    }
+
+    /// Upper bound of the output of the last `process` call: the highest
+    /// ceiling its samples were limited to (during a ceiling glide this is
+    /// not the current target). Use as the knee of [`safety_clip`].
+    pub fn output_ceiling(&self) -> f32 {
+        self.out_ceiling
     }
 
     /// Nominal release time in ms (clamped to 5 .. 2000). Default 80 ms.
@@ -212,9 +283,9 @@ impl Limiter {
         (-amp_to_db(self.gain)).max(0.0)
     }
 
-    /// Processing latency (lookahead) in samples.
+    /// Processing latency (lookahead + true-peak interpolator) in samples.
     pub fn latency(&self) -> usize {
-        self.la
+        self.la + TP_LAG
     }
 
     /// Number of samples that needed the final rounding-guard clamp.
@@ -226,12 +297,37 @@ impl Limiter {
 impl StereoEffect for Limiter {
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
         let n = left.len().min(right.len());
-        let c = self.ceiling;
+        let mut out_ceiling = 0.0f32;
         for i in 0..n {
             let (xl, xr) = (left[i], right[i]);
             // Treat non-finite input as silence rather than poisoning state.
             let (xl, xr) = (if xl.is_finite() { xl } else { 0.0 }, if xr.is_finite() { xr } else { 0.0 });
-            let peak = xl.abs().max(xr.abs());
+
+            // True peak around sample b = (this one - TP_LAG): its own value
+            // and the inter-sample peaks of the segments [b-1, b], [b, b+1].
+            let p = self.tp_pos;
+            self.tp_hist[0][p] = xl;
+            self.tp_hist[0][p + TP_TAPS] = xl;
+            self.tp_hist[1][p] = xr;
+            self.tp_hist[1][p + TP_TAPS] = xr;
+            self.tp_pos = if p + 1 == TP_TAPS { 0 } else { p + 1 };
+            let (hl, hr) = (
+                &self.tp_hist[0][self.tp_pos..self.tp_pos + TP_TAPS],
+                &self.tp_hist[1][self.tp_pos..self.tp_pos + TP_TAPS],
+            );
+            let mut seg = 0.0f32;
+            for h in self.tp_taps.iter() {
+                let (mut yl, mut yr) = (0.0f32, 0.0f32);
+                for j in 0..TP_TAPS {
+                    yl += h[j] * hl[j];
+                    yr += h[j] * hr[j];
+                }
+                seg = seg.max(yl.abs()).max(yr.abs());
+            }
+            let peak = hl[TP_LAG - 1].abs().max(hr[TP_LAG - 1].abs()).max(seg).max(self.tp_prev);
+            self.tp_prev = seg;
+
+            let c = self.ceiling.next();
             // Tiny margin (1e-4 dB) so float rounding of the averaged gain can
             // never push a sample over the ceiling.
             let req = if peak > c * GUARD { c * GUARD / peak } else { 1.0 };
@@ -257,7 +353,15 @@ impl StereoEffect for Limiter {
             let g = self.box2.process(self.box1.process(env));
             self.gain = g;
 
-            // Delay line (LA samples): read oldest, write newest.
+            // Ceiling the outgoing sample was gained for (LA steps ago).
+            let co = std::mem::replace(&mut self.ceil_delay[self.cidx], c);
+            self.cidx += 1;
+            if self.cidx == self.la {
+                self.cidx = 0;
+            }
+            out_ceiling = out_ceiling.max(co);
+
+            // Delay line (LA + TP_LAG samples): read oldest, write newest.
             let dl = &mut self.delay[0][self.didx];
             let yl = *dl * g;
             *dl = xl;
@@ -265,16 +369,19 @@ impl StereoEffect for Limiter {
             let yr = *dr * g;
             *dr = xr;
             self.didx += 1;
-            if self.didx == self.la {
+            if self.didx == self.delay[0].len() {
                 self.didx = 0;
             }
 
-            let (ol, or) = (yl.clamp(-c, c), yr.clamp(-c, c));
+            let (ol, or) = (yl.clamp(-co, co), yr.clamp(-co, co));
             if ol != yl || or != yr {
                 self.safety_clamps += 1;
             }
             left[i] = ol;
             right[i] = or;
+        }
+        if n > 0 {
+            self.out_ceiling = out_ceiling;
         }
     }
 
@@ -282,6 +389,14 @@ impl StereoEffect for Limiter {
         self.delay[0].iter_mut().for_each(|v| *v = 0.0);
         self.delay[1].iter_mut().for_each(|v| *v = 0.0);
         self.didx = 0;
+        self.ceiling.snap();
+        let c = self.ceiling.value();
+        self.ceil_delay.iter_mut().for_each(|v| *v = c);
+        self.cidx = 0;
+        self.out_ceiling = c;
+        self.tp_hist = [[0.0; 2 * TP_TAPS]; 2];
+        self.tp_pos = 0;
+        self.tp_prev = 0.0;
         self.min.reset();
         self.env_fast = 1.0;
         self.env_slow = 1.0;
@@ -312,8 +427,11 @@ mod tests {
     fn transparent_below_ceiling() {
         let mut lim = Limiter::new(SR);
         let mut rng = Rng::new(1);
-        let x: Vec<f32> = (0..48000).map(|_| rng.bipolar() * 0.85).collect();
-        let y0: Vec<f32> = (0..48000).map(|_| rng.bipolar() * 0.85).collect();
+        // Full-band white noise overshoots a lot between samples (sample
+        // peak 0.6 reconstructs to +1 dBTP); at 0.3 its true peak is about
+        // -5 dBTP, below the -1 dBFS ceiling.
+        let x: Vec<f32> = (0..48000).map(|_| rng.bipolar() * 0.3).collect();
+        let y0: Vec<f32> = (0..48000).map(|_| rng.bipolar() * 0.3).collect();
         let (mut l, mut r) = (x.clone(), y0.clone());
         run(&mut lim, &mut l, &mut r);
         let la = lim.latency();
@@ -396,20 +514,190 @@ mod tests {
         assert!(l.iter().chain(z.iter()).all(|v| v.is_finite()));
     }
 
+    /// Reconstructed (true) peak: 16x oversampling with a long Kaiser-windowed
+    /// sinc (accurate to < 0.01 dB below 0.45 fs).
+    fn true_peak(x: &[f32]) -> f32 {
+        const H: i64 = 48;
+        let i0 = |x: f64| (1..40).fold((1.0f64, 1.0f64), |(s, t), k| {
+            let t = t * x * x / 4.0 / (k * k) as f64;
+            (s + t, t)
+        }).0;
+        let beta = 9.0;
+        let mut peak = 0.0f64;
+        for i in H..x.len() as i64 - H {
+            for k in 0..16 {
+                let t = i as f64 + k as f64 / 16.0;
+                let mut y = 0.0f64;
+                for j in i - H + 1..=i + H {
+                    let d = t - j as f64;
+                    let sinc = if d == 0.0 { 1.0 } else { (std::f64::consts::PI * d).sin() / (std::f64::consts::PI * d) };
+                    let w = i0(beta * (1.0 - (d / H as f64).powi(2)).max(0.0).sqrt()) / i0(beta);
+                    y += x[j as usize] as f64 * sinc * w;
+                }
+                peak = peak.max(y.abs());
+            }
+        }
+        peak as f32
+    }
+
+    /// Inter-sample peaks: a sine at fs/4 sampled at ±45° has sample peaks
+    /// 3 dB below its true peak; with sample-peak detection only, it passed
+    /// unlimited at +1.6 dBFS (2.6 dB over the -1 dBFS ceiling).
     #[test]
-    fn soft_clip_shape() {
-        assert_eq!(soft_clip(0.5), 0.5);
-        assert_eq!(soft_clip(-0.9), -0.9);
-        assert!(soft_clip(100.0) <= 1.0 && soft_clip(-100.0) >= -1.0);
-        let mut prev = soft_clip(-3.0);
-        for k in -299..300 {
-            let y = soft_clip(k as f32 * 0.01);
-            assert!(y >= prev);
-            prev = y;
+    fn true_peak_stays_below_ceiling() {
+        let c = db_to_amp(-1.0);
+        let n = 9600;
+        let sine: Vec<f32> =
+            (0..n).map(|i| 1.2 * (std::f32::consts::FRAC_PI_2 * i as f32 + std::f32::consts::FRAC_PI_4).sin()).collect();
+        // Loud noise with a slow level swing: program-like (4-pole low-pass
+        // at ~3 kHz) and nearly full-band (2-pole at ~11 kHz, only -15 dB
+        // at Nyquist).
+        let noise = |coef: f32, poles: usize, seed: u64| {
+            let mut rng = Rng::new(seed);
+            let mut st = [0.0f32; 4];
+            (0..n)
+                .map(|i| {
+                    let mut v = rng.gauss();
+                    for s in st.iter_mut().take(poles) {
+                        *s += coef * (v - *s);
+                        v = *s;
+                    }
+                    v * (1.5 + (i as f32 * 0.002).sin()) * 2.0
+                })
+                .collect::<Vec<f32>>()
+        };
+        // 4x detection can miss up to ~0.5 dB of a peak near Nyquist (the
+        // peak falls between the 4x points); ITU-R BS.1770 accepts the same.
+        for (what, x, tol_db) in [
+            ("fs/4 sine at 45 deg", sine, 0.05),
+            ("loud low-passed noise", noise(0.3, 4, 11), 0.15),
+            ("loud near-full-band noise", noise(0.6, 2, 12), 0.5),
+        ] {
+            let mut lim = Limiter::new(SR);
+            let (mut l, mut r) = (x.clone(), x.clone());
+            run(&mut lim, &mut l, &mut r);
+            let skip = 2000; // initial attack
+            let tp = true_peak(&l[skip..]);
+            let sp = max_abs(&l[skip..]);
+            println!(
+                "{what}: in {:+.2} dBTP; out sample peak {:+.2} dBFS, true peak {:+.2} dBTP (ceiling -1.00)",
+                amp_to_db(true_peak(&x[skip..])),
+                amp_to_db(sp),
+                amp_to_db(tp)
+            );
+            assert!(sp <= c);
+            assert!(tp <= c * db_to_amp(tol_db), "{what}: true peak {} dB over the ceiling", amp_to_db(tp / c));
+            assert_eq!(lim.safety_clamps(), 0);
+        }
+    }
+
+    /// Lowering the ceiling while limiting: the samples already in the
+    /// lookahead were gained for the old ceiling; they must not be
+    /// hard-clipped by the new one (the ceiling glides instead).
+    #[test]
+    fn ceiling_change_does_not_hard_clip() {
+        let mut lim = Limiter::new(SR);
+        let mut rng = Rng::new(4);
+        let blk = 64;
+        let mut out = Vec::new();
+        for k in 0..(0.5 * SR) as usize / blk {
+            if k == 200 {
+                lim.set_ceiling_db(-7.0);
+            }
+            let mut l: Vec<f32> = (0..blk).map(|_| rng.gauss()).collect();
+            let mut r: Vec<f32> = (0..blk).map(|_| rng.gauss()).collect();
+            lim.process(&mut l, &mut r);
+            out.extend_from_slice(&l);
+        }
+        // Samples that needed the hard safety clamp (before the fix: the
+        // ones inside the lookahead when the ceiling dropped).
+        println!("ceiling -1 -> -7 dB while limiting: {} hard-clamped samples", lim.safety_clamps());
+        assert_eq!(lim.safety_clamps(), 0);
+        let at = 200 * blk;
+        let c_new = db_to_amp(-7.0);
+        assert!(max_abs(&out[at + (0.03 * SR) as usize..]) <= c_new);
+    }
+
+    /// CPU cost on the master bus. Run with
+    /// `cargo test --release limiter -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bench() {
+        let mut lim = Limiter::new(SR);
+        let mut rng = Rng::new(2);
+        let blk = 64;
+        let input: Vec<f32> = (0..blk).map(|_| rng.gauss() * 2.0).collect();
+        let (mut l, mut r) = (vec![0.0f32; blk], vec![0.0f32; blk]);
+        let mut dt = f64::MAX;
+        for _ in 0..5 {
+            let t0 = std::time::Instant::now();
+            for _ in 0..(10.0 * SR) as usize / blk {
+                l.copy_from_slice(&input);
+                r.copy_from_slice(&input);
+                lim.process(&mut l, &mut r);
+            }
+            dt = dt.min(t0.elapsed().as_secs_f64());
+        }
+        println!("limiter: 10 s of loud stereo at 48 kHz in {:.1} ms ({:.3} % of one core)", dt * 1e3, dt * 10.0);
+    }
+
+    // --- safety clip (tests above also run against the pre-fix limiter) ---
+
+    /// The engine's safety clip after the limiter must not touch anything at
+    /// or below the ceiling. The old fixed 0.9 knee (-0.92 dBFS) waveshaped
+    /// every limited peak once the ceiling was above it.
+    #[test]
+    fn safety_clip_is_transparent_up_to_ceiling() {
+        let old_soft_clip = |x: f32| {
+            let a = x.abs();
+            if a <= 0.9 {
+                x
+            } else {
+                (0.9 + 0.1 * ((a - 0.9) / 0.1).tanh()).copysign(x)
+            }
+        };
+        for db in [-0.3f32, 0.0] {
+            let mut lim = Limiter::new(SR);
+            lim.set_ceiling_db(db);
+            let mut rng = Rng::new(3);
+            let mut l: Vec<f32> = (0..48000).map(|_| rng.gauss() * 1.5).collect();
+            let mut r = l.clone();
+            let (mut touched, mut worst_old, mut worst_new) = (0, 0.0f32, 0.0f32);
+            for (a, b) in l.chunks_mut(64).zip(r.chunks_mut(64)) {
+                lim.process(a, b);
+                let knee = lim.output_ceiling();
+                for &v in a.iter() {
+                    let o = old_soft_clip(v);
+                    touched += (o != v) as usize;
+                    worst_old = worst_old.max(amp_to_db(v.abs() / o.abs()));
+                    let s = safety_clip(v, knee);
+                    worst_new = worst_new.max((s - v).abs());
+                }
+            }
+            println!(
+                "ceiling {db} dBFS: old 0.9-knee clip altered {touched} of 48000 samples (up to {worst_old:.2} dB); \
+                 safety_clip max change {worst_new}"
+            );
+            assert_eq!(worst_new, 0.0);
+        }
+    }
+
+    #[test]
+    fn safety_clip_shape() {
+        for c in [0.5f32, 0.9, 1.0] {
+            assert_eq!(safety_clip(0.5 * c, c), 0.5 * c);
+            assert_eq!(safety_clip(-c, c), -c);
+            assert!(safety_clip(100.0, c) <= 1.0 && safety_clip(-100.0, c) >= -1.0);
+            let mut prev = safety_clip(-3.0, c);
+            for k in -299..300 {
+                let y = safety_clip(k as f32 * 0.01, c);
+                assert!(y >= prev);
+                prev = y;
+            }
         }
         // C1 at the knee
         let e = 1e-3;
-        let slope = (soft_clip(0.9 + e) - soft_clip(0.9)) / e;
+        let slope = (safety_clip(0.9 + e, 0.9) - safety_clip(0.9, 0.9)) / e;
         assert!((slope - 1.0).abs() < 0.02);
     }
 }
