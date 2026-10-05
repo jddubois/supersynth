@@ -193,11 +193,13 @@ pub enum MasterParam {
     /// already lets voices end at about −110 dB of their own scale; this is an opt-in, lower-
     /// quality setting for slow machines (−200 = off, the default).
     ReleaseFloor,
-    /// Retire a released voice once it is this many dB below the (smoothed) output and below
-    /// `ReleaseBelowMixFloor` (0 = off, the default): tails under the music are cut, tails in
-    /// pauses and at the end survive.
+    /// Retire a released voice once it is this many dB below both its part's (smoothed)
+    /// output and the (smoothed) master output (0 = off, the default): tails far under the
+    /// music are cut, tails that are what is left to hear (pauses, the end) play on.
     ReleaseBelowMix,
-    ReleaseBelowMixFloor,
+    /// How those output levels are followed: 0 = power smoothed over ~300 ms, 1 = peak held
+    /// for 1 s, then falling 40 dB/s.
+    ReleaseHold,
 }
 
 impl MasterParam {
@@ -218,7 +220,7 @@ impl MasterParam {
         ("reverbModulation", MasterParam::ReverbModulation),
         ("releaseFloor", MasterParam::ReleaseFloor),
         ("releaseBelowMix", MasterParam::ReleaseBelowMix),
-        ("releaseBelowMixFloor", MasterParam::ReleaseBelowMixFloor),
+        ("releaseHold", MasterParam::ReleaseHold),
     ];
 
     pub fn parse(name: &str) -> Option<MasterParam> {
@@ -231,7 +233,8 @@ impl MasterParam {
         let (lo, hi) = match self {
             MasterParam::Volume | MasterParam::ReverbReturn => (-120.0, 24.0),
             MasterParam::Ceiling => (-40.0, 0.0),
-            MasterParam::ReleaseFloor | MasterParam::ReleaseBelowMixFloor => (-200.0, 0.0),
+            MasterParam::ReleaseFloor => (-200.0, 0.0),
+            MasterParam::ReleaseHold => (0.0, 1.0),
             MasterParam::ReleaseBelowMix => (0.0, 200.0),
             _ => (f32::MIN, f32::MAX),
         };

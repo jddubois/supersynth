@@ -587,12 +587,15 @@ pub struct Engine {
     /// offset given to voices started now (see `render_planar`)
     start_offset: usize,
     /// Opt-in release culling (see [`MasterParam::ReleaseFloor`]): absolute floor (dBFS, −200
-    /// = off), distance below the output level (dB, 0 = off) and that rule's floor; the
-    /// output level (dBFS, power, instant attack and 0.5 s release), and voices retired so far.
+    /// = off), distance below the part's and the master output level (dB, 0 = off), how those
+    /// levels are followed (0 smoothed, 1 peak hold), the levels (dBFS; master last) with
+    /// their hold timers (s), and voices retired so far.
     release_floor_db: f32,
     below_mix_db: f32,
-    below_mix_floor_db: f32,
-    mix_level_db: f32,
+    release_hold: bool,
+    level_db: [f32; MAX_PARTS + 1],
+    level_pow: [f32; MAX_PARTS + 1],
+    level_held_s: [f32; MAX_PARTS + 1],
     pub culled: u64,
     /// free voice slots, highest first (rebuilt after every block: voices end while rendering)
     free: Vec<u32>,
@@ -668,8 +671,10 @@ impl Engine {
             start_offset: 0,
             release_floor_db: -200.0,
             below_mix_db: 0.0,
-            below_mix_floor_db: -100.0,
-            mix_level_db: -200.0,
+            release_hold: false,
+            level_db: [-200.0; MAX_PARTS + 1],
+            level_pow: [0.0; MAX_PARTS + 1],
+            level_held_s: [0.0; MAX_PARTS + 1],
             culled: 0,
             free: (0..slots as u32).rev().collect(),
             split_starts: std::env::var_os("SUPERSYNTH_SPLIT_STARTS").is_some_and(|v| v == "1"),
@@ -1567,9 +1572,9 @@ impl Engine {
             ReverbModulation => rp.modulation = v,
             ReleaseFloor => self.release_floor_db = v,
             ReleaseBelowMix => self.below_mix_db = v,
-            ReleaseBelowMixFloor => self.below_mix_floor_db = v,
+            ReleaseHold => self.release_hold = v >= 0.5,
         }
-        if !matches!(param, Volume | Ceiling | ReverbReturn | ReleaseFloor | ReleaseBelowMix | ReleaseBelowMixFloor) {
+        if !matches!(param, Volume | Ceiling | ReverbReturn | ReleaseFloor | ReleaseBelowMix | ReleaseHold) {
             self.reverb.set_params(rp);
         }
     }
@@ -1751,8 +1756,26 @@ impl Engine {
         self.mix_r[..n].fill(0.0);
         self.send_l[..n].fill(0.0);
         self.send_r[..n].fill(0.0);
+        let culling = self.below_mix_db > 0.0;
+        if culling {
+            // parts without output this block fall silent
+            let mut sounding = [false; MAX_PARTS];
+            for &pi in &self.active_parts {
+                sounding[pi as usize] = true;
+            }
+            for (pi, &on) in sounding.iter().enumerate() {
+                if !on {
+                    self.follow_level(pi, 0.0, n);
+                }
+            }
+        }
         for k in 0..self.active_parts.len() {
             let pi = self.active_parts[k] as usize;
+            if culling {
+                let [pl, pr, _, _] = &self.pout[pi];
+                let p = pl[..n].iter().chain(&pr[..n]).map(|x| x * x).sum::<f32>() / (2 * n) as f32;
+                self.follow_level(pi, p, n);
+            }
             let [pl, pr, sl, sr] = &self.pout[pi];
             for i in 0..n {
                 self.mix_l[i] += pl[i];
@@ -1811,17 +1834,37 @@ impl Engine {
             pk = pk.max(out_l[i].abs()).max(out_r[i].abs());
         }
         self.peak = pk;
-        if self.release_floor_db > -199.0 || self.below_mix_db > 0.0 {
+        if self.below_mix_db > 0.0 {
             let p = out_l.iter().chain(out_r.iter()).map(|x| x * x).sum::<f32>() / (2 * n).max(1) as f32;
-            let db = 10.0 * p.max(1e-20).log10();
-            let a = 1.0 - (-(n as f32) / (0.5 * self.sr)).exp();
-            self.mix_level_db = if db > self.mix_level_db { db } else { self.mix_level_db + (db - self.mix_level_db) * a };
+            self.follow_level(MAX_PARTS, p, n);
         }
         self.collect_free();
     }
 
+    /// Follow output level `i` (a part, or the master at `MAX_PARTS`) given this block's mean
+    /// power `p`: smoothed over ~300 ms, or held for 1 s and then falling 40 dB/s.
+    fn follow_level(&mut self, i: usize, p: f32, n: usize) {
+        let dt = n as f32 / self.sr;
+        if self.release_hold {
+            let db = 10.0 * p.max(1e-20).log10();
+            if db >= self.level_db[i] {
+                self.level_db[i] = db;
+                self.level_held_s[i] = 0.0;
+            } else {
+                self.level_held_s[i] += dt;
+                if self.level_held_s[i] > 1.0 {
+                    self.level_db[i] = (self.level_db[i] - 40.0 * dt).max(db);
+                }
+            }
+        } else {
+            let a = 1.0 - (-dt / 0.3).exp();
+            self.level_pow[i] += (p - self.level_pow[i]) * a;
+            self.level_db[i] = 10.0 * self.level_pow[i].max(1e-20).log10();
+        }
+    }
+
     /// Opt-in: retire (with the 4 ms steal fade) released voices whose output is below the
-    /// release floor, or far below the output and below that rule's floor.
+    /// release floor, or far below both their part's output and the master output.
     fn cull_releases(&mut self) {
         let master = self.master_db;
         for &vi in &self.order {
@@ -1829,9 +1872,12 @@ impl Engine {
             if !v.is_active() || !v.is_released() || v.is_killing() {
                 continue;
             }
-            let level = v.output_level_db() + self.parts[v.part].volume_db + master;
+            // (an upper bound: the voice's partials' amplitudes summed)
+            let part = v.output_level_db() + self.parts[v.part].volume_db;
+            let level = part + master;
             let below_floor = level < self.release_floor_db;
-            let masked = self.below_mix_db > 0.0 && level < self.mix_level_db - self.below_mix_db && level < self.below_mix_floor_db;
+            let x = self.below_mix_db;
+            let masked = x > 0.0 && part < self.level_db[v.part] - x && level < self.level_db[MAX_PARTS] - x;
             if below_floor || masked {
                 v.kill();
                 self.culled += 1;

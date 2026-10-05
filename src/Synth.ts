@@ -42,11 +42,13 @@ export interface SynthSettings {
 export interface ReleaseCulling {
   /** End a released note once its output is below this level (dBFS, e.g. -90 … -70). */
   floorDb?: number;
-  /** End a released note once it is this many dB below the current output level (e.g. 40) and
-   *  below `belowMixFloorDb`: tails under the music end, tails in pauses and at the end play on. */
+  /** End a released note once it is this many dB (e.g. 70) below both its keyboard's output
+   *  and the whole output: tails far under the music end, tails that are what is left to hear
+   *  (pauses, the end of a piece) play on. */
   belowMixDb?: number;
-  /** @default -100 */
-  belowMixFloorDb?: number;
+  /** How `belowMixDb` follows the output levels: `'peak'` holds a peak for 1 s, then lets it
+   *  fall 40 dB/s; `'smooth'` averages the power over about 300 ms. @default 'peak' */
+  hold?: 'peak' | 'smooth';
 }
 
 export interface SynthOptions extends Omit<SynthSettings, 'reverb'> {
@@ -313,7 +315,8 @@ export class Synth extends EventEmitter {
       const on = rc === false ? {} : rc;
       n.setMasterParam('releaseFloor', on.floorDb === undefined ? -200 : clamp(on.floorDb, -200, 0, 'releaseCulling.floorDb'), t);
       n.setMasterParam('releaseBelowMix', on.belowMixDb === undefined ? 0 : clamp(on.belowMixDb, 0, 200, 'releaseCulling.belowMixDb'), t);
-      n.setMasterParam('releaseBelowMixFloor', on.belowMixFloorDb === undefined ? -100 : clamp(on.belowMixFloorDb, -200, 0, 'releaseCulling.belowMixFloorDb'), t);
+      if (on.hold !== undefined && on.hold !== 'peak' && on.hold !== 'smooth') throw new SupersynthError(`releaseCulling.hold must be 'peak' or 'smooth', got ${String(on.hold)}`);
+      n.setMasterParam('releaseHold', on.hold === 'smooth' ? 0 : 1, t);
     }
     return this;
   }

@@ -17,6 +17,7 @@
  *   npm run live-test -- --json out.json       machine-readable results
  *   npm run live-test -- --threads 1           the Synth `threads` option (default: 'auto')
  *   npm run live-test -- --release-floor -80    the Synth `releaseCulling: { floorDb }` option (opt-in)
+ *   npm run live-test -- --below-mix 80 --hold smooth   `releaseCulling: { belowMixDb, hold }`
  *   npm run live-test -- --repeat 3            play each scenario 3 times, keep each buffer's fastest
  *                                              time: the engine's own worst buffers, without the
  *                                              stalls a busy (or virtual) machine adds at random
@@ -46,6 +47,11 @@ const MAX_VOICES = args.includes('--max-voices') ? Number(opt('max-voices', '192
 const THREADS = args.includes('--threads') ? opt('threads', 'auto') : undefined;
 const REPEAT = Math.max(1, Number(opt('repeat', '1')));
 const RELEASE_FLOOR = args.includes('--release-floor') ? Number(opt('release-floor', '-200')) : undefined;
+const BELOW_MIX = args.includes('--below-mix') ? Number(opt('below-mix', '0')) : undefined;
+const HOLD = opt('hold', 'peak') as 'peak' | 'smooth';
+const culling = RELEASE_FLOOR !== undefined || BELOW_MIX !== undefined
+  ? { releaseCulling: { ...(RELEASE_FLOOR !== undefined ? { floorDb: RELEASE_FLOOR } : {}), ...(BELOW_MIX !== undefined ? { belowMixDb: BELOW_MIX, hold: HOLD } : {}) } }
+  : {};
 const budgetMs = (BUFFER / SR) * 1000;
 
 /** A timed key event, delivered live. */
@@ -261,7 +267,7 @@ async function playOnce(sc: Scenario): Promise<Run> {
     quality: QUALITY,
     ...(MAX_VOICES ? { maxVoices: MAX_VOICES } : {}),
     ...(THREADS ? { threads: THREADS === 'auto' ? 'auto' : Number(THREADS) } : {}),
-    ...(RELEASE_FLOOR !== undefined ? { releaseCulling: { floorDb: RELEASE_FLOOR } } : {}),
+    ...culling,
   });
   synth['emulateRealtime'] = true; // the engine is driven here as by real-time output
   const native = synth._native();
@@ -318,6 +324,7 @@ console.log(
     (SLOWDOWN !== 1 ? `, dropouts also counted for a CPU ${SLOWDOWN}× slower` : '') +
     (REPEAT > 1 ? `, each buffer's fastest of ${REPEAT} runs` : '') +
     (RELEASE_FLOOR !== undefined ? `, release culling below ${RELEASE_FLOOR} dBFS` : '') +
+    (BELOW_MIX !== undefined ? `, release culling ${BELOW_MIX} dB below the mix (${HOLD})` : '') +
     '\nload = wall-clock render time / buffer duration (all render threads at work); > 100% is a dropout' +
     '\ncpu = CPU time of all threads / real time (100% = one core busy)\n',
 );
@@ -349,7 +356,7 @@ for (const [k, v] of Object.entries(latencies)) console.log(`  ${k.padEnd(22)} $
 
 const rss = process.memoryUsage().rss / 1048576;
 console.log(`\npeak resident memory of this process: ${rss.toFixed(0)} MB`);
-if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ sampleRate: SR, buffer: BUFFER, seconds: SECONDS, slowdown: SLOWDOWN, quality: QUALITY, threads: THREADS ?? 'auto', repeat: REPEAT, releaseFloor: RELEASE_FLOOR ?? null, results, latencies, rssMb: rss }, null, 2));
+if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ sampleRate: SR, buffer: BUFFER, seconds: SECONDS, slowdown: SLOWDOWN, quality: QUALITY, threads: THREADS ?? 'auto', repeat: REPEAT, releaseFloor: RELEASE_FLOOR ?? null, belowMix: BELOW_MIX ?? null, hold: HOLD, results, latencies, rssMb: rss }, null, 2));
 const failed = results.filter((r) => (SLOWDOWN !== 1 ? r.overSlow : r.over) > 0);
 if (failed.length) {
   console.log(`\nFAIL: dropouts in ${failed.map((r) => r.name).join(', ')}`);
