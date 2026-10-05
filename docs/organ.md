@@ -80,6 +80,14 @@ are drawn and retired. The noises are recorded with the pipes, at their real lev
 churches the blower and the room are louder than a key's click: `noises: { blower: false,
 ambient: false }` keeps only the action; `noises.gain` in a copied definition sets their level).
 
+**CPU.** Each pipe sounding is a voice, and a released pipe stays a voice while its recorded
+room tail dies away. Fast passages on large registrations of the big organs (Friesach,
+Cracow) hold hundreds of voices at once: render them offline, or raise `maxVoices` and expect
+to need a fast machine (not a Raspberry Pi) for live play. Short-press releases cost nothing
+extra (a staccato note plays a shorter recorded tail instead of the long one). Noises add two
+voices for the blower and the room and a short voice per key movement and stop change: leave
+them off where CPU is tight.
+
 ## Presets
 
 A preset (registration) is the stops of each division and the couplers (also: `unisonOff`, the
