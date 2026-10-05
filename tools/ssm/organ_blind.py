@@ -22,9 +22,8 @@ from blind import prep  # noqa: F401  (mono variant)
 from build import wav_cue_seconds
 from engine import read_header, ssrender
 from instruments import BUREA, BUREA_FOLDER, BUREA_STOPS
-from paths import DATA_ROOT
+from paths import DATA_ROOT, existing_model_path
 
-MODELS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'models')
 SAMPLES = os.path.join(DATA_ROOT, 'samples')
 REF = os.path.join(DATA_ROOT, 'organ_ref')
 
@@ -39,7 +38,7 @@ def single_pairs(n: int, rng: random.Random):
         fam = fams[i % len(fams)]
         sid = rng.choice(by_family[fam])
         mid = f'organ/{sid}'
-        path = os.path.join(MODELS, 'organ', f'{sid}.ssm')
+        path = existing_model_path(mid)
         h = read_header(path)
         zones = [z for z in h['zones'] if 0.2 < (z['note'] - 36) / 60 < 0.85] or h['zones']
         z = rng.choice(zones)

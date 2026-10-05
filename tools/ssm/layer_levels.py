@@ -1,5 +1,4 @@
 """Compute per-layer recorded levels from model data and store them in the header."""
-import glob
 import gzip
 import json
 import struct
@@ -51,6 +50,7 @@ def process(path):
 
 
 if __name__ == '__main__':
-    files = sys.argv[1:] or glob.glob('../../models/**/*.ssm', recursive=True)
+    from paths import committed_models
+    files = sys.argv[1:] or committed_models()
     for f in sorted(files):
         print(f.split('models/')[-1], *process(f))

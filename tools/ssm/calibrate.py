@@ -9,10 +9,10 @@ import os
 import numpy as np
 
 from engine import read_header, ssrender
+from paths import MODELS_DIR, existing_model_path
 from patch_header import patch
 
 TARGET_DB = -20.0
-MODELS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'models')
 
 
 def level(path: str) -> float:
@@ -25,7 +25,8 @@ def level(path: str) -> float:
 
 
 def main():
-    files = sorted(glob.glob(os.path.join(MODELS, '*.ssm')))
+    # the root package's models (organs, in their own packages, are calibrated as one below)
+    files = sorted(glob.glob(os.path.join(MODELS_DIR, '*.ssm')))
     corrections = {}
     for f in files:
         h = read_header(f)
@@ -42,10 +43,11 @@ def main():
         if parent in corrections:
             patch(f, {'gainDb': round(h['params']['gainDb'] + corrections[parent], 2)})
             print(f'{os.path.basename(f):32s} follows {parent} ({corrections[parent]:+.1f} dB)')
-    ref = os.path.join(MODELS, 'organ', 'great-principal-8.ssm')
+    ref = existing_model_path('organ/great-principal-8')
     if os.path.exists(ref):
         corr = TARGET_DB - level(ref)
-        for f in sorted(glob.glob(os.path.join(MODELS, 'organ', '*.ssm'))):
+        # the Bureå stops: the reference's directory (Piotr's organs share their own gain)
+        for f in sorted(glob.glob(os.path.join(os.path.dirname(ref), '*.ssm'))):
             h = read_header(f)
             patch(f, {'gainDb': round(h['params']['gainDb'] + corr, 2)})
         print(f'organ stops: {corr:+5.1f} dB (from the Principal 8\')')

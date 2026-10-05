@@ -19,12 +19,11 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 
 from analysis import NOISE_EDGES, Zone, analyze_zone, hz_to_midi, note_name_to_midi
-from paths import DATA_ROOT
+from paths import DATA_ROOT, existing_model_path, model_path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
 DATA = os.path.join(DATA_ROOT, 'samples')
-OUT_DIR = os.environ.get('SSM_OUT_DIR', os.path.join(REPO, 'models'))
+# explicit output directory (flat <dir>/<name>.ssm); None = the committed locations (paths.model_path)
+OUT_DIR = os.environ.get('SSM_OUT_DIR') or None
 
 
 def q_db(db: np.ndarray) -> np.ndarray:
@@ -238,7 +237,8 @@ def collect(spec: dict) -> list[tuple[str, int, str]]:
     return out
 
 
-def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) -> str:
+def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), out_dir: str | None = None) -> str:
+    out_dir = out_dir or OUT_DIR
     if os.environ.get('SSM_OVERRIDES'):
         # experiments: e.g. SSM_OVERRIDES='{"phase_smooth_s": 0.1}'
         spec = {**spec, **json.loads(os.environ['SSM_OVERRIDES'])}
@@ -315,7 +315,7 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
     gain = target - top
     if spec.get('fixed_gain_from'):
         # keep the natural balance between the stops of one organ: share one gain
-        ref_path = os.path.join(OUT_DIR, spec['fixed_gain_from'] + '.ssm')
+        ref_path = existing_model_path(spec['fixed_gain_from'], out_dir)
         if os.path.exists(ref_path) and spec['fixed_gain_from'] != inst_id:
             with gzip.open(ref_path, 'rb') as fh:
                 raw = fh.read()
@@ -342,8 +342,7 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4)) 
     }
     if spec.get('stop'):
         header['stop'] = spec['stop']
-    os.makedirs(OUT_DIR, exist_ok=True)
-    path = os.path.join(OUT_DIR, f'{inst_id}.ssm')
+    path = model_path(inst_id, out_dir)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     size = write_model(path, header, zones)
     # per-layer recorded levels + family velocity range (used by the playback velocity curve)

@@ -16,7 +16,7 @@ import numpy as np
 import soundfile as sf
 
 from compare import metrics
-from paths import DATA_ROOT
+from paths import DATA_ROOT, existing_model_path
 from piotr import load_catalog, load_odf, pipe_stops
 from grandorgue import render_key
 
@@ -95,7 +95,7 @@ def stops(organ):
     odf = load_odf(organ)
     res = {}
     for st in od['stops']:
-        if not os.path.exists(os.path.join(REPO, 'models', st['model'] + '.ssm')):
+        if not os.path.exists(existing_model_path(st['model'])):
             continue
         d = st['division']
         play = {d: CHORD[d]}

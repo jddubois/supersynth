@@ -18,7 +18,7 @@ import soundfile as sf
 from analysis import find_onset, load_mono, midi_to_hz
 from compare import metrics, plot_pair
 from engine import read_header, ssrender
-from paths import DATA_ROOT
+from paths import DATA_ROOT, existing_model_path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
@@ -62,10 +62,10 @@ def sampler_baseline(f, x, sr, nominal, layer, keep_files, items, seconds):
 
 
 def evaluate(model_id, holdout=False, plots=6, notes=None, sets=(), baseline=True, max_tests=None):
-    from build import build, OUT_DIR
+    from build import OUT_DIR
     from instruments import INSTRUMENTS
     spec = dict(INSTRUMENTS[model_id])
-    model_path = os.path.join(OUT_DIR, f'{model_id}.ssm')
+    model_path = existing_model_path(model_id, OUT_DIR)
     test_files = None
     keep_files = []
     if holdout:

@@ -19,7 +19,6 @@ import soundfile as sf
 
 from analysis import find_onset, load_mono
 from build import build, collect
-import build as buildmod
 from engine import read_header, ssrender
 from evaluate import sustain_duration
 from instruments import INSTRUMENTS
@@ -47,12 +46,7 @@ def holdout_model(model_id: str) -> tuple[str, list[tuple[str, int, str]]]:
     if not os.path.exists(path):
         data = os.path.join(DATA_ROOT, 'samples')
         spec['files'] = [os.path.relpath(f, data) for f, _, _ in keep]
-        old = buildmod.OUT_DIR
-        buildmod.OUT_DIR = HOLD
-        try:
-            build(safe, spec)
-        finally:
-            buildmod.OUT_DIR = old
+        build(safe, spec, out_dir=HOLD)
         with open(meta, 'w') as fh:
             json.dump({'test': test}, fh)
     return path, test
