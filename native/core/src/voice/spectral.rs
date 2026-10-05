@@ -19,6 +19,9 @@ const SILENT_DB: f32 = -110.0;
 /// Partials fade out between these angular frequencies (rad/sample; π = Nyquist).
 const NYQ_FADE_LO: f32 = 0.92 * std::f32::consts::PI;
 const NYQ_FADE_HI: f32 = 0.95 * std::f32::consts::PI;
+/// Fade of a voice shed by the overload guard: −12 dB every 2 ms, ended at −60 dB (10 ms; a
+/// stolen voice fades half as fast, to −80 dB).
+const SHED_FADE_S: f32 = 0.002;
 
 /// Live, part-level parameters shared by all voices of a part (cheap to copy).
 #[derive(Clone, Copy, Debug)]
@@ -241,6 +244,13 @@ pub struct SpectralVoice {
     tr_step: [f64; MAX_ZONES],
     has_tr: bool,
     tr_fade: (f32, f32),
+    /// fading out faster than a steal (shed by the overload guard)
+    shed_fade: bool,
+    /// Overload guard's partial cap: partials from `cap` up fade out (soft edge, see
+    /// `apply_cap`); `cap` moves smoothly towards `cap_target`. Infinite: no cap (the normal
+    /// case, which leaves the output untouched).
+    cap: f32,
+    cap_target: f32,
 }
 
 impl Default for SpectralVoice {
@@ -341,6 +351,9 @@ impl Default for SpectralVoice {
             tr_step: [0.0; MAX_ZONES],
             has_tr: false,
             tr_fade: (0.0, 0.0),
+            shed_fade: false,
+            cap: f32::INFINITY,
+            cap_target: f32::INFINITY,
         }
     }
 }
@@ -578,6 +591,9 @@ impl SpectralVoice {
         self.velocity = on.velocity;
         self.state = State::Playing;
         self.kill_gain = 1.0;
+        self.shed_fade = false;
+        self.cap = f32::INFINITY;
+        self.cap_target = f32::INFINITY;
         self.peak_db = 0.0;
     }
 
@@ -612,6 +628,9 @@ impl SpectralVoice {
         self.t_rel = 0.0;
         self.state = State::Playing;
         self.kill_gain = 1.0;
+        self.shed_fade = false;
+        self.cap = f32::INFINITY;
+        self.cap_target = f32::INFINITY;
         self.first_block = true;
         self.vib_phase = on.rng.uniform();
         self.peak_db = 0.0;
@@ -1337,6 +1356,36 @@ impl SpectralVoice {
         }
     }
 
+    /// End the voice with a short fade (−60 dB in 10 ms, twice as fast as [`kill`](Self::kill)):
+    /// the overload guard sheds released voices this way.
+    pub fn shed(&mut self) {
+        self.finish_start();
+        if self.state != State::Done {
+            self.state = State::Killing;
+            self.shed_fade = true;
+        }
+    }
+
+    /// Seconds the note has played (0 before its first block).
+    pub fn time_s(&self) -> f32 {
+        if self.pending.is_some() {
+            0.0
+        } else {
+            self.t
+        }
+    }
+
+    /// The overload guard's partial cap the voice is moving to (infinite: none).
+    pub fn partial_cap(&self) -> f32 {
+        self.cap_target
+    }
+
+    /// Fade out the partials from `cap` up (smoothly, over a few blocks); `f32::INFINITY` fades
+    /// them back in. A new note starts without a cap.
+    pub fn set_partial_cap(&mut self, cap: f32) {
+        self.cap_target = if cap.is_nan() { f32::INFINITY } else { cap.max(0.0) };
+    }
+
     /// Fading out after `kill` (stolen or all-sound-off).
     pub fn is_killing(&self) -> bool {
         self.state == State::Killing
@@ -1362,6 +1411,9 @@ impl SpectralVoice {
     pub fn reset(&mut self) {
         self.pending = None;
         self.state = State::Done;
+        self.shed_fade = false;
+        self.cap = f32::INFINITY;
+        self.cap_target = f32::INFINITY;
         self.re = [0.0; MAX_PARTIALS];
         self.im = [0.0; MAX_PARTIALS];
         self.pend = [0.0; MAX_PARTIALS];
@@ -1531,8 +1583,13 @@ impl SpectralVoice {
             }
         }
         if self.state == State::Killing {
-            self.kill_gain *= 0.25f32.powf(n as f32 / (0.004 * self.sr));
-            if self.kill_gain < 1e-4 {
+            if self.shed_fade {
+                self.kill_gain *= 0.25f32.powf(n as f32 / (SHED_FADE_S * self.sr));
+            } else {
+                self.kill_gain *= 0.25f32.powf(n as f32 / (0.004 * self.sr));
+            }
+            // (a shed voice was quiet to begin with: 60 dB under it is the end)
+            if self.kill_gain < if self.shed_fade { 1e-3 } else { 1e-4 } {
                 self.state = State::Done;
                 return false;
             }
@@ -1640,6 +1697,9 @@ impl SpectralVoice {
             sc.tgt_l[i] = if db < cull { 0.0 } else { fast_db_to_amp(db) };
         }
         self.peak_db = peak;
+        if self.cap != f32::INFINITY || self.cap_target != f32::INFINITY {
+            self.apply_cap(&mut sc.tgt_l[..k], n);
+        }
         // padding lanes up to a multiple of LANES stay silent
         for t in [&mut sc.tgt_l, &mut sc.tgt_r, &mut sc.tgt_s, &mut sc.tgt_ls, &mut sc.jstep] {
             t[k..kp].fill(0.0);
@@ -1986,6 +2046,30 @@ impl SpectralVoice {
             }
         }
         played
+    }
+
+    /// The overload guard's partial cap: move `cap` towards its target (k/64 partials per
+    /// 64-sample block, at least one) and fade the partials above it out over a soft edge
+    /// (each partial fades over about four blocks; a silent group of partials costs nothing).
+    fn apply_cap(&mut self, amp: &mut [f32], n: usize) {
+        let k = amp.len() as f32;
+        let unit = (k / 64.0).max(1.0);
+        let step = unit * n as f32 / BLOCK as f32;
+        let w = 4.0 * unit;
+        let top = k + w;
+        if self.cap == f32::INFINITY {
+            self.cap = top;
+        }
+        let target = self.cap_target.min(top);
+        self.cap = if self.cap > target { (self.cap - step).max(target) } else { (self.cap + step).min(target) };
+        if self.cap_target == f32::INFINITY && self.cap >= top {
+            // back to every partial
+            self.cap = f32::INFINITY;
+            return;
+        }
+        for (i, a) in amp.iter_mut().enumerate() {
+            *a *= ((self.cap - i as f32) / w).clamp(0.0, 1.0);
+        }
     }
 
     fn render_transient(&mut self, m: &Model, out_l: &mut [f32], out_r: &mut [f32], n: usize, common: f32) {
