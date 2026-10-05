@@ -791,8 +791,7 @@ impl Engine {
             return i;
         }
         // all slots busy (including spares): hard-steal the oldest
-        let i = (0..self.voices.len()).min_by_key(|&i| self.voices[i].age).unwrap_or(0);
-        i
+        (0..self.voices.len()).min_by_key(|&i| self.voices[i].age).unwrap_or(0)
     }
 
     fn note_off(&mut self, pi: usize, note: u8) {

@@ -1054,6 +1054,8 @@ impl SpectralVoice {
     }
 
     /// Render one block (n ≤ BLOCK) adding into `out_l`/`out_r`.
+    // the per-partial state lives in parallel arrays indexed by partial: index loops are clearer
+    #[allow(clippy::needless_range_loop)]
     pub fn render(&mut self, out_l: &mut [f32], out_r: &mut [f32], p: &SpectralParams, md: &BlockMod) {
         let n = out_l.len().min(BLOCK);
         if self.state == State::Done || n == 0 {
@@ -1106,13 +1108,12 @@ impl SpectralVoice {
             let last = (z.frames - 1) as f32;
             if np >= last {
                 np = last;
-                if m.kind == Kind::Decaying
+                if (m.kind == Kind::Decaying
                     || self.in_rel_tail
-                    || z.loop_range.is_none() && m.kind == Kind::Sustained && self.state != State::Playing
+                    || z.loop_range.is_none() && m.kind == Kind::Sustained && self.state != State::Playing)
+                    && j == self.dominant
                 {
-                    if j == self.dominant {
-                        ended = true;
-                    }
+                    ended = true;
                 }
             }
             self.pos[j] = np.max(0.0);
@@ -1673,6 +1674,9 @@ static DB_LUT: [f32; 256] = {
 
 /// 2^x, relative error < 2e-7 for x in [-126, 127].
 #[inline]
+// The polynomial's first coefficient is a fitted minimax value that happens to be close to
+// ln 2; it is not meant to be `LN_2` (substituting it would change the fit).
+#[allow(clippy::approx_constant)]
 fn fast_exp2(x: f32) -> f32 {
     let x = x.clamp(-126.0, 126.0);
     let xi = x.floor();

@@ -498,7 +498,7 @@ impl Model {
         let blob = data.get(blob_start..).ok_or("missing blob")?;
         let nb = h.noise_edges.len().saturating_sub(1);
 
-        let mut zones = Vec::with_capacity(h.zones.len());
+        let mut zones: Vec<Zone> = Vec::with_capacity(h.zones.len());
         for hz in &h.zones {
             let k = hz.partials.min(MAX_PARTIALS);
             let kk = hz.partials;
@@ -666,7 +666,6 @@ impl Model {
             velocity_db: p.velocity_db.unwrap_or(d.velocity_db),
         };
 
-        let mut zones = zones;
         for z in zones.iter_mut() {
             z.amps_smooth = smooth_rows(&z.amps, z.frames, z.partials, &z.grid, 0.3);
         }
