@@ -350,6 +350,53 @@ describe('configurations', () => {
     }
   });
 
+  test("Piotr Grabowski's organs: forte and noise models exist; action noises fit their model", () => {
+    const zoneNotes = (model: string) => new Set((header(model).zones as { note: number }[]).map((z) => Math.round(z.note)));
+    for (const organ of Object.values(PIOTR_ORGANS)) {
+      for (const stop of organ.stops) if (stop.forte) expect([stop.id, header(stop.forte).stop.organ]).toEqual([stop.id, organ.id]);
+      const nz = organ.noises;
+      if (!nz) continue;
+      for (const k of Object.values(nz.keys ?? {})) for (const m of [k.down, k.up]) if (m) expect(header(m).zones.length).toBeGreaterThan(0);
+      for (const m of [nz.blower?.model, nz.ambient?.model]) if (m) expect(header(m).kind).toBe('sustained');
+      if (nz.stops) {
+        const notes = zoneNotes(nz.stops);
+        const used = [...organ.stops.map((s) => s.actionNoise), ...[organ.tremulant ?? []].flat().map((t) => t.actionNoise), nz.coupler];
+        for (const pair of used) for (const n of pair ?? []) expect([organ.id, n, notes.has(n)]).toEqual([organ.id, n, true]);
+      }
+    }
+  });
+
+  test("an organ's noises play: blower and room while on, key and stop action", () => {
+    const organ = Object.values(PIOTR_ORGANS).find((o) => o.noises?.blower && o.noises.keys && o.noises.stops);
+    if (!organ) return;
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    const o = synth.add(organ, { preset: {} });
+    expect(rms(synth.render(0.5).left)).toBeLessThan(1e-6);
+    o.set({ noises: true });
+    synth.render(1.5);
+    const bed = rms(synth.render(0.5).left);
+    expect(bed).toBeGreaterThan(1e-6);
+    // the action alone: a key with no stop drawn sounds only its key
+    o.set({ noises: { blower: false, ambient: false } });
+    expect(o.noisesOn()).toEqual({ blower: false, ambient: false, action: true });
+    synth.render(8);
+    expect(rms(synth.render(0.3).left)).toBeLessThan(1e-5);
+    const div = (['great', 'swell', 'positive', 'pedal'] as const).find((d) => organ.noises!.keys![d]);
+    o.division(div!).play(div === 'pedal' ? 'C3' : 'C4', { duration: 0.05 });
+    expect(rms(synth.render(0.3).left)).toBeGreaterThan(1e-4);
+    // a stop drawn: its knob
+    synth.render(2);
+    o.division(div!).pull(o.division(div!).stops()[0]!.name);
+    expect(rms(synth.render(0.5).left)).toBeGreaterThan(1e-4);
+    o.set({ noises: false });
+    synth.render(3);
+    o.division(div!).play('C4', { duration: 0.05 });
+    o.division(div!).push(o.division(div!).stops()[0]!.name);
+    synth.render(3);
+    expect(rms(synth.render(0.5).left)).toBeLessThan(1e-5);
+    synth.remove(o);
+  });
+
   test("each of Piotr Grabowski's organs plays its default preset", () => {
     for (const organ of Object.values(PIOTR_ORGANS)) {
       const synth = new Synth({ sampleRate: 22050, reverb: false });

@@ -4,11 +4,13 @@ Every organ that Piotr Grabowski gives away free at [piotrgrabowski.pl](https://
 analysed stop by stop like the Bureå organ (see [models.md](models.md)). Each stop is analysed from
 the sample set's recordings **as its organ definition plays them**: each pipe's attack and sustain,
 its release crossfaded in at key-up, the definition's retuning and level for every pipe, and
-the borrowed, extended and retuned ranks exactly where the sample set places them. Stops keep the
-organ's own pitch and temperament (an organ at Baroque or historic pitch sounds at that pitch),
-the balance between stops, and the room the pipes were recorded in. Keys where a stop has no pipe
-(a treble-only Cornet) stay silent. Sampled tremulants are measured from the pipes recorded with
-the tremulant on.
+the borrowed, extended and retuned ranks exactly where the sample set places them, and the
+releases recorded after short key presses. Stops keep the organ's own pitch and temperament (an
+organ at Baroque or historic pitch sounds at that pitch), the balance between stops, and the room
+the pipes were recorded in. Keys where a stop has no pipe (a treble-only Cornet) stay silent.
+Swell boxes close as far as the organ definition says; sampled tremulants are measured from the
+pipes recorded with the tremulant on. The machinery noises the sample sets recorded (key and stop
+action, blower, room) play with `noises: true`.
 
 ```ts
 const organ = synth.add('szczecinek', { preset: 'celeste' });
@@ -28,7 +30,7 @@ and may not be sold or built into products for sale — see NOTICE.md.
 | `friesach` | Friesach, St. Bartholomäus | 44 |
 | `giubiasco` | Giubiasco | 22 |
 | `green-positiv` | Green Positiv | 5 |
-| `harmonium` | Harmonium Emil Müller | 16 |
+| `harmonium` | Harmonium Emil Müller | 8 |
 | `ledziny` | Lędziny, St. Clement | 11 |
 | `lipiny` | Lipiny | 25 |
 | `melcer` | Melcer Chamber Music Hall | 18 |
@@ -42,7 +44,7 @@ and may not be sold or built into products for sale — see NOTICE.md.
 
 Mascioni 2016, Azzio (Italy): 11 stops on two manuals and pedal in the Italian style, at a ≈ 420 Hz.
 
-Config: `AZZIO_ORGAN`. Default preset: `ripieno`. Tremulant on the great.
+Config: `AZZIO_ORGAN`. Default preset: `ripieno`. Tremulant on the great and positive.
 
 **Great:** Principale 8', Flauto camino 8', Ottava 4', Sesquialtera 2 2/3', Sesquialtera II, Ripieno 3-4 file
 
@@ -64,7 +66,7 @@ Config: `AZZIO_ORGAN`. Default preset: `ripieno`. Tremulant on the great.
 
 Jacek Siedlar 2004, St. John Cantius, Cracow (Poland): a French-symphonic organ, 40 stops on three manuals (the Récit enclosed) and pedal.
 
-Config: `CRACOW_ORGAN`. Default preset: `fonds`. Tremulant on the swell. In a swell box: swell.
+Config: `CRACOW_ORGAN`. Default preset: `fonds`. Tremulant on the positive. Tremulant on the swell. In a swell box: swell (closes to -4.4 dB).
 
 **Great:** Bourdon 16', Montre 8', Flûte Harmonique 8', Bourdon 8', Viole de Gambe 8', Prestant 4', Flûte douce 4', Doublette 2', Cornet 5x, Plein Jeu 5x, Trompette 8', Clairon 4'
 
@@ -119,7 +121,7 @@ Config: `DLUGA_KOSCIELNA_ORGAN`. Default preset: `principal-chorus`. Tremulant o
 
 Eisenbarth 2000, St. Bartholomäus, Friesach (Austria): 44 stops on three manuals (Hauptwerk, Schwellwerk, a French Solowerk with Trompete en chamade) and pedal with Untersatz 32'.
 
-Config: `FRIESACH_ORGAN`. Default preset: `principal-chorus`. Tremulant on the swell. In a swell box: swell.
+Config: `FRIESACH_ORGAN`. Default preset: `principal-chorus`. Tremulant on the swell. Tremulant on the positive. In a swell box: swell (closes to -4.4 dB).
 
 **Great:** Praestant 16', Principal 8', Holzflöte 8', Röhrflöte 8', Gambe 8', Octave 4', Spitzflöte 4', Quinte 2 2/3', Octave 2', Mixtur major 4-5f. 2 2/3', Mixtur minor 4f. 1 1/3', Trompete 16', Trompete 8'
 
@@ -191,15 +193,15 @@ Config: `GREEN_POSITIV_ORGAN`. Default preset: `continuo`.
 
 ## `harmonium` — Harmonium Emil Müller
 
-Emil Müller, about 1920, Diocesan Music School, Gliwice (Poland): a two-manual harmonium with pedal; 5 registers, divided into bass and treble, each also with its forte.
+Emil Müller, about 1920, Diocesan Music School, Gliwice (Poland): a two-manual harmonium with pedal; 5 registers, divided into bass and treble, and the Forte.
 
-Config: `HARMONIUM_ORGAN`. Default preset: `diapason`. Tremulant on the swell. In a swell box: great, swell, pedal.
+Config: `HARMONIUM_ORGAN`. Default preset: `diapason`. Tremulant on the swell. In a swell box: great, swell, pedal. Each division has a Forte (`division.forte(true)`).
 
-**Great:** Diapason 8', Melodia 8', Diapason 8' Forte, Melodia 8' Forte, Viola 4', Flöte 4', Viola 4' Forte, Flöte 4' Forte
+**Great:** Diapason 8', Melodia 8', Viola 4', Flöte 4'
 
-**Swell:** Dulcet 8', Flöte 8', Dulcet 8' Forte, Flöte 8' Forte, Vox Jubilante 8', Vox Jubilante 8' Forte
+**Swell:** Dulcet 8', Flöte 8', Vox Jubilante 8'
 
-**Pedal:** Diapason 16', Diapason 16' Forte
+**Pedal:** Diapason 16'
 
 | Preset | Description |
 |---|---|
@@ -207,7 +209,7 @@ Config: `HARMONIUM_ORGAN`. Default preset: `diapason`. Tremulant on the swell. I
 | `soft` | Dulcet + Flöte 8' — the soft 8' of manual II |
 | `celeste` | Flöte 8' with Vox Jubilante — the beating treble celeste |
 | `8-4` | Manual I at 8' and 4' |
-| `solo` | Melodia 8' Forte melody (treble) against the soft manual II |
+| `solo` | Melodia 8' with the Forte: a melody in the treble against the soft manual II |
 | `full` | Every register, manual II coupled |
 | `forte` | Every register with the forte mutes open |
 
@@ -261,7 +263,7 @@ Config: `LIPINY_ORGAN`. Default preset: `foundations`.
 
 Walcker 1993, Melcer Chamber Music Hall, Warsaw (Poland): 18 stops on two manuals (the Brustwerk enclosed) and pedal, in a concert hall.
 
-Config: `MELCER_ORGAN`. Default preset: `principal-chorus`. Tremulant on the swell. In a swell box: swell.
+Config: `MELCER_ORGAN`. Default preset: `principal-chorus`. Tremulant on the swell. In a swell box: swell (closes to -8 dB).
 
 **Great:** Nachthorn 8', Prinzipal 4', Nasard 2 2/3', Oktave 2', Mixtur 1 1/3' 4f, Trompete 8'
 
@@ -310,7 +312,7 @@ Config: `RASZCZYCE_ORGAN`. Default preset: `principal-chorus`.
 
 Victor Gonzalez 1931, choir organ of Saint-Jean-Baptiste, Saint-Jean-de-Luz (France): 16 stops on two manuals (both enclosed) and pedal.
 
-Config: `SAINT_JEAN_DE_LUZ_ORGAN`. Default preset: `fonds`. Tremulant on the great. In a swell box: great, swell.
+Config: `SAINT_JEAN_DE_LUZ_ORGAN`. Default preset: `fonds`. Tremulant on the great. In a swell box: great (closes to -8 dB), swell (closes to -8 dB).
 
 **Great:** Bourdon 16', Flûte harmonique 8', Bourdon 8', Prestant 4', Quinte 2 2/3', Doublette 2', Tierce 1 3/5'
 
@@ -334,7 +336,7 @@ Config: `SAINT_JEAN_DE_LUZ_ORGAN`. Default preset: `fonds`. Tremulant on the gre
 
 Wilhelm Sauer 1876, sanctuary of Skrzatusz (Poland): 19 stops on two manuals and pedal.
 
-Config: `SKRZATUSZ_ORGAN`. Default preset: `principal-chorus`. Tremulant on the positive.
+Config: `SKRZATUSZ_ORGAN`. Default preset: `principal-chorus`. Tremulant on the positive. Noises: key action, stop action, blower, room.
 
 **Great:** Bordun 16', Principal 8', Fugara 8', Flûte harmonique 8', Octave 4', Quinte 2 2/3', Octave 2', Cornett 4f, Mixtur 3f
 
@@ -383,7 +385,7 @@ Config: `STRASSBURG_ORGAN`. Default preset: `principal-chorus`.
 
 P. B. Voelkner (Bromberg) 1908, Szczecinek (Poland): a late-Romantic organ, 35 stops on two manuals (the second enclosed) and pedal.
 
-Config: `SZCZECINEK_ORGAN`. Default preset: `foundations`. Tremulant on the swell. In a swell box: swell.
+Config: `SZCZECINEK_ORGAN`. Default preset: `foundations`. Tremulant on the swell. In a swell box: swell (closes to -4.4 dB).
 
 **Great:** Principal 16', Bordun 16', Principal 8', Gambe 8', Salicional 8', Röhrflöte 8', Flûte harmonique 8', Octave 4', Hohlflöte 4', Piccolo 2', Rauschquinte 2 2/3' u. 2', Cornett 2-4 fach, Mixtur 5 fach, Trompete 8'
 

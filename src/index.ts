@@ -3,7 +3,7 @@ export type { SynthOptions, SynthSettings, MidiFileOptions, MidiTarget, AudioBac
 export { Instrument } from './Instrument.js';
 export type { InstrumentOptions } from './Instrument.js';
 export { Organ, Division } from './Organ.js';
-export type { OrganOptions, OrganSettings, DivisionSettings, OrganMidiChannels, OrganMidiOptions } from './Organ.js';
+export type { OrganOptions, OrganSettings, OrganNoiseSettings, DivisionSettings, OrganMidiChannels, OrganMidiOptions } from './Organ.js';
 export type { Playable, PlayOptions, TimeOptions, SequenceStep, SequenceOptions } from './scheduling.js';
 // configurations (also importable on their own from 'supersynth/instruments' and 'supersynth/organs')
 export * from './catalog/index.js';

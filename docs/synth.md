@@ -23,7 +23,7 @@ Six rules hold everywhere:
    report what was last asked for, including changes scheduled for later.
 3. **`set(settings)`** changes some of an object's settings and leaves the rest:
    `synth.set({ volume, reverb })`, `instrument.set({ brightness, … })`,
-   `organ.set({ tremulant, wind })`, `division.set({ stops, couple })`. The settings are those
+   `organ.set({ tremulant, wind, noises })`, `division.set({ stops, couple })`. The settings are those
    the object can be created with.
 4. **Presets** work the same on instruments and organs: `preset(name | object)`, `presets()`,
    `savePreset(name)`, `current()`, `activePreset()`.
@@ -48,7 +48,7 @@ Six rules hold everywhere:
 
 | Method | |
 |---|---|
-| `add(id \| definition, options)` | add an instrument → `Instrument` (options `{ preset, parameters }`), or an organ → `Organ` (options `{ preset, presets, tremulant, wind }`) |
+| `add(id \| definition, options)` | add an instrument → `Instrument` (options `{ preset, parameters }`), or an organ → `Organ` (options `{ preset, presets, tremulant, wind, noises }`) |
 | `instruments()`, `remove(instrument \| organ)` | the instruments and organs added; remove one |
 | `set({ volume, reverb }, { at })` | master volume and room, see [parameters.md](parameters.md#reverb) |
 | `start()` / `stop()` / `close()` | real-time output |

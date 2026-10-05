@@ -304,14 +304,25 @@ export class Division implements Playable {
   }
 }
 
+/** Which of an organ's noises play. */
+export interface OrganNoiseSettings {
+  /** The blower running. */
+  blower: boolean;
+  /** The empty church (its background noise). */
+  ambient: boolean;
+  /** Keys, stop knobs, couplers and tremulants moving. */
+  action: boolean;
+}
+
 /** What {@link Organ.set} changes. */
 export interface OrganSettings {
   /** The tremulants (see {@link OrganDefinition.tremulant}): `true`/`false` for all, or by a
    *  division they shake, `{ swell: true }`. */
   tremulant?: boolean | Partial<Record<DivisionName, boolean>>;
-  /** The sounds of the machinery ({@link OrganDefinition.noises}): blower and room while on,
-   *  key and stop action. Organs without noise recordings ignore it. */
-  noises?: boolean;
+  /** The sounds of the machinery ({@link OrganDefinition.noises}): `true` for all of them, or
+   *  each: the blower and the room while on, the action of the keys, stops, couplers and
+   *  tremulants. Organs without noise recordings ignore it. */
+  noises?: boolean | Partial<OrganNoiseSettings>;
   /** Wind supply: how much the pipes of a division sag together when many start at once
    *  (pressure dip and regulator recovery). 0 = perfectly steady, 1 = flexible historic
    *  winding. */
@@ -358,7 +369,7 @@ export class Organ {
   private midiListener: ((e: MidiEvent) => void) | undefined;
   private readonly trems: TremulantDefinition[];
   private tremOn: boolean[];
-  private noisesOn_ = false;
+  private noiseState: OrganNoiseSettings = { blower: false, ambient: false, action: false };
   /** engine part of the blower, room and stop action; key-noise layers by division */
   private noise: { channel: number; keyLayers: Map<DivisionName, number[]> } | undefined;
 
@@ -444,7 +455,10 @@ export class Organ {
     if (settings.wind !== undefined) {
       for (const d of this.divisions()) n.setParam(d.channel, 'wind', Math.max(0, settings.wind), t);
     }
-    if (settings.noises !== undefined && settings.noises !== this.noisesOn_) this.noises(settings.noises, t);
+    if (settings.noises !== undefined) {
+      const v = settings.noises;
+      this._noises(typeof v === 'boolean' ? { blower: v, ambient: v, action: v } : { ...this.noiseState, ...v }, t);
+    }
     return this;
   }
 
@@ -453,9 +467,9 @@ export class Organ {
     return this.trems.map((definition, i) => ({ definition, on: this.tremOn[i] ?? false }));
   }
 
-  /** Whether the machinery noises are on (see {@link OrganSettings.noises}). */
-  noisesOn(): boolean {
-    return this.noisesOn_;
+  /** Which machinery noises are on (see {@link OrganSettings.noises}). */
+  noisesOn(): OrganNoiseSettings {
+    return { ...this.noiseState };
   }
 
   /** Release every held key on every division. */
@@ -590,7 +604,7 @@ export class Organ {
 
   /** @internal Play the noise of a stop (or coupler, tremulant) being drawn or retired. */
   _stopNoise(stop: { actionNoise?: [number, number] | undefined } | undefined, on: boolean, time: number | undefined): void {
-    if (!this.noisesOn_ || !this.noise || !this.definition.noises?.stops || !stop?.actionNoise) return;
+    if (!this.noiseState.action || !this.noise || !this.definition.noises?.stops || !stop?.actionNoise) return;
     const note = stop.actionNoise[on ? 0 : 1];
     const n = this.synth._native();
     n.noteOn(this.noise.channel, note, 100, time);
@@ -598,10 +612,11 @@ export class Organ {
   }
 
   /** Turn the machinery noises on or off. */
-  private noises(on: boolean, time: number | undefined): void {
+  private _noises(want: OrganNoiseSettings, time: number | undefined): void {
     const nz = this.definition.noises;
-    this.noisesOn_ = on;
-    if (!nz) return;
+    const was = this.noiseState;
+    this.noiseState = want;
+    if (!nz || !(want.blower || want.ambient || want.action || this.noise)) return;
     const n = this.synth._native();
     const gain = nz.gain ?? 0;
     if (!this.noise) {
@@ -629,11 +644,14 @@ export class Organ {
       this.noise = { channel, keyLayers };
     }
     const ch = this.noise.channel;
-    for (const key of [1, 2]) {
+    for (const [key, on, before] of [[1, want.blower, was.blower], [2, want.ambient, was.ambient]] as const) {
+      if (on === before) continue;
       if (on) n.noteOn(ch, key, 100, time);
       else n.noteOff(ch, key, time);
     }
-    for (const d of this.divisions()) for (const li of this.noise.keyLayers.get(d.name) ?? []) n.setLayerEnabled(d.channel, li, on, time);
+    if (want.action !== was.action) {
+      for (const d of this.divisions()) for (const li of this.noise.keyLayers.get(d.name) ?? []) n.setLayerEnabled(d.channel, li, want.action, time);
+    }
   }
 
   private lookup(preset: string | OrganPreset): OrganPreset {
