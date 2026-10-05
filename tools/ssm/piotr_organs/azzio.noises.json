@@ -1,0 +1,93 @@
+{
+ "keys": {
+  "great": {
+   "up": "organ/azzio/noise-keys-great-up",
+   "down": "organ/azzio/noise-keys-great-down"
+  },
+  "pedal": {
+   "down": "organ/azzio/noise-keys-pedal-down",
+   "up": "organ/azzio/noise-keys-pedal-up"
+  },
+  "positive": {
+   "up": "organ/azzio/noise-keys-positive-up",
+   "down": "organ/azzio/noise-keys-positive-down"
+  }
+ },
+ "stops": {
+  "great-flauto-camino-8": [
+   3,
+   4
+  ],
+  "great-ottava-4": [
+   5,
+   6
+  ],
+  "great-principale-8": [
+   7,
+   8
+  ],
+  "great-ripieno-3-4-file": [
+   9,
+   10
+  ],
+  "great-sesquialtera-2-2-3": [
+   11,
+   12
+  ],
+  "great-sesquialtera-ii": [
+   13,
+   14
+  ],
+  "pedal-subbasso-16": [
+   15,
+   16
+  ],
+  "pedal-trombone-16": [
+   17,
+   18
+  ],
+  "positive-bordone-8": [
+   19,
+   20
+  ],
+  "positive-flauto-conico-4": [
+   21,
+   22
+  ],
+  "positive-nazardo-3": [
+   23,
+   24
+  ],
+  "positive-quintadecima-2": [
+   25,
+   26
+  ]
+ },
+ "tremulants": {
+  "tremulant 1 man": [
+   27,
+   28
+  ],
+  "tremulant 2 man": [
+   29,
+   30
+  ]
+ },
+ "couplers": {
+  "coupler 1": [
+   31,
+   32
+  ],
+  "coupler 2": [
+   33,
+   34
+  ],
+  "coupler 3": [
+   35,
+   36
+  ]
+ },
+ "stopsModel": "organ/azzio/noise-stops",
+ "blower": "organ/azzio/noise-blower",
+ "ambient": "organ/azzio/noise-ambient"
+}
