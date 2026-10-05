@@ -1,0 +1,120 @@
+{
+ "keys": {
+  "pedal": {
+   "down": "organ/raszczyce/noise-keys-pedal-down",
+   "up": "organ/raszczyce/noise-keys-pedal-up"
+  },
+  "positive": {
+   "down": "organ/raszczyce/noise-keys-positive-down",
+   "up": "organ/raszczyce/noise-keys-positive-up"
+  },
+  "great": {
+   "down": "organ/raszczyce/noise-keys-great-down",
+   "up": "organ/raszczyce/noise-keys-great-up"
+  }
+ },
+ "stops": {
+  "great-gedekt-fluit-4": [
+   3,
+   4
+  ],
+  "great-mixtuur-iv": [
+   5,
+   6
+  ],
+  "great-nasard-2-2-3": [
+   7,
+   8
+  ],
+  "great-octaaf-4": [
+   9,
+   10
+  ],
+  "great-prestant-8": [
+   11,
+   12
+  ],
+  "great-roerfluit-8": [
+   13,
+   14
+  ],
+  "great-sesquialter-ii": [
+   15,
+   16
+  ],
+  "great-trompet-8": [
+   17,
+   18
+  ],
+  "great-woudfluit-2": [
+   19,
+   20
+  ],
+  "pedal-fagot-16": [
+   21,
+   22
+  ],
+  "pedal-gedekt-8": [
+   23,
+   24
+  ],
+  "pedal-octaaf-4": [
+   25,
+   26
+  ],
+  "pedal-prestant-8": [
+   27,
+   28
+  ],
+  "pedal-subbas-16": [
+   29,
+   30
+  ],
+  "positive-cymbel-iii": [
+   31,
+   32
+  ],
+  "positive-holpijp-8": [
+   33,
+   34
+  ],
+  "positive-kromhoorn-8": [
+   35,
+   36
+  ],
+  "positive-octaaf-2": [
+   37,
+   38
+  ],
+  "positive-prestant-4": [
+   39,
+   40
+  ],
+  "positive-roerfluit-4": [
+   41,
+   42
+  ],
+  "positive-scherp-iv": [
+   43,
+   44
+  ]
+ },
+ "tremulants": {},
+ "couplers": {
+  "coupler 1": [
+   45,
+   46
+  ],
+  "coupler 2": [
+   47,
+   48
+  ],
+  "coupler 3": [
+   49,
+   50
+  ]
+ },
+ "stopsModel": "organ/raszczyce/noise-stops",
+ "blower": "organ/raszczyce/noise-blower",
+ "ambient": "organ/raszczyce/noise-ambient"
+}

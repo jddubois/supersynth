@@ -1,0 +1,108 @@
+{
+ "keys": {
+  "pedal": {
+   "down": "organ/strassburg/noise-keys-pedal-down",
+   "up": "organ/strassburg/noise-keys-pedal-up"
+  },
+  "great": {
+   "down": "organ/strassburg/noise-keys-great-down",
+   "up": "organ/strassburg/noise-keys-great-up"
+  },
+  "positive": {
+   "down": "organ/strassburg/noise-keys-positive-down",
+   "up": "organ/strassburg/noise-keys-positive-up"
+  }
+ },
+ "stops": {
+  "great-flote-4": [
+   3,
+   4
+  ],
+  "great-gedeckt-8": [
+   5,
+   6
+  ],
+  "great-gemshorn-8": [
+   7,
+   8
+  ],
+  "great-mixtur-1-1-3": [
+   9,
+   10
+  ],
+  "great-oktav-1": [
+   11,
+   12
+  ],
+  "great-oktav-2": [
+   13,
+   14
+  ],
+  "great-oktav-4": [
+   15,
+   16
+  ],
+  "great-prinzipal-8": [
+   17,
+   18
+  ],
+  "great-quint-2-2-3": [
+   19,
+   20
+  ],
+  "pedal-gedacktbass-8": [
+   21,
+   22
+  ],
+  "pedal-kontrabass-16": [
+   23,
+   24
+  ],
+  "pedal-oktavbass-8": [
+   25,
+   26
+  ],
+  "pedal-subbass-16": [
+   27,
+   28
+  ],
+  "positive-flote-4": [
+   29,
+   30
+  ],
+  "positive-gedackt-8": [
+   31,
+   32
+  ],
+  "positive-mixtur-1": [
+   33,
+   34
+  ],
+  "positive-oktav-2": [
+   35,
+   36
+  ],
+  "positive-prinzipal-4": [
+   37,
+   38
+  ]
+ },
+ "tremulants": {},
+ "couplers": {
+  "coupler 1": [
+   39,
+   40
+  ],
+  "coupler 2": [
+   41,
+   42
+  ],
+  "coupler 3": [
+   43,
+   44
+  ]
+ },
+ "stopsModel": "organ/strassburg/noise-stops",
+ "blower": "organ/strassburg/noise-blower",
+ "ambient": "organ/strassburg/noise-ambient"
+}
