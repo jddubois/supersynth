@@ -185,6 +185,23 @@ impl NoiseBank {
         self.pow_r = [0.0; MAX_BANDS];
     }
 
+    /// Silence: clear the band powers, overlap-add buffers and filter states.
+    pub fn reset(&mut self) {
+        self.clear_powers();
+        for c in self.ch.iter_mut() {
+            c.ola.fill(0.0);
+        }
+        self.ready = 0;
+        self.read = 0;
+        self.active = false;
+        for band in self.iir.iter_mut().flatten() {
+            for f in band.filt.iter_mut().flatten() {
+                f.reset();
+            }
+            band.gain = [0.0; 2];
+        }
+    }
+
     /// Render the accumulated band powers, adding into `out_l`/`out_r`.
     pub fn render(&mut self, out_l: &mut [f32], out_r: &mut [f32]) {
         self.render_iir(out_l, out_r);

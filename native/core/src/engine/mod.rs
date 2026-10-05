@@ -131,6 +131,12 @@ impl Command {
     }
 }
 
+/// No NaN or infinity in `x` (one multiply-add per sample; vectorises).
+#[inline]
+fn all_finite(x: &[f32]) -> bool {
+    x.iter().fold(0.0f32, |a, &v| a + v * 0.0) == 0.0
+}
+
 /// Seed of a part's noise bank.
 fn noise_seed(part: u16) -> u64 {
     0xB00 + part as u64
@@ -366,6 +372,27 @@ impl Part {
         }
     }
 
+    /// Clear every signal state of the part (effects, noise, smoothers) after a non-finite
+    /// output; its settings stay.
+    fn reset_state(&mut self) {
+        self.eq.reset();
+        self.chorus.reset();
+        self.drive.reset();
+        self.leslie.reset();
+        for f in self.swell_shelf.iter_mut() {
+            f.reset();
+        }
+        if let Some(nb) = self.noise.as_mut() {
+            nb.reset();
+        }
+        self.expression_smoothed = self.expression;
+        self.gain_smoothed = db_to_amp(self.volume_db);
+        self.trem_phase = 0.0;
+        self.wind_avg = 0.0;
+        self.wind_p = 0.0;
+        self.wind_v = 0.0;
+    }
+
     fn reverb_send(&self) -> f32 {
         if self.reverb_send >= 0.0 {
             return self.reverb_send;
@@ -411,6 +438,8 @@ pub struct Engine {
     /// sounding rather than fading out)
     hard_steals: u64,
     hard_steals_sounding: u64,
+    /// times a non-finite signal was silenced and its source reset
+    recoveries: u64,
     age: u64,
     rng: Rng,
     reverb: Reverb,
@@ -457,6 +486,7 @@ impl Engine {
             max_voices: cfg.max_voices,
             hard_steals: 0,
             hard_steals_sounding: 0,
+            recoveries: 0,
             age: 0,
             rng: Rng::new(0x5EED_CAFE),
             reverb: Reverb::new(sr, cfg.reverb),
@@ -586,7 +616,10 @@ impl Engine {
             Command::ControlChange { part, controller, value } => self.cc(part as usize, controller, value),
             Command::PitchBend { part, value } => {
                 if let Some(p) = self.parts.get_mut(part as usize) {
-                    p.bend = value.clamp(-1.0, 1.0);
+                    // (`clamp` passes NaN through, which would silence the part's voices)
+                    if value.is_finite() {
+                        p.bend = value.clamp(-1.0, 1.0);
+                    }
                 }
             }
             Command::SetPartParam { part, param, value } => self.set_part_param(part as usize, param, value),
@@ -1070,30 +1103,32 @@ impl Engine {
 
     fn set_part_param(&mut self, pi: usize, param: PartParam, v: f32) {
         let Some(p) = self.parts.get_mut(pi) else { return };
+        // NaN or infinite values are ignored (one would silence the part, or the whole engine)
+        let Some(v) = param.sanitize(v) else { return };
         use PartParam::*;
         match param {
             Volume => p.volume_db = v,
-            Pan => p.pan = v.clamp(-1.0, 1.0),
+            Pan => p.pan = v,
             ReverbSend => p.reverb_send = v,
             Brightness => p.sp.brightness = v,
             EvenDb => p.sp.even_db = v,
             NoiseDb => p.sp.noise_db = v,
-            AttackScale => p.sp.attack_scale = v.max(0.05),
-            DecayScale => p.sp.decay_scale = v.max(0.05),
-            ReleaseScale => p.sp.release_scale = v.max(0.01),
-            VibratoCents => p.sp.vibrato_cents = v.max(0.0),
-            VibratoRate => p.sp.vibrato_rate = v.max(0.0),
-            VibratoDelay => p.sp.vibrato_delay = v.max(0.0),
-            Expression => p.sp.expression = v.clamp(0.0, 2.0),
+            AttackScale => p.sp.attack_scale = v,
+            DecayScale => p.sp.decay_scale = v,
+            ReleaseScale => p.sp.release_scale = v,
+            VibratoCents => p.sp.vibrato_cents = v,
+            VibratoRate => p.sp.vibrato_rate = v,
+            VibratoDelay => p.sp.vibrato_delay = v,
+            Expression => p.sp.expression = v,
             Formant => p.sp.formant = v,
-            Inharmonicity => p.sp.inharmonicity = v.max(0.0),
+            Inharmonicity => p.sp.inharmonicity = v,
             Spread => p.sp.spread = v,
-            Humanize => p.sp.humanize_cents = v.max(0.0),
-            VelocitySens => p.sp.velocity_sens = v.clamp(0.0, 1.0),
-            MaxPartials => p.sp.max_partials = (v.max(1.0) as usize).min(crate::model::MAX_PARTIALS),
+            Humanize => p.sp.humanize_cents = v,
+            VelocitySens => p.sp.velocity_sens = v,
+            MaxPartials => p.sp.max_partials = v as usize,
             GainDb => p.sp.gain_db = v,
-            Jitter => p.sp.jitter = v.max(0.0),
-            Shimmer => p.sp.shimmer = v.max(0.0),
+            Jitter => p.sp.jitter = v,
+            Shimmer => p.sp.shimmer = v,
             Transpose => p.transpose = v,
             Tune => p.tune_cents = v,
             BendRange => p.bend_range = v,
@@ -1105,10 +1140,10 @@ impl Engine {
                     p.mono = true;
                 }
             }
-            Glide => p.glide = v.max(0.0),
-            TremDepth => p.trem_db = v.max(0.0),
-            TremPitch => p.trem_cents = v.max(0.0),
-            TremRate => p.trem_rate = v.max(0.0),
+            Glide => p.glide = v,
+            TremDepth => p.trem_db = v,
+            TremPitch => p.trem_cents = v,
+            TremRate => p.trem_rate = v,
             EqLowDb => p.eq_params.low_gain_db = v,
             EqLowHz => p.eq_params.low_freq = v,
             EqMidDb => p.eq_params.mid_gain_db = v,
@@ -1119,19 +1154,19 @@ impl Engine {
             LowCut => p.eq_params.low_cut_hz = v,
             HighCut => p.eq_params.high_cut_hz = v,
             ChorusMix => {
-                p.chorus_params.mix = v.clamp(0.0, 1.0);
+                p.chorus_params.mix = v;
                 p.chorus_on = v > 0.0;
             }
             ChorusRate => p.chorus_params.rate_hz = v,
             ChorusDepth => p.chorus_params.depth_ms = v,
             DriveAmount => {
-                p.drive_params.0 = v.max(1.0);
+                p.drive_params.0 = v;
                 p.drive_on = v > 1.0;
             }
             DriveTone => p.drive_params.2 = v,
             DriveLevel => p.drive_params.3 = v,
             SwellBox => p.swell_box = v >= 0.5,
-            Wind => p.wind = v.clamp(0.0, 4.0),
+            Wind => p.wind = v,
             Leslie => {
                 p.leslie_on = v >= 1.0;
                 p.leslie.set_speed(match v as i32 {
@@ -1156,6 +1191,7 @@ impl Engine {
 
     fn set_master_param(&mut self, param: MasterParam, v: f32) {
         use MasterParam::*;
+        let Some(v) = param.sanitize(v) else { return };
         let mut rp = self.reverb.params();
         match param {
             Volume => self.master_db = v,
@@ -1329,6 +1365,18 @@ impl Engine {
                 }
             }
 
+            // A non-finite sample (an extreme model or state) would poison the mix, the reverb
+            // and the limiter for good: silence this part and restart it from a clean state.
+            if !all_finite(&self.part_l[..n]) || !all_finite(&self.part_r[..n]) {
+                self.part_l[..n].fill(0.0);
+                self.part_r[..n].fill(0.0);
+                for v in self.voices.iter_mut().filter(|v| v.part == pi) {
+                    v.reset();
+                }
+                p.reset_state();
+                self.recoveries += 1;
+            }
+
             // volume (smoothed) and sends
             let target = db_to_amp(p.volume_db);
             let g0 = p.gain_smoothed;
@@ -1349,6 +1397,12 @@ impl Engine {
 
         // reverb send/return
         self.reverb.process(&mut self.send_l[..n], &mut self.send_r[..n]);
+        if !all_finite(&self.send_l[..n]) || !all_finite(&self.send_r[..n]) {
+            self.send_l[..n].fill(0.0);
+            self.send_r[..n].fill(0.0);
+            self.reverb.reset();
+            self.recoveries += 1;
+        }
         let ret = db_to_amp(self.reverb_return_db);
         let target = db_to_amp(self.master_db);
         let g0 = self.master_gain_smoothed;
@@ -1360,6 +1414,13 @@ impl Engine {
             out_r[i] = (self.mix_r[i] + self.send_r[i] * ret) * g;
         }
         self.master_gain_smoothed = target;
+        if !all_finite(out_l) || !all_finite(out_r) {
+            out_l.fill(0.0);
+            out_r.fill(0.0);
+            self.reverb.reset();
+            self.limiter.reset();
+            self.recoveries += 1;
+        }
         self.limiter.process(out_l, out_r);
         let mut pk = self.peak;
         for i in 0..n {
@@ -1574,6 +1635,71 @@ mod tests {
         assert!(eng.voices.iter().filter(|v| v.is_active() && !v.is_killing()).all(|v| v.note >= 58));
         render(&mut eng, 4800);
         assert_eq!(eng.active_voices(), 16, "stolen voices finish their fade");
+    }
+
+    fn finite_and_audible(l: &[f32], r: &[f32]) -> bool {
+        l.iter().chain(r).all(|v| v.is_finite()) && rms(l) > 1e-4 && rms(r) > 1e-4
+    }
+
+    #[test]
+    fn non_finite_parameters_are_ignored() {
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(testing::model()))).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        // (a NaN pitch bend used to silence the whole engine for good)
+        ctl.send(0, Command::PitchBend { part: 0, value: f32::NAN }).unwrap();
+        let (l, r) = render(&mut eng, 4800);
+        assert!(finite_and_audible(&l, &r));
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            for &(_, param) in PartParam::ALL {
+                ctl.send(0, Command::SetPartParam { part: 0, param, value: bad }).unwrap();
+            }
+            for &(_, param) in MasterParam::ALL {
+                ctl.send(0, Command::SetMasterParam { param, value: bad }).unwrap();
+            }
+            ctl.send(0, Command::SetLayerGain { part: 0, layer: 0, gain_db: bad }).unwrap();
+            let (l, r) = render(&mut eng, 4800);
+            assert!(finite_and_audible(&l, &r), "after {bad} parameters");
+        }
+        // huge finite values are clamped to something playable
+        for &(_, param) in PartParam::ALL {
+            ctl.send(0, Command::SetPartParam { part: 0, param, value: 1e30 }).unwrap();
+            ctl.send(0, Command::SetPartParam { part: 0, param, value: -1e30 }).unwrap();
+        }
+        ctl.send(0, Command::NoteOn { part: 0, note: 64, velocity: 100 }).unwrap();
+        let (l, r) = render(&mut eng, 9600);
+        assert!(l.iter().chain(&r).all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn the_engine_recovers_from_a_non_finite_voice_or_reverb() {
+        let good = testing::model();
+        let mut bad = Model::clone(&good);
+        bad.zones[0].ratios[0] = f32::NAN; // something a voice turns into NaN samples
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(good.clone()))).unwrap();
+        ctl.send(0, Command::set_instrument(1, Instrument::single(Arc::new(bad)))).unwrap();
+        ctl.send(0, Command::SetPartParam { part: 0, param: PartParam::ReverbSend, value: 0.5 }).unwrap();
+        ctl.send(0, Command::SetPartParam { part: 1, param: PartParam::ReverbSend, value: 0.5 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 1, note: 67, velocity: 100 }).unwrap();
+        let (l, r) = render(&mut eng, 4800);
+        assert!(finite_and_audible(&l, &r), "the poisoned part is silenced, the others play on");
+        assert!(eng.recoveries > 0);
+        assert!(!eng.voices.iter().any(|v| v.is_active() && v.part == 1));
+        // the part plays again with a sound instrument
+        ctl.send(0, Command::set_instrument(1, Instrument::single(good))).unwrap();
+        ctl.send(0, Command::NoteOff { part: 0, note: 60 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 1, note: 67, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        assert!(eng.voices.iter().any(|v| v.is_active() && v.part == 1 && !v.is_released()));
+        // a reverb whose state went non-finite is cleared, and its tail comes back
+        let (mut nl, mut nr) = ([f32::NAN; 64], [f32::INFINITY; 64]);
+        eng.reverb.process(&mut nl, &mut nr);
+        let (l, r) = render(&mut eng, 9600);
+        assert!(l.iter().chain(&r).all(|v| v.is_finite()));
+        assert!(rms(&l[4800..]) > 1e-4 && rms(&r[4800..]) > 1e-4);
     }
 
     #[test]
