@@ -90,10 +90,12 @@ organ.great.play('C4');
 await organ.ready;               // optional: every stop is loaded (~0.5 s on a desktop)
 ```
 
-A stop drawn before its model has loaded still sounds at once: the call waits for that one
-model only (it is loaded on the spot if no background thread has started it), typically a few
-tens of milliseconds on a desktop. Offline rendering is therefore unaffected: a stop drawn just
-before `render()` is in the rendered audio.
+A stop drawn before its model has loaded never holds up playing. With real-time output running
+the call returns at once and the stop sounds as soon as its model has loaded (it is moved to the
+front: a few tens of milliseconds on a desktop); `drawn()` lists it meanwhile, and retiring it
+first means it never sounds. Offline, the call waits for that one model only (loaded on the spot
+if no background thread has started it), and `render()` waits for any stop drawn in real time
+that is still loading, so a render always contains exactly what was drawn.
 
 The `preload` option of `synth.add()` chooses what loads in the background:
 
@@ -108,7 +110,8 @@ Decoded, the largest organs take about 325 MB (Friesach, 44 stops), 265 MB (Bure
 it. A model that fails to load in the background (a damaged file) rejects `organ.ready` with a
 `SupersynthError`, is emitted as the synth's `'error'` event when it has listeners, and drawing
 that stop throws the same error; the other stops play. Removing the organ (or `synth.close()`)
-stops its loading. The background threads are the CPU's cores less two (1–6), at a low
+stops its loading. Unloaded models are freed on a background thread once the engine has let
+go of them, never inside a render or the audio callback. The background threads are the CPU's cores less two (1–6), at a low
 priority so that they yield to the audio and JavaScript threads; `$SUPERSYNTH_LOAD_THREADS` sets
 their number.
 

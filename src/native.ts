@@ -44,6 +44,10 @@ export interface NativeEngine {
   /** Calls back once all these models have loaded (or been unloaded): with null, or the first
    *  loading error. The wait does not keep Node.js running. */
   watchModels(ids: number[], callback: (error: string | null) => void): void;
+  /** Load these models next, before the other models queued. */
+  hurryModels(ids: number[]): void;
+  /** Whether a model is still loading in the background (a use would wait for it). */
+  modelLoading(id: number): boolean;
   /** Decoded size of a model in bytes, or null while it is still loading. */
   modelBytes(id: number): number | null;
   unloadModel(id: number): void;
@@ -70,6 +74,8 @@ export interface NativeEngine {
   listAudioBackends(): string[];
   enableMidi(deviceName: string | null | undefined, route: boolean, callback: (bytes: Buffer) => void): void;
   disableMidi(): void;
+  /** Stop and let go of every instrument and model now (the engine stays usable, empty). */
+  releaseResources(): void;
 }
 
 /** @internal */

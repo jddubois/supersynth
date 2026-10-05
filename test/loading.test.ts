@@ -72,6 +72,43 @@ describe('background model loading', () => {
     expect(late).toEqual(loaded);
   });
 
+  test('in real time, a stop drawn while its model loads does not wait: it sounds once loaded', async () => {
+    const synth = new Synth({ sampleRate: 22050, reverb: false });
+    synth['emulateRealtime'] = true;
+    const organ = synth.add('burea', { preset: 'flute-8', preload: 'all' });
+    const all = organModels(BUREA_ORGAN);
+    // the last models queued are still loading right after add()
+    const stops = BUREA_ORGAN.stops.filter((s) => all.indexOf(stopModel(s)) >= all.length - 6 && !presetModels('flute-8').includes(stopModel(s)));
+    const loading = stops.filter((s) => synth._native().modelLoading(synth._modelId(stopModel(s))));
+    expect(loading.length).toBeGreaterThan(1);
+    const [a, b] = loading as [typeof stops[0], typeof stops[0]];
+    const t0 = performance.now();
+    organ.division(a.division).pull(a.name);
+    organ.division(b.division).pull(b.name);
+    expect(performance.now() - t0).toBeLessThan(20); // (a model takes longer than that to load)
+    expect(organ.division(a.division).drawn()).toContain(a.name);
+    organ.division(b.division).push(b.name); // retired before it had loaded: never sounds
+    await organ.ready;
+    await new Promise((r) => setTimeout(r, 20));
+    const layers = (d: string) => organ.division(d as 'great')['layers'] as Map<string, number>;
+    expect(layers(a.division).has(a.name)).toBe(true);
+    expect(layers(b.division).has(b.name)).toBe(false);
+    expect(organ.division(b.division).drawn()).not.toContain(b.name);
+    organ.division(a.division).play(a.division === 'pedal' ? 'C3' : 'C4', { duration: 0.3 });
+    expect(rms(synth.render(0.4).left)).toBeGreaterThan(1e-4);
+    // drawn in real time and rendered offline before it loaded: render() waits for it
+    synth.close();
+    const s2 = new Synth({ sampleRate: 22050, reverb: false });
+    s2['emulateRealtime'] = true;
+    const o2 = s2.add('burea', { preset: 'flute-8', preload: 'all' });
+    o2.division(a.division).pull(a.name);
+    s2['emulateRealtime'] = false;
+    o2.division(a.division).play(a.division === 'pedal' ? 'C3' : 'C4', { duration: 0.3 });
+    expect(rms(s2.render(0.4).left)).toBeGreaterThan(1e-4);
+    expect((o2.division(a.division)['layers'] as Map<string, number>).has(a.name)).toBe(true);
+    s2.close();
+  });
+
   test('removing an organ (or closing the synth) while it loads drops its models and settles ready', async () => {
     const synth = new Synth({ sampleRate: 22050, reverb: false });
     const flute = synth.add('flute');
