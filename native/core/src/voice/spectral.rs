@@ -149,6 +149,12 @@ pub struct SpectralVoice {
     look_i: [[u16; MAX_PARTIALS]; MAX_ZONES],
     look_f: [[f32; MAX_PARTIALS]; MAX_ZONES],
     look_db: [[f32; MAX_PARTIALS]; MAX_ZONES],
+    /// per zone: every lookup is the slot's own partial (no formant shift), and whether any
+    /// lookup interpolates between two partials
+    look_ident: [bool; MAX_ZONES],
+    any_fr: [bool; MAX_ZONES],
+    /// harmonic slots without a morph offset (enveloped from every zone)
+    n_nomorph: usize,
     /// tilt + even/odd offset per partial, recomputed when those parameters change
     stat_db: [f32; MAX_PARTIALS],
     stat_key: (f32, f32),
@@ -168,6 +174,8 @@ pub struct SpectralVoice {
     pulse_inc: f32,
     /// per-sample noise envelope of the last rendered block (when `pulse_on`)
     pub pulse_buf: [f32; BLOCK],
+    /// samples of `pulse_buf` filled by the last block
+    pulse_len: usize,
     pub pulse_on: bool,
     /// recorded stereo: right channel = Re(e^{iφ}·rotator): cos φ / sin φ per partial, and the
     /// quadrature gain ramp of the right channel
@@ -264,6 +272,9 @@ impl Default for SpectralVoice {
             look_i: [[0; MAX_PARTIALS]; MAX_ZONES],
             look_f: [[0.0; MAX_PARTIALS]; MAX_ZONES],
             look_db: [[0.0; MAX_PARTIALS]; MAX_ZONES],
+            look_ident: [false; MAX_ZONES],
+            any_fr: [false; MAX_ZONES],
+            n_nomorph: 0,
             stat_db: [0.0; MAX_PARTIALS],
             stat_key: (f32::NAN, f32::NAN),
             morph_off: [0.0; MAX_PARTIALS],
@@ -275,6 +286,7 @@ impl Default for SpectralVoice {
             pulse_ph: 0.0,
             pulse_inc: 0.0,
             pulse_buf: [1.0; BLOCK],
+            pulse_len: BLOCK,
             pulse_on: false,
             st_c: [1.0; MAX_PARTIALS],
             st_s: [0.0; MAX_PARTIALS],
@@ -574,6 +586,11 @@ impl SpectralVoice {
                 self.morph_off[i] = sum - dom;
                 self.morph_ok[i] = true;
             }
+        }
+        self.n_nomorph = self.morph_ok[..k].iter().filter(|&&ok| !ok).count();
+        for j in 0..self.nz {
+            self.look_ident[j] = (0..k).all(|i| self.look_i[j][i] as usize == i && self.look_f[j][i] == 0.0);
+            self.any_fr[j] = self.look_f[j][..k].iter().any(|&f| f > 0.0);
         }
         // free (inharmonic) partials: each zone contributes its own, crossfaded in power
         for j in 0..self.nz {
@@ -947,6 +964,53 @@ impl SpectralVoice {
         }
     }
 
+    /// Zone `j`'s own envelope (dB, cubic between frames) for harmonic slots 0..kh.
+    #[inline(always)]
+    fn zone_envelope(&self, j: usize, r: &ZoneRows, out: &mut [f32; MAX_PARTIALS], g: &mut Gather, kh: usize) {
+        let (khj, t, look) = (r.kh[j], r.ft[j], &self.look_i[j]);
+        let ident = self.look_ident[j];
+        gather_db(&mut g.a, r.rowm[j], look, 0, khj, kh, ident);
+        gather_db(&mut g.b, r.row0[j], look, 0, khj, kh, ident);
+        gather_db(&mut g.c, r.row1[j], look, 0, khj, kh, ident);
+        gather_db(&mut g.d, r.row2[j], look, 0, khj, kh, ident);
+        for i in 0..kh {
+            out[i] = cubic_sel(g.a[i], g.b[i], g.c[i], g.d[i], t);
+        }
+        if self.any_fr[j] {
+            // between two partials of the same parity (formant shift)
+            gather_db(&mut g.a, r.rowm[j], look, 2, khj, kh, false);
+            gather_db(&mut g.b, r.row0[j], look, 2, khj, kh, false);
+            gather_db(&mut g.c, r.row1[j], look, 2, khj, kh, false);
+            gather_db(&mut g.d, r.row2[j], look, 2, khj, kh, false);
+            let fr = &self.look_f[j];
+            for i in 0..kh {
+                let c2 = cubic_sel(g.a[i], g.b[i], g.c[i], g.d[i], t);
+                out[i] = if fr[i] > 0.0 { lerp(out[i], c2, fr[i]) } else { out[i] };
+            }
+        }
+    }
+
+    /// Zone `j`'s smoothed envelope (dB, linear between frames) for harmonic slots 0..kh.
+    #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
+    fn zone_smooth(&self, j: usize, s0: &[u16], s1: &[u16], khj: usize, ft: f32, out: &mut [f32; MAX_PARTIALS], g: &mut Gather, kh: usize) {
+        let (look, ident) = (&self.look_i[j], self.look_ident[j]);
+        gather_db(&mut g.a, s0, look, 0, khj, kh, ident);
+        gather_db(&mut g.b, s1, look, 0, khj, kh, ident);
+        for i in 0..kh {
+            out[i] = lerp(g.a[i], g.b[i], ft);
+        }
+        if self.any_fr[j] {
+            gather_db(&mut g.a, s0, look, 2, khj, kh, false);
+            gather_db(&mut g.b, s1, look, 2, khj, kh, false);
+            let fr = &self.look_f[j];
+            for i in 0..kh {
+                let c2 = lerp(g.a[i], g.b[i], ft);
+                out[i] = if fr[i] > 0.0 { lerp(out[i], c2, fr[i]) } else { out[i] };
+            }
+        }
+    }
+
     /// Apply the rotation owed to partials [a, b) while they were silent.
     fn apply_pending(&mut self, a: usize, b: usize) {
         for i in a..b.min(MAX_PARTIALS) {
@@ -1126,21 +1190,68 @@ impl SpectralVoice {
     }
 
     /// Render one block (n ≤ BLOCK) adding into `out_l`/`out_r`.
+    pub fn render(&mut self, out_l: &mut [f32], out_r: &mut [f32], p: &SpectralParams, md: &BlockMod) {
+        let mut scratch = VoiceScratch::default();
+        self.render_with(&mut scratch, out_l, out_r, p, md);
+    }
+
+    /// [`render`](Self::render) with caller-provided scratch memory (one per rendering thread).
+    pub fn render_with(&mut self, scratch: &mut VoiceScratch, out_l: &mut [f32], out_r: &mut [f32], p: &SpectralParams, md: &BlockMod) {
+        self.render_split(scratch, out_l, out_r, None, p, md);
+    }
+
+    /// Whether the next block plays part of the recorded attack transient (which
+    /// [`render_split`](Self::render_split) can write to its own buffers).
+    pub fn plays_transient(&self) -> bool {
+        self.state != State::Done && self.has_tr && self.t < self.tr_fade.1
+    }
+
+    /// [`render_with`](Self::render_with), adding the recorded attack transient (if it plays)
+    /// to `tr` (left, right) instead of `out`: summing a voice's transient and its partials
+    /// into a mix one after the other (as `render_with` does) then gives exactly the same sum.
+    /// Returns whether the transient played.
+    pub fn render_split(&mut self, scratch: &mut VoiceScratch, out_l: &mut [f32], out_r: &mut [f32], tr: Option<(&mut [f32], &mut [f32])>, p: &SpectralParams, md: &BlockMod) -> bool {
+        if self.state == State::Done || out_l.is_empty() {
+            return false;
+        }
+        // (moved out and back: cloning the Arc would bump a reference count shared with every
+        // other voice of the model, on every rendering thread, every block)
+        let Some(model) = self.model.take() else {
+            self.state = State::Done;
+            return false;
+        };
+        let played = if crate::dsp::simd::wide() {
+            // SAFETY: the CPU supports the wide instruction set (checked at run time)
+            unsafe { self.render_wide(&model, scratch, out_l, out_r, tr, p, md) }
+        } else {
+            self.render_model(&model, scratch, out_l, out_r, tr, p, md)
+        };
+        self.model = Some(model);
+        played
+    }
+
+    /// The same code compiled for AVX2 (x86-64 CPUs that have it). Only the instruction
+    /// selection differs: every operation, and its order, is the same, so the output is
+    /// bit-identical to the baseline build.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn render_wide(&mut self, m: &Model, scratch: &mut VoiceScratch, out_l: &mut [f32], out_r: &mut [f32], tr: Option<(&mut [f32], &mut [f32])>, p: &SpectralParams, md: &BlockMod) -> bool {
+        self.render_model(m, scratch, out_l, out_r, tr, p, md)
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn render_wide(&mut self, m: &Model, scratch: &mut VoiceScratch, out_l: &mut [f32], out_r: &mut [f32], tr: Option<(&mut [f32], &mut [f32])>, p: &SpectralParams, md: &BlockMod) -> bool {
+        self.render_model(m, scratch, out_l, out_r, tr, p, md)
+    }
+
     // the per-partial state lives in parallel arrays indexed by partial: index loops are clearer
     #[allow(clippy::needless_range_loop)]
-    pub fn render(&mut self, out_l: &mut [f32], out_r: &mut [f32], p: &SpectralParams, md: &BlockMod) {
+    #[inline(always)]
+    #[allow(clippy::too_many_arguments)]
+    fn render_model(&mut self, m: &Model, sc: &mut VoiceScratch, out_l: &mut [f32], out_r: &mut [f32], tr: Option<(&mut [f32], &mut [f32])>, p: &SpectralParams, md: &BlockMod) -> bool {
         let n = out_l.len().min(BLOCK);
-        if self.state == State::Done || n == 0 {
-            return;
-        }
-        let model = match &self.model {
-            Some(m) => Arc::clone(m),
-            None => {
-                self.state = State::Done;
-                return;
-            }
-        };
-        let m: &Model = &model;
         let dt = n as f32 / self.sr;
         let k = self.k;
         let kp = k.div_ceil(LANES) * LANES;
@@ -1217,7 +1328,7 @@ impl SpectralVoice {
             self.kill_gain *= 0.25f32.powf(n as f32 / (0.004 * self.sr));
             if self.kill_gain < 1e-4 {
                 self.state = State::Done;
-                return;
+                return false;
             }
         }
         if ended {
@@ -1232,7 +1343,6 @@ impl SpectralVoice {
         }
 
         // ── target amplitudes ──────────────────────────────────────────────
-        let mut peak = -200.0f32;
         let common = self.gain_db + 20.0 * (md.expression_gain.max(1e-6)).log10() + 20.0 * self.kill_gain.max(1e-9).log10();
         let inv_n = 1.0 / n as f32;
         if p.brightness != self.stat_key.0 || p.even_db != self.stat_key.1 {
@@ -1268,67 +1378,68 @@ impl SpectralVoice {
         }
         // partials more than 96 dB below the loudest are inaudible: skip them
         let cull = (self.peak_db - 96.0).max(SILENT_DB);
-        let mut tgt_l = [0.0f32; MAX_PARTIALS];
-        let mut tgt_r = [0.0f32; MAX_PARTIALS];
         let kh = self.k_h;
-        for i in 0..k {
-            let mut db;
-            if i < kh && self.morph_ok[i] {
-                let j = self.dominant;
-                let ii = self.look_i[j][i] as usize;
-                let fr = self.look_f[j][i];
-                let khj = kh_z[j];
-                let q = |row: &[u16], idx: usize| if idx < khj { a16_to_db(row[idx]) } else { -200.0 };
-                let ft = ftj[j];
-                let mut v = cubic(q(rowm[j], ii), q(row0[j], ii), q(row1[j], ii), q(row2[j], ii), ft);
-                if fr > 0.0 {
-                    v = lerp(v, cubic(q(rowm[j], ii + 2), q(row0[j], ii + 2), q(row1[j], ii + 2), q(row2[j], ii + 2), ft), fr);
-                }
-                db = v + self.look_db[j][i] + zgain[j] + self.morph_off[i];
-            } else if i < kh {
-                db = 0.0;
-                let detail = self.nz > 1 && !srow0[self.dominant].is_empty();
-                for j in 0..self.nz {
-                    let ii = self.look_i[j][i] as usize;
-                    let fr = self.look_f[j][i];
-                    let khj = kh_z[j];
-                    let ft = ftj[j];
-                    let q = |row: &[u16], idx: usize| if idx < khj { a16_to_db(row[idx]) } else { -200.0 };
-                    let at = |r0: &[u16], r1: &[u16]| {
-                        let a = lerp(q(r0, ii), q(r1, ii), ft);
-                        if fr > 0.0 { lerp(a, lerp(q(r0, ii + 2), q(r1, ii + 2), ft), fr) } else { a }
-                    };
-                    // the zone's own envelope: cubic between frames (linear interpolation's
-                    // corners at the frame rate are audible as a fast flutter on steady tones)
-                    let at4 = || {
-                        let a = cubic(q(rowm[j], ii), q(row0[j], ii), q(row1[j], ii), q(row2[j], ii), ft);
-                        if fr > 0.0 {
-                            lerp(a, cubic(q(rowm[j], ii + 2), q(row0[j], ii + 2), q(row1[j], ii + 2), q(row2[j], ii + 2), ft), fr)
-                        } else {
-                            a
+        let dz = self.dominant;
+        let rows = ZoneRows { rowm: &rowm, row0: &row0, row1: &row1, row2: &row2, kh: &kh_z, ft: &ftj };
+        // The dominant zone's own envelope (cubic between frames: linear interpolation's
+        // corners at the frame rate are audible as a fast flutter on steady tones). Each
+        // stage below runs over all partials at once, branch-free, so that it vectorises; the
+        // arithmetic and its order per partial are those of the scalar formulation.
+        self.zone_envelope(dz, &rows, &mut sc.env, &mut sc.tmp, kh);
+        if self.n_nomorph > 0 {
+            // partials without a morph offset: every zone's envelope, weighted
+            let detail = self.nz > 1 && !srow0[dz].is_empty();
+            sc.acc[..kh].fill(0.0);
+            for j in 0..self.nz {
+                let (w, zg) = (self.w[j], zgain[j]);
+                if detail {
+                    // smooth envelope from every zone; the dominant zone adds its own detail
+                    self.zone_smooth(j, srow0[j], srow1[j], kh_z[j], ftj[j], &mut sc.zv, &mut sc.tmp, kh);
+                    if j == dz {
+                        for i in 0..kh {
+                            let sm = sc.zv[i];
+                            sc.zv[i] = sm + clamp(sc.env[i] - sm, -30.0, 30.0) / w;
                         }
-                    };
-                    let v = if detail {
-                        // smooth envelope from every zone; the dominant zone adds its own detail
-                        let sm = at(srow0[j], srow1[j]);
-                        if j == self.dominant { sm + (at4() - sm).clamp(-30.0, 30.0) / self.w[j] } else { sm }
-                    } else {
-                        at4()
-                    };
-                    db += self.w[j] * (v + self.look_db[j][i] + zgain[j]);
+                    }
+                } else if j == dz {
+                    sc.zv[..kh].copy_from_slice(&sc.env[..kh]);
+                } else {
+                    self.zone_envelope(j, &rows, &mut sc.zv, &mut sc.tmp, kh);
                 }
-            } else {
-                let j = self.slot_zone[i] as usize;
-                let ii = self.slot_idx[i] as usize;
-                db = cubic(a16_to_db(rowm[j][ii]), a16_to_db(row0[j][ii]), a16_to_db(row1[j][ii]), a16_to_db(row2[j][ii]), ftj[j])
-                    + zgain[j]
-                    + self.slot_wdb[i];
+                let ld = &self.look_db[j][..kh];
+                for ((a, &v), &l) in sc.acc[..kh].iter_mut().zip(&sc.zv[..kh]).zip(ld) {
+                    *a += w * (v + l + zg);
+                }
             }
-            db += self.stat_db[i] - self.rel_db[i] + common;
+        }
+        {
+            let (zg, ld) = (zgain[dz], &self.look_db[dz][..kh]);
+            for i in 0..kh {
+                let a = sc.env[i] + ld[i] + zg + self.morph_off[i];
+                sc.db[i] = if self.morph_ok[i] { a } else { sc.acc[i] };
+            }
+        }
+        // free (inharmonic) partials: their own zone's envelope
+        for i in kh..k {
+            let j = self.slot_zone[i] as usize;
+            let ii = self.slot_idx[i] as usize;
+            sc.db[i] = cubic(a16_to_db(rowm[j][ii]), a16_to_db(row0[j][ii]), a16_to_db(row1[j][ii]), a16_to_db(row2[j][ii]), ftj[j])
+                + zgain[j]
+                + self.slot_wdb[i];
+        }
+        let mut peak = -200.0f32;
+        for i in 0..k {
+            let db = sc.db[i] + (self.stat_db[i] - self.rel_db[i] + common);
             peak = peak.max(db);
-            tgt_l[i] = if db < cull { 0.0 } else { fast_db_to_amp(db) };
+            sc.tgt_l[i] = if db < cull { 0.0 } else { fast_db_to_amp(db) };
         }
         self.peak_db = peak;
+        // padding lanes up to a multiple of LANES stay silent
+        for t in [&mut sc.tgt_l, &mut sc.tgt_r, &mut sc.tgt_s, &mut sc.tgt_ls, &mut sc.jstep] {
+            t[k..kp].fill(0.0);
+        }
+        let tgt_l = &mut sc.tgt_l;
+        let tgt_r = &mut sc.tgt_r;
         // stereo image (time-varying) of the partials that sound
         if self.has_img {
             self.update_image(m, Some(&tgt_l[..k]));
@@ -1338,6 +1449,7 @@ impl SpectralVoice {
             tgt_l[i] = amp * self.pan_l[i];
             tgt_r[i] = amp * self.pan_r[i];
         }
+        let mut played = false;
         // crossfade from the recorded transient into the model
         let ga = if self.has_tr { smoothstep(self.tr_fade.0, self.tr_fade.1, self.t) } else { 1.0 };
         if ga < 1.0 {
@@ -1349,7 +1461,11 @@ impl SpectralVoice {
         // the transient must be rendered for every block that *starts* inside the crossfade,
         // even when the model's gain has already reached 1 by the end of the block
         if self.has_tr && self.t - dt < self.tr_fade.1 {
-            self.render_transient(m, out_l, out_r, n, common);
+            match tr {
+                Some((tl, tr)) => self.render_transient(m, tl, tr, n, common),
+                None => self.render_transient(m, out_l, out_r, n, common),
+            }
+            played = true;
         }
         if self.first_block {
             // start partials from silence: the analysed attack provides the rise
@@ -1357,16 +1473,16 @@ impl SpectralVoice {
         }
 
         // ── pitch ──────────────────────────────────────────────────────────
-        let dz = &m.zones[self.zone[self.dominant]];
+        let dzone = &m.zones[self.zone[self.dominant]];
         let pos = self.pos[self.dominant];
         let dl = self.last[self.dominant];
         let f0i = (pos.floor() as usize).min(dl);
         let f1i = (f0i + 1).min(dl);
         let rec_cents = cubic(
-            dz.pitch[f0i.saturating_sub(1).max(self.first[self.dominant])],
-            dz.pitch[f0i],
-            dz.pitch[f1i],
-            dz.pitch[(f1i + 1).min(dl)],
+            dzone.pitch[f0i.saturating_sub(1).max(self.first[self.dominant])],
+            dzone.pitch[f0i],
+            dzone.pitch[f1i],
+            dzone.pitch[(f1i + 1).min(dl)],
             pos - f0i as f32,
         ) * p.expression;
         let vib_depth = p.vibrato_cents * ((self.t - p.vibrato_delay) / 0.4).clamp(0.0, 1.0) + md.mod_vibrato;
@@ -1393,32 +1509,29 @@ impl SpectralVoice {
                 }
             }
             self.pulse_ph = ph;
+            self.pulse_len = n;
         }
 
         // partials pushed up to Nyquist by bends, vibrato or glides fade out (smoothly with
         // their frequency) instead of piling up just below it, and fade back in when they return
         for i in 0..k {
             let w = self.base_w[i] * ratio;
-            if w > NYQ_FADE_LO {
-                let g = 1.0 - smoothstep(NYQ_FADE_LO, NYQ_FADE_HI, w);
-                tgt_l[i] *= g;
-                tgt_r[i] *= g;
-            }
+            let g = 1.0 - smoothstep_sel(NYQ_FADE_LO, NYQ_FADE_HI, w);
+            let fade = w > NYQ_FADE_LO;
+            tgt_l[i] = if fade { tgt_l[i] * g } else { tgt_l[i] };
+            tgt_r[i] = if fade { tgt_r[i] * g } else { tgt_r[i] };
         }
 
         // ── oscillator bank ────────────────────────────────────────────────
-        let mut wr = [0.0f32; MAX_PARTIALS];
-        let mut wi = [0.0f32; MAX_PARTIALS];
-        let mut dl = [0.0f32; MAX_PARTIALS];
-        let mut dr = [0.0f32; MAX_PARTIALS];
         // jitter: each partial's phase offset is a smoothed Ornstein-Uhlenbeck process (OU driver
         // → one-pole with the same τ), so the frequency deviation is continuous with std 2π·σ_f
         // instead of the white, block-stepped FM a raw OU phase would produce.
+        let jstep = &mut sc.jstep;
+        jstep[..k].fill(0.0);
         let jit_on = p.jitter > 0.0;
         let ja = (-dt / self.jit_tau).exp();
         let jb = (1.0 - ja * ja).sqrt() * p.jitter;
         let jc = 1.0 - ja;
-        let mut jstep = [0.0f32; MAX_PARTIALS];
         if jit_on {
             for i in 0..k {
                 let sig = self.jit_sigma[i];
@@ -1437,7 +1550,7 @@ impl SpectralVoice {
             let sa = (-dt / self.shim_tau).exp();
             // unit-variance driver → each smoothed component has variance ½, so E|u|² = 1
             let sb = (1.0 - sa * sa).sqrt();
-            let sc = 1.0 - sa;
+            let scf = 1.0 - sa;
             for i in 0..k {
                 let sig = self.shim_sigma[i] * p.shimmer;
                 if sig <= 0.0 || (tgt_l[i] == 0.0 && tgt_r[i] == 0.0) {
@@ -1447,7 +1560,7 @@ impl SpectralVoice {
                 for c in 0..2 {
                     let d = self.shim_drive[i][c] * sa + sb * self.rng.gauss();
                     self.shim_drive[i][c] = d;
-                    self.shim_u[i][c] += (d - self.shim_u[i][c]) * sc;
+                    self.shim_u[i][c] += (d - self.shim_u[i][c]) * scf;
                     u[c] = self.shim_u[i][c];
                 }
                 let (mr, mi) = (1.0 + sig * u[0], sig * u[1]);
@@ -1467,10 +1580,10 @@ impl SpectralVoice {
                 jstep[i] += dth * inv_n;
             }
         }
-        let mut tgt_s = [0.0f32; MAX_PARTIALS];
-        let mut ds = [0.0f32; MAX_PARTIALS];
-        let mut tgt_ls = [0.0f32; MAX_PARTIALS];
-        let mut dls = [0.0f32; MAX_PARTIALS];
+        let tgt_s = &mut sc.tgt_s;
+        let tgt_ls = &mut sc.tgt_ls;
+        tgt_s[..k].fill(0.0);
+        tgt_ls[..k].fill(0.0);
         if self.has_st {
             for i in 0..k {
                 tgt_s[i] = tgt_r[i] * self.st_s[i];
@@ -1483,18 +1596,21 @@ impl SpectralVoice {
                 tgt_l[i] *= self.st_lc[i];
             }
         }
+        let (wr, wi, dlv, drv, ds, dls) = (&mut sc.wr, &mut sc.wi, &mut sc.dl, &mut sc.dr, &mut sc.ds, &mut sc.dls);
         for i in 0..kp {
-            let w = (self.base_w[i] * ratio + jstep[i]).clamp(0.0, std::f32::consts::PI * 0.98);
+            let w = clamp(self.base_w[i] * ratio + jstep[i], 0.0, std::f32::consts::PI * 0.98);
             let (s, c) = sincos_0_pi(w);
             wr[i] = c;
             wi[i] = s;
-            dl[i] = (tgt_l[i] - self.gl[i]) * inv_n;
-            dr[i] = (tgt_r[i] - self.gr[i]) * inv_n;
+            dlv[i] = (tgt_l[i] - self.gl[i]) * inv_n;
+            drv[i] = (tgt_r[i] - self.gr[i]) * inv_n;
             ds[i] = (tgt_s[i] - self.grs[i]) * inv_n;
             dls[i] = (tgt_ls[i] - self.gls[i]) * inv_n;
         }
-        let mut acc_l = [[0.0f32; LANES]; BLOCK];
-        let mut acc_r = [[0.0f32; LANES]; BLOCK];
+        let acc_l = &mut sc.acc_l;
+        let acc_r = &mut sc.acc_r;
+        acc_l[..n].fill([0.0; LANES]);
+        acc_r[..n].fill([0.0; LANES]);
         let mut c0 = 0;
         while c0 < kp {
             let mut re = [0.0f32; LANES];
@@ -1514,7 +1630,7 @@ impl SpectralVoice {
                 // still advance the phases: a partial fading in later (after a stored attack
                 // transient, or after a cull) must continue the recording's phase
                 for i in c0..(c0 + LANES).min(kp) {
-                    let w = (self.base_w[i] * ratio + jstep[i]).clamp(0.0, std::f32::consts::PI * 0.98);
+                    let w = clamp(self.base_w[i] * ratio + jstep[i], 0.0, std::f32::consts::PI * 0.98);
                     let a = self.pend[i] + w * n as f32;
                     const INV_TAU: f32 = 1.0 / std::f32::consts::TAU;
                     self.pend[i] = a - std::f32::consts::TAU * (a * INV_TAU).floor();
@@ -1529,8 +1645,8 @@ impl SpectralVoice {
             gr.copy_from_slice(&self.gr[c0..c0 + LANES]);
             cr.copy_from_slice(&wr[c0..c0 + LANES]);
             ci.copy_from_slice(&wi[c0..c0 + LANES]);
-            sl.copy_from_slice(&dl[c0..c0 + LANES]);
-            sr.copy_from_slice(&dr[c0..c0 + LANES]);
+            sl.copy_from_slice(&dlv[c0..c0 + LANES]);
+            sr.copy_from_slice(&drv[c0..c0 + LANES]);
             if self.has_lph {
                 let mut gs = [0.0f32; LANES];
                 let mut ss = [0.0f32; LANES];
@@ -1671,6 +1787,7 @@ impl SpectralVoice {
                 self.noise_pow[b] = 0.0;
             }
         }
+        played
     }
 
     fn render_transient(&mut self, m: &Model, out_l: &mut [f32], out_r: &mut [f32], n: usize, common: f32) {
@@ -1731,6 +1848,11 @@ impl SpectralVoice {
         self.voice_pan
     }
 
+    /// Samples of [`pulse_buf`](Self::pulse_buf) the last block filled (from its start).
+    pub fn pulse_len(&self) -> usize {
+        self.pulse_len
+    }
+
     pub fn noise_bands(&self) -> usize {
         self.nb
     }
@@ -1783,11 +1905,153 @@ fn fast_db_to_amp(db: f32) -> f32 {
 #[inline]
 fn sincos_0_pi(x: f32) -> (f32, f32) {
     let half = std::f32::consts::FRAC_PI_2;
-    let (y, sgn) = if x > half { (std::f32::consts::PI - x, -1.0) } else { (x, 1.0) };
+    // (selects rather than a branch, so that loops over partials vectorise)
+    let big = x > half;
+    let y = if big { std::f32::consts::PI - x } else { x };
+    let sgn = if big { -1.0 } else { 1.0 };
     let y2 = y * y;
     let s = y * (1.0 - y2 / 6.0 * (1.0 - y2 / 20.0 * (1.0 - y2 / 42.0 * (1.0 - y2 / 72.0 * (1.0 - y2 / 110.0)))));
     let c = 1.0 - y2 / 2.0 * (1.0 - y2 / 12.0 * (1.0 - y2 / 30.0 * (1.0 - y2 / 56.0 * (1.0 - y2 / 90.0 * (1.0 - y2 / 132.0)))));
     (s, sgn * c)
+}
+
+/// `x.clamp(lo, hi)` (same result for every input, NaN included) as selects, which vectorise.
+#[inline(always)]
+fn clamp(x: f32, lo: f32, hi: f32) -> f32 {
+    let x = if x < lo { lo } else { x };
+    if x > hi {
+        hi
+    } else {
+        x
+    }
+}
+
+/// [`smoothstep`] as selects (same result), for loops that vectorise.
+#[inline(always)]
+fn smoothstep_sel(a: f32, b: f32, t: f32) -> f32 {
+    let x = (t - a) / (b - a);
+    let v = x * x * (3.0 - 2.0 * x);
+    if t <= a {
+        0.0
+    } else if t >= b {
+        1.0
+    } else {
+        v
+    }
+}
+
+/// [`cubic`] as selects (same result), for loops that vectorise.
+#[inline(always)]
+fn cubic_sel(a: f32, b: f32, c: f32, d: f32, t: f32) -> f32 {
+    let lin = lerp(b, c, t);
+    let lo = a.min(b).min(c).min(d);
+    let hi = a.max(b).max(c).max(d);
+    let x = clamp(cubic_free(a, b, c, d, t), lo, hi);
+    if (a < -150.0) | (b < -150.0) | (c < -150.0) | (d < -150.0) {
+        lin
+    } else {
+        x
+    }
+}
+
+/// Per-thread scratch memory of [`SpectralVoice::render_with`] (about 50 kB: kept off the
+/// stack, and never cleared beyond what a block uses).
+pub struct VoiceScratch {
+    env: [f32; MAX_PARTIALS],
+    zv: [f32; MAX_PARTIALS],
+    acc: [f32; MAX_PARTIALS],
+    db: [f32; MAX_PARTIALS],
+    tmp: Gather,
+    tgt_l: [f32; MAX_PARTIALS],
+    tgt_r: [f32; MAX_PARTIALS],
+    tgt_s: [f32; MAX_PARTIALS],
+    tgt_ls: [f32; MAX_PARTIALS],
+    jstep: [f32; MAX_PARTIALS],
+    wr: [f32; MAX_PARTIALS],
+    wi: [f32; MAX_PARTIALS],
+    dl: [f32; MAX_PARTIALS],
+    dr: [f32; MAX_PARTIALS],
+    ds: [f32; MAX_PARTIALS],
+    dls: [f32; MAX_PARTIALS],
+    acc_l: [[f32; LANES]; BLOCK],
+    acc_r: [[f32; LANES]; BLOCK],
+}
+
+impl Default for VoiceScratch {
+    fn default() -> Self {
+        let z = [0.0; MAX_PARTIALS];
+        Self {
+            env: z,
+            zv: z,
+            acc: z,
+            db: z,
+            tmp: Gather { a: z, b: z, c: z, d: z },
+            tgt_l: z,
+            tgt_r: z,
+            tgt_s: z,
+            tgt_ls: z,
+            jstep: z,
+            wr: z,
+            wi: z,
+            dl: z,
+            dr: z,
+            ds: z,
+            dls: z,
+            acc_l: [[0.0; LANES]; BLOCK],
+            acc_r: [[0.0; LANES]; BLOCK],
+        }
+    }
+}
+
+impl VoiceScratch {
+    pub fn boxed() -> Box<Self> {
+        Box::default()
+    }
+}
+
+/// Four frames' values (dB) of one zone's partials, gathered for interpolation.
+struct Gather {
+    a: [f32; MAX_PARTIALS],
+    b: [f32; MAX_PARTIALS],
+    c: [f32; MAX_PARTIALS],
+    d: [f32; MAX_PARTIALS],
+}
+
+/// Each zone's amplitude rows around its playhead (frames f−1, f, f+1, f+2), harmonic count
+/// and position between frames f and f+1.
+struct ZoneRows<'a> {
+    rowm: &'a [&'a [u16]; MAX_ZONES],
+    row0: &'a [&'a [u16]; MAX_ZONES],
+    row1: &'a [&'a [u16]; MAX_ZONES],
+    row2: &'a [&'a [u16]; MAX_ZONES],
+    kh: &'a [usize; MAX_ZONES],
+    ft: &'a [f32; MAX_ZONES],
+}
+
+/// Partial `idx` of an amplitude row in dB, for a zone with `khj` harmonics (−200: none).
+#[inline(always)]
+fn q_db(row: &[u16], idx: usize, khj: usize) -> f32 {
+    if idx < khj {
+        a16_to_db(row[idx])
+    } else {
+        -200.0
+    }
+}
+
+/// `out[i] = q_db(row, look[i] + off, khj)` for i < kh; `ident`: look[i] = i, off = 0.
+#[inline(always)]
+fn gather_db(out: &mut [f32; MAX_PARTIALS], row: &[u16], look: &[u16; MAX_PARTIALS], off: usize, khj: usize, kh: usize, ident: bool) {
+    if ident {
+        let m = kh.min(khj).min(row.len());
+        for (o, &v) in out[..m].iter_mut().zip(&row[..m]) {
+            *o = a16_to_db(v);
+        }
+        out[m..kh].fill(-200.0);
+    } else {
+        for (o, &ii) in out[..kh].iter_mut().zip(&look[..kh]) {
+            *o = q_db(row, ii as usize + off, khj);
+        }
+    }
 }
 
 #[inline]
@@ -1902,5 +2166,64 @@ mod tests {
         let rms = |x: &[f32]| (x[x.len() - 4000..].iter().map(|v| v * v).sum::<f32>() / 4000.0).sqrt();
         let db = 20.0 * (rms(&back) / rms(&flat)).log10();
         assert!(db.abs() < 0.5, "partials come back after the bend: {db:.2} dB");
+    }
+
+    fn repo_model(path: &str) -> Option<Arc<Model>> {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+        std::fs::read(format!("{root}/{path}.ssm")).ok().map(|b| Arc::new(Model::from_bytes(&b).expect("model parses")))
+    }
+
+    /// Start `note` on `v` with an rng in a fixed state and render `blocks` blocks, releasing
+    /// halfway; returns both channels.
+    fn play(v: &mut SpectralVoice, m: &Arc<Model>, note: u8, blocks: usize) -> Vec<f32> {
+        let p = SpectralParams::default();
+        let mut rng = Rng::new(7);
+        v.start(NoteOn { model: m, note, velocity: 100, pitch: note as f32, pan: 0.2, params: &p, sample_rate: 48000.0, rng: &mut rng });
+        let md = BlockMod::default();
+        let mut out = Vec::new();
+        for b in 0..blocks {
+            if b == blocks / 2 {
+                v.release();
+            }
+            let (mut l, mut r) = ([0.0f32; BLOCK], [0.0f32; BLOCK]);
+            v.render(&mut l, &mut r, &p, &md);
+            out.extend_from_slice(&l);
+            out.extend_from_slice(&r);
+        }
+        out
+    }
+
+    #[test]
+    fn a_note_sounds_the_same_whatever_its_voice_slot_played_before() {
+        let names = [
+            "models/grand-piano",
+            "models/violin",
+            "packages/organ-burea/models/organ/great-principal-8",
+            "packages/organ-friesach/models/organ/friesach/great-principal-8",
+            "packages/organ-friesach/models/organ/friesach/great-mixtur-major-4-5f-2-2-3",
+            "packages/organ-friesach/models/organ/friesach/pedal-posaune-16",
+        ];
+        let models: Vec<Arc<Model>> = names.iter().filter_map(|n| repo_model(n)).collect();
+        let mut all = models.clone();
+        all.push(Arc::new(Model::from_bytes(&testing::bytes()).unwrap()));
+        for m in &all {
+            for note in [36u8, 60, 84] {
+                let fresh = play(&mut SpectralVoice::default(), m, note, 300);
+                for prev in &all {
+                    for pn in [30u8, 72] {
+                        let mut v = SpectralVoice::default();
+                        play(&mut v, prev, pn, 200);
+                        if pn == 72 {
+                            // stolen half way through its fade
+                            v.kill();
+                            let (mut l, mut r) = ([0.0f32; BLOCK], [0.0f32; BLOCK]);
+                            v.render(&mut l, &mut r, &SpectralParams::default(), &BlockMod::default());
+                        }
+                        let again = play(&mut v, m, note, 300);
+                        assert!(fresh == again, "{} note {note} after {} note {pn}: output depends on the slot's history", m.name, prev.name);
+                    }
+                }
+            }
+        }
     }
 }
