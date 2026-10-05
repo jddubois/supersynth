@@ -304,6 +304,11 @@ impl StereoEffect for Leslie {
             i += k;
         }
         self.mix = self.mix_target;
+        // The crossover runs per sample (`Biquad::process` never flushes):
+        // without this its state settles at ~1e-44 after the input stops.
+        for b in self.xo_lp.iter_mut().chain(self.xo_hp.iter_mut()) {
+            b.flush_denormals();
+        }
         for s in self.horn_lp.iter_mut() {
             if s.abs() < 1e-20 {
                 *s = 0.0;
@@ -389,6 +394,51 @@ mod tests {
         les.process(&mut l, &mut r);
         assert_eq!(l, x);
         assert_eq!(r, x);
+    }
+
+    /// After the input stops, the output must decay to exact zeros, not to a
+    /// subnormal limit cycle (very slow on x86 without FTZ/DAZ).
+    #[test]
+    fn silence_after_signal_reaches_exact_zero() {
+        let mut les = Leslie::new(SR);
+        les.set_speed(LeslieSpeed::Fast);
+        run(&mut les, 0.5, 440.0);
+        let mut subnormal = 0;
+        let mut nonzero_tail = 0;
+        for b in 0..(2.0 * SR) as usize / 128 {
+            let mut l = vec![0.0f32; 128];
+            let mut r = vec![0.0f32; 128];
+            les.process(&mut l, &mut r);
+            for v in l.iter().chain(&r) {
+                subnormal += (*v != 0.0 && !v.is_normal()) as usize;
+                nonzero_tail += (b * 128 > SR as usize && *v != 0.0) as usize;
+            }
+        }
+        println!("leslie, 2 s of silence: {subnormal} subnormal outputs, {nonzero_tail} non-zero after 1 s");
+        assert_eq!(subnormal, 0);
+        assert_eq!(nonzero_tail, 0);
+    }
+
+    /// CPU cost of silence after a note (shows the subnormal penalty). Run
+    /// with `cargo test --release leslie -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bench_silence() {
+        let mut les = Leslie::new(SR);
+        les.set_speed(LeslieSpeed::Fast);
+        run(&mut les, 0.5, 440.0);
+        let (mut l, mut r) = (vec![0.0f32; 128], vec![0.0f32; 128]);
+        for _ in 0..1000 {
+            les.process(&mut l, &mut r);
+        }
+        let t0 = std::time::Instant::now();
+        for _ in 0..(10.0 * SR) as usize / 128 {
+            l.fill(0.0);
+            r.fill(0.0);
+            les.process(&mut l, &mut r);
+        }
+        let dt = t0.elapsed().as_secs_f64();
+        println!("leslie, 10 s of silence after a note: {:.1} ms ({:.3} % of one core)", dt * 1e3, dt * 10.0);
     }
 
     #[test]
