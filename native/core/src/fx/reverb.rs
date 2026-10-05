@@ -61,15 +61,20 @@
 //! swapped on a send without level jumps.
 //!
 //! # Parameter changes (`set_params`)
-//! * `decay`, `low_mult`, `high_mult`: absorption filters recomputed at once
-//!   (tiny steps of per-pass gain; inaudible).
+//! * `decay`, `low_mult`, `high_mult`: the absorption filters glide over
+//!   100 ms (linear in dB per second, filters recomputed every 16 samples).
+//!   Swapping them at once is audible: cathedral -> room changes the longest
+//!   line's per-pass gain 0.87 -> 0.20 (-13 dB) within one sample, a step on
+//!   the ringing tail (see `tests::decay_change_glides`).
 //! * `predelay_ms`, `size` (early-reflection pattern): crossfaded over 50 ms
 //!   between the old and new tap sets.
 //! * `size` (FDN line lengths): delay lengths **glide** toward their new
 //!   values at ≤ 0.03 samples/sample (≈ 50 cents of transient pitch bend on the
 //!   decaying tail), so a full 0 → 1 size change settles over ~3–4 s. No
 //!   clicks; call `reset()` for an instant change.
-//! * `diffusion`, `early`, `width`, `modulation`, low/high cut: smoothed.
+//! * `diffusion`, `early`, `width`, low/high cut: glide over 50 ms (timed in
+//!   samples, independent of the block size); the late level (which follows
+//!   `decay`) over 100 ms with the absorption; `modulation` one-pole, 100 ms.
 //!
 //! # Cost
 //! All buffers are allocated in `new` (sized for the actual sample rate and
@@ -79,7 +84,7 @@
 
 use super::chorus::{flush_denormal, DelayBuf};
 use super::eq::{SmoothStereoBiquad, COEFF_RAMP_S};
-use super::StereoEffect;
+use super::{ParamRamp, StereoEffect};
 use crate::dsp::biquad::{Biquad, Coeffs};
 use crate::dsp::noise::Rng;
 use std::f32::consts::{LN_10, TAU};
@@ -202,6 +207,8 @@ const MID_REF_HZ: f32 = 1000.0;
 const INPUT_HP_HZ: f32 = 25.0;
 const ER_LP_HZ: f32 = 7500.0;
 const FADE_S: f32 = 0.05;
+/// Glide time of the absorption filters (and late level) on decay changes.
+const ABSORB_GLIDE_S: f32 = 0.1;
 /// Input diffuser lengths (ms) and allpass coefficients at diffusion = 1.
 const AP_MS: [[f32; 4]; 2] = [[4.13, 6.29, 9.71, 14.27], [4.61, 6.89, 10.57, 13.09]];
 const AP_G: [f32; 4] = [0.72, 0.70, 0.64, 0.62];
@@ -353,7 +360,6 @@ pub struct Reverb {
 
     // Input diffusion.
     ap: [[Allpass; 4]; 2],
-    diff_g: f32,
 
     // FDN.
     lines: [DelayBuf; N],
@@ -373,6 +379,9 @@ pub struct Reverb {
     mod_depth: f32,
     mod_smooth: f32,
     rng: Rng,
+    /// Decay rates (ln gain per sample) at mid / low / high frequencies,
+    /// gliding at control rate.
+    rate_k: [ParamRamp; 3],
     absorb: Absorb,
     ls_s: [f32; N],
     hs_s: [f32; N],
@@ -387,11 +396,8 @@ pub struct Reverb {
     out_l: [f32; N],
     out_r: [f32; N],
 
-    // Output stage (current values, ramped per block).
-    late_gain: f32,
-    er_gain: f32,
-    wa: f32,
-    wb: f32,
+    // Output stage: late gain, early gain, width a / b, diffusion.
+    ramps: [ParamRamp; 5],
     tone_hp: SmoothStereoBiquad,
     tone_lp: SmoothStereoBiquad,
     ramp: u32,
@@ -480,7 +486,6 @@ impl Reverb {
             er_lp_a: 1.0 - (-TAU * ER_LP_HZ.min(0.45 * sr) / sr).exp(),
             er_lp: [0.0; 2],
             ap,
-            diff_g: p.diffusion,
             lines,
             len_target: len,
             len_cur: len,
@@ -497,6 +502,7 @@ impl Reverb {
             mod_depth: p.modulation * MAX_MOD_MS * ms,
             mod_smooth: 1.0 - crate::dsp::one_pole_coeff(0.1, sr / SUB as f32),
             rng,
+            rate_k: [ParamRamp::with_time(0.0, ABSORB_GLIDE_S, sr / SUB as f32); 3],
             absorb: Absorb::default(),
             ls_s: [0.0; N],
             hs_s: [0.0; N],
@@ -508,10 +514,13 @@ impl Reverb {
             inj_r,
             out_l,
             out_r,
-            late_gain: 0.0,
-            er_gain: 0.0,
-            wa: 1.0,
-            wb: 0.0,
+            ramps: [
+                ParamRamp::with_time(0.0, ABSORB_GLIDE_S, sr),
+                ParamRamp::with_time(0.0, FADE_S, sr),
+                ParamRamp::with_time(0.0, FADE_S, sr),
+                ParamRamp::with_time(0.0, FADE_S, sr),
+                ParamRamp::with_time(0.0, FADE_S, sr),
+            ],
             tone_hp: SmoothStereoBiquad::new(),
             tone_lp: SmoothStereoBiquad::new(),
             ramp: ((COEFF_RAMP_S * sr) as u32).max(1),
@@ -519,15 +528,14 @@ impl Reverb {
         };
         r.cfg[0] = r.tap_config(&p);
         r.cfg[1] = r.cfg[0];
+        r.set_rate_targets();
+        r.rate_k.iter_mut().for_each(ParamRamp::snap);
         r.update_absorption();
         let (hp, hp_on, lp, lp_on) = r.tone_coeffs(&p);
         r.tone_hp.snap(hp, hp_on);
         r.tone_lp.snap(lp, lp_on);
-        let (lg, eg, wa, wb) = r.gain_targets(&p);
-        r.late_gain = lg;
-        r.er_gain = eg;
-        r.wa = wa;
-        r.wb = wb;
+        r.set_ramp_targets();
+        r.ramps.iter_mut().for_each(ParamRamp::snap);
         r
     }
 
@@ -556,8 +564,10 @@ impl Reverb {
             self.gliding = true;
         }
         if p.decay != old.decay || p.low_mult != old.low_mult || p.high_mult != old.high_mult {
-            self.update_absorption();
+            // Glides in `control`.
+            self.set_rate_targets();
         }
+        self.set_ramp_targets();
         if p.low_cut_hz != old.low_cut_hz || p.high_cut_hz != old.high_cut_hz {
             let (hp, hp_on, lp, lp_on) = self.tone_coeffs(&p);
             self.tone_hp.set_target(hp, hp_on, self.ramp);
@@ -592,12 +602,26 @@ impl Reverb {
         )
     }
 
-    /// (late gain, early gain, width a, width b)
-    fn gain_targets(&self, p: &ReverbParams) -> (f32, f32, f32, f32) {
-        let late = LATE_NORM * (2.0 / p.decay).powf(0.25);
-        let early = ER_NORM * p.early;
+    /// Targets of the output-stage ramps: late gain, early gain, width a / b,
+    /// diffusion.
+    fn set_ramp_targets(&mut self) {
+        let p = self.params;
         let phi = (1.0 - p.width) * std::f32::consts::FRAC_PI_4;
-        (late, early, phi.cos(), phi.sin())
+        let tgt = [LATE_NORM * (2.0 / p.decay).powf(0.25), ER_NORM * p.early, phi.cos(), phi.sin(), p.diffusion];
+        for (r, t) in self.ramps.iter_mut().zip(tgt) {
+            r.set(t);
+        }
+    }
+
+    /// Targets of the decay-rate glide (ln gain per sample at mid, low and
+    /// high frequencies). Gliding these linearly glides the tail's dB/s.
+    fn set_rate_targets(&mut self) {
+        let p = self.params;
+        let k = -3.0 * LN_10 / self.sr;
+        let tgt = [k / p.decay, k / (p.decay * p.low_mult), k / (p.decay * p.high_mult)];
+        for (r, t) in self.rate_k.iter_mut().zip(tgt) {
+            r.set(t);
+        }
     }
 
     /// Recompute the per-line absorption filters from `len_cur` (Jot):
@@ -610,11 +634,7 @@ impl Reverb {
     /// that DC, the 1 kHz reference and Nyquist hit their targets exactly,
     /// which removes the shelves' leakage into the mid band.
     fn update_absorption(&mut self) {
-        let p = self.params;
-        let k = -3.0 * LN_10 / self.sr;
-        let km = k / p.decay;
-        let kl = k / (p.decay * p.low_mult);
-        let kh = k / (p.decay * p.high_mult);
+        let [km, kl, kh] = self.rate_k.map(|r| r.value());
         let (kls, khs) = (self.k_ls, self.k_hs);
         let (wl, wh) = (self.w_low_ref, self.w_high_ref);
         let inv = 1.0 / (1.0 - wl - wh);
@@ -644,8 +664,15 @@ impl Reverb {
         }
     }
 
-    /// Control-rate update: size glide, modulation targets.
+    /// Control-rate update: size and decay glides, modulation targets.
     fn control(&mut self) {
+        let mut absorb_dirty = false;
+        if self.rate_k.iter().any(ParamRamp::is_moving) {
+            self.rate_k.iter_mut().for_each(|r| {
+                r.next();
+            });
+            absorb_dirty = true;
+        }
         if self.gliding {
             let step = SIZE_SLEW * SUB as f32;
             let mut still = false;
@@ -659,6 +686,9 @@ impl Reverb {
                 }
             }
             self.gliding = still;
+            absorb_dirty = true;
+        }
+        if absorb_dirty {
             self.update_absorption();
         }
 
@@ -697,8 +727,7 @@ impl Reverb {
     }
 
     /// Run `l.len()` (<= SUB) samples; input already high-passed.
-    #[allow(clippy::too_many_arguments)]
-    fn run(&mut self, l: &mut [f32], r: &mut [f32], inc: &[f32; 5], cur: &mut [f32; 5]) {
+    fn run(&mut self, l: &mut [f32], r: &mut [f32]) {
         let Self {
             pre,
             cfg,
@@ -723,6 +752,7 @@ impl Reverb {
             inj_r,
             out_l,
             out_r,
+            ramps,
             ..
         } = self;
         let a = *absorb;
@@ -734,10 +764,7 @@ impl Reverb {
         let inv_fade = 1.0 / *fade_len as f32;
 
         for (xl, xr) in l.iter_mut().zip(r.iter_mut()) {
-            for (c, v) in cur.iter_mut().zip(inc.iter()) {
-                *c += *v;
-            }
-            let [late_g, er_gain, wa, wb, diff] = *cur;
+            let [late_g, er_gain, wa, wb, diff] = std::array::from_fn(|k| ramps[k].next());
 
             pre[0].push(*xl + ANTI_DENORMAL);
             pre[1].push(*xr + ANTI_DENORMAL);
@@ -833,13 +860,6 @@ impl StereoEffect for Reverb {
         self.in_hp[0].process_block(left);
         self.in_hp[1].process_block(right);
 
-        // Per-block linear ramps of the smoothed scalars.
-        let (lg, eg, wa, wb) = self.gain_targets(&self.params);
-        let tgt = [lg, eg, wa, wb, self.params.diffusion];
-        let mut cur = [self.late_gain, self.er_gain, self.wa, self.wb, self.diff_g];
-        let inv = 1.0 / n as f32;
-        let inc: [f32; 5] = std::array::from_fn(|k| (tgt[k] - cur[k]) * inv);
-
         let mut i = 0;
         while i < n {
             if self.sub_left == 0 {
@@ -847,11 +867,10 @@ impl StereoEffect for Reverb {
                 self.sub_left = SUB;
             }
             let k = self.sub_left.min(n - i);
-            self.run(&mut left[i..i + k], &mut right[i..i + k], &inc, &mut cur);
+            self.run(&mut left[i..i + k], &mut right[i..i + k]);
             self.sub_left -= k;
             i += k;
         }
-        [self.late_gain, self.er_gain, self.wa, self.wb, self.diff_g] = tgt;
 
         self.tone_hp.process(left, right);
         self.tone_lp.process(left, right);
@@ -881,6 +900,7 @@ impl StereoEffect for Reverb {
         }
         self.len_cur = self.len_target;
         self.gliding = false;
+        self.rate_k.iter_mut().for_each(ParamRamp::snap);
         self.update_absorption();
         self.pos = self.len_cur;
         self.pos_tgt = self.len_cur;
@@ -1160,6 +1180,50 @@ mod tests {
         let peak = out.iter().fold(0.0f32, |m, v| m.max(v.abs()));
         println!("param-change test: rms {rms:.4}, peak {peak:.4}, crest {:.1}", peak / rms);
         assert!(peak / rms < 8.0);
+    }
+
+    /// Switching decay (cathedral 7 s -> room 0.6 s) on a ringing tail must
+    /// not step the tail level. Two identical reverbs, only one switched; the
+    /// level ratio between them may only change gradually.
+    #[test]
+    fn decay_change_glides() {
+        let cath = ReverbParams::preset("cathedral").unwrap();
+        let room = ReverbParams::preset("room").unwrap();
+        for (what, to) in [
+            ("decay/low/high", ReverbParams { decay: room.decay, low_mult: room.low_mult, high_mult: room.high_mult, ..cath }),
+            ("full preset", room),
+        ] {
+            let mut a = Reverb::new(SR, cath);
+            let mut b = Reverb::new(SR, cath);
+            let mut rng = Rng::new(5);
+            let blk = 64;
+            let switch = (3.2 * SR) as usize / blk;
+            let win = (0.001 * SR) as usize; // 1 ms
+            let (mut ea, mut eb) = (Vec::new(), Vec::new());
+            for k in 0..switch + (0.2 * SR) as usize / blk {
+                let noise = k * blk < (3.0 * SR) as usize;
+                let mut l: Vec<f32> = (0..blk).map(|_| if noise { rng.gauss() * 0.1 } else { 0.0 }).collect();
+                let mut r = l.clone();
+                let (mut l2, mut r2) = (l.clone(), r.clone());
+                if k == switch {
+                    a.set_params(to);
+                }
+                a.process(&mut l, &mut r);
+                b.process(&mut l2, &mut r2);
+                if k >= switch {
+                    ea.extend(l.iter().zip(&r).map(|(x, y)| (x * x + y * y) as f64));
+                    eb.extend(l2.iter().zip(&r2).map(|(x, y)| (x * x + y * y) as f64));
+                }
+            }
+            // Level ratio over the first 2 ms after the switch (before the two
+            // tails diverge into different noise), and over the next 200 ms.
+            let ratio_db = |a: &[f64], b: &[f64]| 10.0 * (a.iter().sum::<f64>() / b.iter().sum::<f64>()).log10();
+            let step = ratio_db(&ea[..2 * win], &eb[..2 * win]);
+            let later = ratio_db(&ea[150 * win..], &eb[150 * win..]);
+            println!("{what} switch on a cathedral tail: level step {step:+.2} dB in the first 2 ms ({later:+.1} dB after 150 ms)");
+            assert!(step.abs() < 0.3, "{what}: tail level stepped by {step:.2} dB");
+            assert!(later < -6.0, "{what}: decay change not effective");
+        }
     }
 
     /// Level calibration + CPU cost. Run with
