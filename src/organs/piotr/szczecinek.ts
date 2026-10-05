@@ -78,6 +78,16 @@ const PRESETS: Record<string, OrganPreset> = {
       "Octave 4'", "Posaune 16'"],
     couple: { great: ['swell'], pedal: ['great', 'swell'] },
   },
+  'full-16': {
+    description: "Full organ with the swell also coupled an octave down (II 16'/I) — Voelkner's romantic gravity",
+    great: ["Principal 16'", "Bordun 16'", "Principal 8'", "Gambe 8'", "Röhrflöte 8'", "Flûte harmonique 8'", "Octave 4'", "Hohlflöte 4'",
+      "Piccolo 2'", "Rauschquinte 2 2/3' u. 2'", 'Cornett 2-4 fach', 'Mixtur 5 fach', "Trompete 8'"],
+    swell: ["Lieblich Gedackt 16'", "Geigenprincipal 8'", "Gedackt 8'", "Konzertfloete 8'", "Gemshorn 8'", "Schalmeÿ 8'", "Fugara 4'",
+      "Traversfloete 4'", 'Progressio 2-4 fach'],
+    pedal: ["Principalbass 16'", "Violon 16'", "Subbass 16'", "Quintbass 10 2/3'", "Octavbass 8'", "Violoncello 8'", "Bassflöte 8'",
+      "Octave 4'", "Posaune 16'"],
+    couple: { great: ['swell', { division: 'swell', octave: -1 }], pedal: ['great', 'swell'] },
+  },
   flutes: {
     description: "Konzertflöte 8' + Traversflöte 4' on the swell",
     swell: ["Konzertfloete 8'", "Traversfloete 4'"],

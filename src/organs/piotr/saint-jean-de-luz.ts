@@ -59,6 +59,25 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Soubasse 16'", "Bourdon 8'", "Flûte 8'", "Flûte 4'", "Flûte 2'"],
     couple: { great: ['swell'], pedal: ['great', 'swell'] },
   },
+  'grand-choeur-octaves': {
+    description: "Grand chœur with the Récit coupled at 16', 8' and 4' to the Grand Orgue and in octaves on itself — the full romantic sound",
+    great: ["Bourdon 16'", "Flûte harmonique 8'", "Bourdon 8'", "Prestant 4'", "Quinte 2 2/3'", "Doublette 2'", "Tierce 1 3/5'"],
+    swell: ["Flûte 8'", "Flûte 4'", 'Plein-jeu III', "Trompette 8'"],
+    pedal: ["Soubasse 16'", "Bourdon 8'", "Flûte 8'", "Flûte 4'", "Flûte 2'"],
+    couple: {
+      great: ['swell', { division: 'swell', octave: -1 }, { division: 'swell', octave: 1 }],
+      swell: [{ division: 'swell', octave: -1 }, { division: 'swell', octave: 1 }],
+      pedal: ['great', 'swell'],
+    },
+  },
+  'recit-annulation': {
+    description: "The Récit (Flûte 8' + Trompette 8') played from the Grand Orgue alone, with its 4' coupler: Annulation GO",
+    great: ["Bourdon 8'"],
+    swell: ["Flûte 8'", "Trompette 8'"],
+    pedal: ["Soubasse 16'"],
+    couple: { great: ['swell', { division: 'swell', octave: 1 }] },
+    unisonOff: ['great'],
+  },
   cornet: {
     description: "Cornet décomposé on the Grand Orgue (8' 4' 2 2/3' 2' 1 3/5') against the Récit flutes",
     great: ["Bourdon 8'", "Prestant 4'", "Quinte 2 2/3'", "Doublette 2'", "Tierce 1 3/5'"],

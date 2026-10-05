@@ -327,6 +327,8 @@ Config: `SAINT_JEAN_DE_LUZ_ORGAN`. Default preset: `fonds`. Tremulant on the gre
 | `fonds-8-4` | Fonds 8' and 4' on both manuals |
 | `plein-jeu` | Plein jeu: the Grand Orgue chorus with the Récit Plein-jeu coupled |
 | `grand-choeur` | Grand chœur: every stop, the Récit coupled |
+| `grand-choeur-octaves` | Grand chœur with the Récit coupled at 16', 8' and 4' to the Grand Orgue and in octaves on itself — the full romantic sound |
+| `recit-annulation` | The Récit (Flûte 8' + Trompette 8') played from the Grand Orgue alone, with its 4' coupler: Annulation GO |
 | `cornet` | Cornet décomposé on the Grand Orgue (8' 4' 2 2/3' 2' 1 3/5') against the Récit flutes |
 | `nazard` | Bourdon 8' with Quinte 2 2/3' — a gentle solo against the Récit |
 | `flute-harmonique` | Flûte harmonique 8' solo against the Récit Flûte |
@@ -400,6 +402,7 @@ Config: `SZCZECINEK_ORGAN`. Default preset: `foundations`. Tremulant on the swel
 | `principal-chorus` | Principals 16' 8' 4' with the Rauschquinte |
 | `plenum` | Plenum: principals, Rauschquinte and Mixtur with the swell coupled |
 | `full` | Full organ with Cornett, Trompete, Schalmey and Posaune |
+| `full-16` | Full organ with the swell also coupled an octave down (II 16'/I) — Voelkner's romantic gravity |
 | `flutes` | Konzertflöte 8' + Traversflöte 4' on the swell |
 | `flute-8` | Gedackt 8' — soft stopped flute |
 | `flute-solo` | Flûte harmonique 8' solo on the great against the swell's Gedackt and Aeoline |
