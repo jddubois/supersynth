@@ -1,3 +1,5 @@
+import { SupersynthError } from './errors.js';
+
 /**
  * Tweakable instrument parameters. Every parameter can be changed at any time,
  * including while notes are sounding (changes are smoothed).
@@ -110,11 +112,11 @@ export function toNativeParameter(name: keyof InstrumentParameters, value: unkno
   if (name === 'leslie') {
     const m: Record<string, number> = { off: 0, stop: 1, slow: 2, fast: 3 };
     const v = m[String(value)];
-    if (v === undefined) throw new RangeError(`leslie must be off|stop|slow|fast, got ${String(value)}`);
+    if (v === undefined) throw new SupersynthError(`leslie must be off|stop|slow|fast, got ${String(value)}`);
     return v;
   }
   if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new TypeError(`Parameter '${String(name)}' must be a finite number, got ${String(value)}`);
+    throw new SupersynthError(`Parameter '${String(name)}' must be a finite number, got ${String(value)}`);
   }
   return value;
 }

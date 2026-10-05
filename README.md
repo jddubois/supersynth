@@ -105,6 +105,7 @@ clone. The git history holds every version of the models, so a full clone is abo
 
 ```ts
 const synth = new Synth({ reverb: 'concert-hall' });
+const piano = synth.add('grand-piano');
 const violin = synth.add('violin', { preset: 'expressive' });
 const cellos = synth.add('cellos');
 

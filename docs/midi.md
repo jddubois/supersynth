@@ -15,11 +15,35 @@ await synth.playMidi('song.mid', { instrument: 'harpsichord' }); // real time (s
 
 Note on/off, sustain (CC64), modulation (CC1), volume (CC7), pan (CC10), expression (CC11),
 reverb send (CC91) and pitch bend are honoured. Channel 10 (GM drums) is skipped unless mapped.
-`byTrack: true` maps by track index instead of channel. An instrument named by id is added for
-the file; an instrument or division is played as it is (an organ division with its couplers).
+`byTrack: true` maps by track instead of channel: the keys of `channels` are then 0-based track
+indices (`0` is the first track). An instrument or division is played as it is (an organ
+division with its couplers); an instrument named by id is added for the file and removed when
+the file is done, so a file can be rendered any number of times.
 
-`parseMidiFile(bytes)` gives the raw time-ordered events; a file that is not a Standard MIDI
-File throws `MidiError`.
+`speed` must be above 0, `tail` 0 or more, and `transpose` a whole number of semitones;
+anything else throws `SupersynthError`.
+
+`playMidi()` resolves when the file and its tail have played. It also resolves, early, when
+output stops (`synth.stop()` or `synth.close()`). To stop it yourself, pass an `AbortSignal`:
+aborting releases the notes it was playing (on every instrument and division it used) and
+rejects the promise with an `AbortError` (a `SupersynthError`). An error while it plays rejects
+the promise too.
+
+```ts
+const ac = new AbortController();
+const playing = synth.playMidi('song.mid', { signal: ac.signal });
+setTimeout(() => ac.abort(), 10_000);
+await playing.catch((e) => { if (!(e instanceof AbortError)) throw e; });
+```
+
+Events are sent to the engine ahead of time, a second and a half at most and never more than
+its queue holds (see [the event queue](synth.md#the-event-queue)), so files of any length and
+density play.
+
+`parseMidiFile(bytes)` gives the raw time-ordered events: `channel` is 1–16 and `track` the
+0-based track index. It reads Standard MIDI Files of format 0 and 1 timed in ticks per beat;
+format 2, SMPTE timing, and a file that is not a Standard MIDI File or is truncated or corrupt
+throw `MidiError`.
 
 ## Hardware input
 
