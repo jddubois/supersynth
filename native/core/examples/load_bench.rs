@@ -48,7 +48,7 @@ fn main() {
             parts[1] += z.amps_smooth.len() * 2;
             parts[2] += z.image.as_ref().map_or(0, |i| i.ild.len() + i.iph.len() + i.lph.len());
             parts[3] += z.noise.len();
-            parts[4] += z.transient.as_ref().map_or(0, |t| 4 * (t.data.len() + t.data_r.as_ref().map_or(0, |r| r.len())));
+            parts[4] += z.transient.as_ref().map_or(0, |t| 2 * (t.data.len() + t.data_r.as_ref().map_or(0, |r| r.len())));
         }
         std::hint::black_box((m, m2));
     }

@@ -867,7 +867,7 @@ impl SpectralVoice {
                 if let Some(tr) = &m.zones[self.zone[j]].transient {
                     if self.tr_step[j] > 0.0 {
                         max_step = max_step.max(self.tr_step[j] * self.sr as f64 / tr.rate as f64);
-                        min_len_s = min_len_s.min(((tr.data.len() - 1) as f64 / self.tr_step[j] / self.sr as f64) as f32);
+                        min_len_s = min_len_s.min(((tr.len() - 1) as f64 / self.tr_step[j] / self.sr as f64) as f32);
                     }
                 }
             }
@@ -2000,8 +2000,7 @@ impl SpectralVoice {
                 continue;
             }
             let gz = g * db_to_amp(z.gain_db);
-            let data = &tr.data;
-            let last = data.len() as f64 - 1.0;
+            let last = tr.len() as f64 - 1.0;
             let mut pos = self.tr_pos[j];
             for s in 0..n {
                 if pos >= last {
@@ -2014,10 +2013,14 @@ impl SpectralVoice {
                 }
                 let i = pos as usize;
                 let fr = (pos - i as f64) as f32;
-                let v = data[i] + (data[i + 1] - data[i]) * fr;
+                let (a, b) = (tr.left(i), tr.left(i + 1));
+                let v = a + (b - a) * fr;
                 out_l[s] += v * gz * gt * pl;
                 let vr = match &tr.data_r {
-                    Some(dr) => dr[i] + (dr[i + 1] - dr[i]) * fr,
+                    Some(_) => {
+                        let (a, b) = (tr.right(i), tr.right(i + 1));
+                        a + (b - a) * fr
+                    }
                     None => v,
                 };
                 out_r[s] += vr * gz * gt * pr;
