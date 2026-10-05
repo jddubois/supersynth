@@ -70,6 +70,11 @@ def delta_pm(q: np.ndarray) -> bytes:
     return (d % 256).astype(np.uint8).tobytes()
 
 
+def quantize_phase(ph: np.ndarray) -> np.ndarray:
+    """Radians → uint8 in 1/256 turns, wrapping (a phase that rounds to a full turn is 0)."""
+    return (np.round(np.asarray(ph, dtype=np.float64) / (2 * math.pi) * 256).astype(np.int64) % 256).astype(np.uint8)
+
+
 AMP_STEP = 1.0 / 16.0
 IMG_RANGE_DB = 40.0
 
@@ -100,7 +105,8 @@ def write_model(path: str, header: dict, zones: list[Zone]):
         T = len(z.times)
         o = {
             'ratios': put(np.asarray(z.ratios, '<f4').tobytes()),
-            'phases': put(np.round((np.mod(z.phases, 2 * math.pi)) / (2 * math.pi) * 256).astype(np.int64).clip(0, 255).astype(np.uint8).tobytes()),
+            # 1/256 turns; a phase just below 2π rounds to 256 ≡ 0 (wrap, don't clip to 255)
+            'phases': put(quantize_phase(z.phases).tobytes()),
             'amps16': put(delta_pm16(z.amps_db)),
             'ampsStep': AMP_STEP,
             'pitch': put(np.round(np.clip(z.pitch_cents, -300, 300) * 100).astype('<i2').tobytes()),
