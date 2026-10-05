@@ -38,6 +38,14 @@ export interface NativeEngine {
   readonly faulted: boolean;
   readonly error: string | null;
   loadModel(bytes: Buffer): number;
+  /** Load a model file on a background thread; the id is usable at once (a use waits for
+   *  just that model, loading it on the spot if no worker has started it). */
+  queueModelFile(path: string): number;
+  /** Calls back once all these models have loaded (or been unloaded): with null, or the first
+   *  loading error. The wait does not keep Node.js running. */
+  watchModels(ids: number[], callback: (error: string | null) => void): void;
+  /** Decoded size of a model in bytes, or null while it is still loading. */
+  modelBytes(id: number): number | null;
   unloadModel(id: number): void;
   modelInfo(id: number): string;
   setInstrument(part: number, layers: NativeLayer[], time?: number | null): void;

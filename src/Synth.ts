@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { totalmem } from 'node:os';
 
 import { INSTRUMENTS, type InstrumentDefinition, type InstrumentId, type LayerDefinition } from './catalog/index.js';
 import { AbortError, AudioBackendError, MidiError, SupersynthError } from './errors.js';
@@ -77,7 +78,10 @@ export type MidiTarget = InstrumentId | Instrument | Division;
  *  other calls). */
 const MIDI_PENDING = QUEUE_CAPACITY - 1024;
 
-/** A model loaded in the engine, and the instruments and organs that use it. */
+/** Decoded models take about this many bytes per byte of their (gzip) file. */
+const DECODED_PER_FILE_BYTE = 5;
+
+/** A model loaded (or loading) in the engine, and the instruments and organs that use it. */
 interface LoadedModel {
   id: number;
   users: Set<object>;
@@ -203,6 +207,20 @@ export class Synth extends EventEmitter {
   /** The instruments and organs added, in the order of their first channel. */
   instruments(): (Instrument | Organ)[] {
     return [...new Set(this.slots.filter((x): x is Instrument | Organ => x !== null))];
+  }
+
+  /**
+   * Resolves once every organ added so far has loaded all the models it preloads (see
+   * {@link OrganOptions.preload}): drawing any of their stops is then instant. Rejects when a
+   * model fails to load (that stop would throw when drawn). Instruments load in `add()`.
+   *
+   * ```ts
+   * const organ = synth.add('friesach');   // its preset plays at once
+   * await synth.ready();                   // every other stop is loaded too
+   * ```
+   */
+  async ready(): Promise<void> {
+    await Promise.all(this.instruments().map((i) => (i instanceof Organ ? i.ready : undefined)));
   }
 
   /** Remove an instrument or an organ: its notes stop at once, its channels and MIDI channels
@@ -647,18 +665,55 @@ export class Synth extends EventEmitter {
     return this.engine;
   }
 
-  /** @internal Load (once per synth) and return the native id of a model `owner` uses. */
+  /** @internal Load (once per synth) and return the native id of a model `owner` uses. A model
+   *  still loading in the background is waited for when the engine first uses the id. */
   _model(name: string, owner: object): number {
     let m = this.models.get(name);
     if (!m) {
-      const file = resolveModelFile(name, this.modelsDirectory);
-      if (!existsSync(file)) throw new SupersynthError(`Instrument model '${name}' not found at ${file}`);
       // the engine parses the bytes into its own model, so they are not kept
-      m = { id: this.engine.loadModel(readFileSync(file)), users: new Set() };
+      m = { id: this.engine.loadModel(readFileSync(this._modelFile(name))), users: new Set() };
       this.models.set(name, m);
     }
     m.users.add(owner);
     return m.id;
+  }
+
+  /** @internal Start loading these models (that are not loaded yet) in the background, for
+   *  `owner`; returns their ids. They are usable at once: a use waits for just that model. */
+  _preload(names: Iterable<string>, owner: object): number[] {
+    const ids: number[] = [];
+    for (const name of names) {
+      let m = this.models.get(name);
+      if (!m) {
+        m = { id: this.engine.queueModelFile(this._modelFile(name)), users: new Set() };
+        this.models.set(name, m);
+      }
+      m.users.add(owner);
+      ids.push(m.id);
+    }
+    return ids;
+  }
+
+  /** @internal The file of a model. */
+  _modelFile(name: string): string {
+    const file = resolveModelFile(name, this.modelsDirectory);
+    if (!existsSync(file)) throw new SupersynthError(`Instrument model '${name}' not found at ${file}`);
+    return file;
+  }
+
+  /** @internal Preloading everything when these models would take at most a quarter of the
+   *  machine's memory decoded (about 5 times their file size), else only a preset's. */
+  _defaultPreload(names: Iterable<string>): 'all' | 'preset' {
+    let bytes = 0;
+    for (const name of names) bytes += statSync(this._modelFile(name)).size;
+    return bytes * DECODED_PER_FILE_BYTE <= totalmem() / 4 ? 'all' : 'preset';
+  }
+
+  /** @internal Decoded size of the models loaded so far, in bytes. */
+  _modelBytes(): number {
+    let bytes = 0;
+    for (const m of this.models.values()) bytes += this.engine.modelBytes(m.id) ?? 0;
+    return bytes;
   }
 
   /** @internal `owner` no longer uses these models (any model, when left out): unload those

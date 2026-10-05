@@ -23,6 +23,8 @@ fn main() {
     files.sort();
     let (mut read, mut inflate, mut parse, mut whole) = (0.0, 0.0, 0.0, 0.0);
     let (mut gz, mut raw_bytes, mut mem) = (0usize, 0usize, 0usize);
+    // decoded bytes by kind: amplitude envelopes, their smoothed copy, stereo image, noise, transients
+    let mut parts = [0usize; 5];
     for f in &files {
         let t0 = Instant::now();
         let b = std::fs::read(f).expect("model file");
@@ -41,6 +43,13 @@ fn main() {
         gz += b.len();
         raw_bytes += raw.len();
         mem += m.heap_bytes();
+        for z in &m.zones {
+            parts[0] += z.amps.len() * 2;
+            parts[1] += z.amps_smooth.len() * 2;
+            parts[2] += z.image.as_ref().map_or(0, |i| i.ild.len() + i.iph.len() + i.lph.len());
+            parts[3] += z.noise.len();
+            parts[4] += z.transient.as_ref().map_or(0, |t| 4 * (t.data.len() + t.data_r.as_ref().map_or(0, |r| r.len())));
+        }
         std::hint::black_box((m, m2));
     }
     println!(
@@ -54,5 +63,15 @@ fn main() {
         inflate * 1e3,
         parse * 1e3,
         whole * 1e3
+    );
+    let mb = |b: usize| b as f64 / 1e6;
+    println!(
+        "decoded: amplitudes {:.1} MB, smoothed amplitudes {:.1} MB, stereo image {:.1} MB, noise {:.1} MB, transients {:.1} MB, other {:.1} MB",
+        mb(parts[0]),
+        mb(parts[1]),
+        mb(parts[2]),
+        mb(parts[3]),
+        mb(parts[4]),
+        mb(mem - parts.iter().sum::<usize>())
     );
 }

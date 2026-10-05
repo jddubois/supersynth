@@ -48,7 +48,8 @@ Six rules hold everywhere:
 
 | Method | |
 |---|---|
-| `add(id \| definition, options)` | add an instrument → `Instrument` (options `{ preset, parameters }`), or an organ → `Organ` (options `{ preset, presets, tremulant, wind, noises }`) |
+| `add(id \| definition, options)` | add an instrument → `Instrument` (options `{ preset, parameters }`), or an organ → `Organ` (options `{ preset, presets, tremulant, wind, noises, preload }`; its other stops load in the background, see [organ.md](organ.md#loading)) |
+| `ready()` | a promise: every organ added has loaded the models it loads in the background |
 | `instruments()`, `remove(instrument \| organ)` | the instruments and organs added; remove one (its notes stop, its channels — an organ's noise channel too — are freed and cleared, the models nothing else uses are unloaded; using it afterwards throws) |
 | `set({ volume, reverb }, { at })` | master volume and room, see [parameters.md](parameters.md#reverb) |
 | `start()` / `stop()` / `close()` | real-time output; `close()` also releases every instrument, organ and model, and the synth cannot be used afterwards |
@@ -66,7 +67,8 @@ Six rules hold everywhere:
 | `engineError` | the engine's internal error, or `null`; after one the engine is silent until a new `Synth` is created |
 
 Events: `'midi'` (`MidiEvent`) for every message once hardware MIDI is enabled; `'error'` for an
-organ preset that fails on a MIDI program change (see [organ.md](organ.md#midi-keyboards)).
+organ preset that fails on a MIDI program change (see [organ.md](organ.md#midi-keyboards)) and
+for an organ's model that fails to load in the background (see [organ.md](organ.md#loading)).
 
 ### The event queue
 
