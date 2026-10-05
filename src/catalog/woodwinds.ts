@@ -15,7 +15,7 @@ export const FLUTE: InstrumentDefinition = {
     default: { description: 'Straight tone' },
     vibrato: { description: 'With natural flute vibrato', layers: one('flute-vibrato') },
     breathy: { description: 'More air in the tone', parameters: { noise: 6, brightness: -0.5 } },
-    piccolo: { description: 'Piccolo', layers: one('piccolo') },
+    piccolo: { description: 'Piccolo (flute below its range)', layers: [{ model: 'piccolo', keyLow: 74 }, { model: 'flute', keyHigh: 73 }] },
   },
 };
 
