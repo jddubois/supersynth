@@ -4,5 +4,7 @@
     "types": ["node", "jest"],
     "noUncheckedIndexedAccess": false,
     "isolatedModules": true
-  }
+  },
+  "include": ["src", "test"],
+  "exclude": []
 }
