@@ -55,6 +55,34 @@ async function live({ id, preset, threads, notes }) {
   return r;
 }
 
+/** Add an organ that loads all its stops in the background: the page's main thread's longest
+ *  stall meanwhile (models load on workers). */
+async function loading({ id, preset }) {
+  const synth = await Synth.create();
+  await synth.load(id);
+  let t = performance.now();
+  const organ = synth.add(id, { preset, preload: 'all' });
+  const addMs = performance.now() - t;
+  let last = performance.now();
+  let worst = 0;
+  let done = false;
+  const tick = () => {
+    const now = performance.now();
+    worst = Math.max(worst, now - last);
+    last = now;
+    if (!done) setTimeout(tick, 0);
+  };
+  setTimeout(tick, 0);
+  t = performance.now();
+  await organ.ready;
+  done = true;
+  const r = { addMs, readyMs: performance.now() - t, worstStallMs: worst, models: synth._loadedModels().length };
+  organ.great.play('C4', { duration: 0.2 });
+  r.peak = peak(synth.render(0.3));
+  synth.close();
+  return r;
+}
+
 /** What a page without the headers gets. */
 async function create() {
   try {
@@ -65,5 +93,5 @@ async function create() {
   }
 }
 
-window.cases = { offline, live, create };
+window.cases = { offline, live, loading, create };
 window.ready = true;

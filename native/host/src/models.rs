@@ -15,14 +15,18 @@
 //! collection) is gone, and only then frees it. Freeing a large organ's models takes a
 //! noticeable time, which must not land in a render call or between key events.
 //!
-//! Where threads cannot be started (WebAssembly in a browser, whose main thread must also never
-//! block), nothing loads in the background: a model loads when it is first used, or when the
-//! host calls [`ModelStore::load_next`] (between other work), and unloaded models are freed
-//! on the calling thread once nothing else holds them ([`sweep`]).
+//! Threads start through `supersynth_core::thread`: natively they are std threads; in a browser
+//! (WebAssembly with shared memory) Web Workers the host starts. A browser's main thread never
+//! blocks: there, waiting for a model a worker is loading spins instead.
+//!
+//! Where threads cannot be started at all (WebAssembly without shared memory), nothing loads
+//! in the background: a model loads when it is first used, or when the host calls
+//! [`ModelStore::load_next`] (between other work), and unloaded models are freed on the
+//! calling thread once nothing else holds them ([`sweep`]).
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 use supersynth_core::model::Model;
@@ -133,7 +137,16 @@ impl Job {
             match &g.state {
                 State::Done(r) => return Some(r.clone()),
                 State::Cancelled => return None,
+                // natively: wait to be woken; a browser's main thread may not block, so in
+                // WebAssembly spin (the wait is a worker's parse of this one model)
+                #[cfg(not(all(target_arch = "wasm32", target_feature = "atomics")))]
                 State::Queued(_) | State::Running => g = self.done.wait(g).unwrap_or_else(|e| e.into_inner()),
+                #[cfg(all(target_arch = "wasm32", target_feature = "atomics"))]
+                State::Queued(_) | State::Running => {
+                    drop(g);
+                    std::hint::spin_loop();
+                    g = lock(&self.inner);
+                }
             }
         }
     }
@@ -193,7 +206,7 @@ fn reclaimer() -> &'static Reclaimer {
     let r = R.get_or_init(|| Reclaimer { held: Mutex::new(Vec::new()), more: Condvar::new(), threaded: AtomicBool::new(false) });
     STARTED.get_or_init(|| {
         // (without the thread, unloaded models are freed by `sweep`, on the thread calling it)
-        let spawned = std::thread::Builder::new().name("supersynth-reclaim".into()).spawn(move || {
+        let spawned = supersynth_core::thread::spawn("supersynth-reclaim".into(), move || {
             lower_priority();
             let mut free = Vec::new();
             loop {
@@ -291,13 +304,26 @@ struct Pool {
     work: Condvar,
 }
 
-/// Worker threads: `$SUPERSYNTH_LOAD_THREADS`, else the cores less two (one for audio, one for
-/// JavaScript), 1–6.
+/// Loading threads the host asked for ([`set_loading_threads`]), 0: not asked.
+static LOADING_THREADS: AtomicUsize = AtomicUsize::new(0);
+
+/// Loading threads to start, for a host that knows the machine better than the standard
+/// library can (a browser: `navigator.hardwareConcurrency`). Takes effect if called before the
+/// first model is queued.
+pub fn set_loading_threads(n: usize) {
+    LOADING_THREADS.store(n.clamp(1, 64), Ordering::Relaxed);
+}
+
+/// Worker threads: `$SUPERSYNTH_LOAD_THREADS`, else what the host asked for, else the cores less
+/// two (one for audio, one for JavaScript), 1–6.
 fn worker_count() -> usize {
     if let Some(n) = std::env::var("SUPERSYNTH_LOAD_THREADS").ok().and_then(|v| v.trim().parse::<usize>().ok()) {
         return n.clamp(1, 64);
     }
-    std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(2)).clamp(1, 6)
+    match LOADING_THREADS.load(Ordering::Relaxed) {
+        0 => std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(2)).clamp(1, 6),
+        n => n,
+    }
 }
 
 fn pool() -> &'static Pool {
@@ -307,7 +333,7 @@ fn pool() -> &'static Pool {
     STARTED.get_or_init(|| {
         for i in 0..worker_count() {
             // (a thread that cannot be started leaves its jobs to the others, or to `wait`)
-            let _ = std::thread::Builder::new().name(format!("supersynth-load-{i}")).spawn(move || worker(p));
+            let _ = supersynth_core::thread::spawn(format!("supersynth-load-{i}"), move || worker(p));
         }
     });
     p

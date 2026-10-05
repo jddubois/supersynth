@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The browser engine in a real browser (headless Chromium, via playwright-core): offline
-// rendering, real-time output through the AudioWorklet, and the render workers on the other
-// cores keeping a full organ in real time where one thread cannot.
+// rendering, real-time output through the AudioWorklet, the render workers on the other cores
+// keeping a full organ in real time where one thread cannot, and models loading on workers
+// while the page stays responsive.
 //
 //   npm run build:wasm && npm run build:ts && npm run test:browser
 //
@@ -83,6 +84,14 @@ await test('a full organ plays in real time on several threads', async () => {
   console.log(`  Bureå full organ, live on ${r.threads} threads: ${r.voices} voices, CPU ${(100 * r.cpuLoad).toFixed(0)} %, ${r.pace.toFixed(2)} s rendered per second`);
   assert.equal(r.error, null);
   if (cores >= 4) assert.ok(r.pace > 0.95, `rendered ${r.pace.toFixed(2)} s per second`);
+});
+
+await test('an organ loads its other stops on workers: the page stays responsive', async () => {
+  const r = await run('loading', { id: 'burea', preset: 'flutes' });
+  console.log(`  Bureå: add() ${r.addMs.toFixed(0)} ms, the other ${r.models} models in ${r.readyMs.toFixed(0)} ms, longest main-thread stall ${r.worstStallMs.toFixed(0)} ms`);
+  assert.ok(r.models >= 30, `${r.models} models`);
+  assert.ok(r.peak > 1e-3, 'it plays');
+  assert.ok(r.worstStallMs < 50, `the main thread stalled ${r.worstStallMs.toFixed(0)} ms`);
 });
 
 await close();
