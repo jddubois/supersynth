@@ -1,0 +1,132 @@
+{
+ "keys": {
+  "pedal": {
+   "down": "organ/lipiny/noise-keys-pedal-down",
+   "up": "organ/lipiny/noise-keys-pedal-up"
+  },
+  "great": {
+   "down": "organ/lipiny/noise-keys-great-down",
+   "up": "organ/lipiny/noise-keys-great-up"
+  },
+  "positive": {
+   "down": "organ/lipiny/noise-keys-positive-down",
+   "up": "organ/lipiny/noise-keys-positive-up"
+  }
+ },
+ "stops": {
+  "great-bordun-16": [
+   3,
+   4
+  ],
+  "great-cornett-3-fach": [
+   5,
+   6
+  ],
+  "great-doppelrohrflote-4": [
+   7,
+   8
+  ],
+  "great-doppelrohrflote-8": [
+   9,
+   10
+  ],
+  "great-gemshorn-8": [
+   11,
+   12
+  ],
+  "great-mixtur-4-fach": [
+   13,
+   14
+  ],
+  "great-octave-2": [
+   15,
+   16
+  ],
+  "great-octave-4": [
+   17,
+   18
+  ],
+  "great-principal-8": [
+   19,
+   20
+  ],
+  "great-quinte-2-2-3": [
+   21,
+   22
+  ],
+  "great-trompete-8": [
+   23,
+   24
+  ],
+  "great-viola-di-gamba-8": [
+   25,
+   26
+  ],
+  "pedal-flautbass-8": [
+   27,
+   28
+  ],
+  "pedal-octavbass-8": [
+   29,
+   30
+  ],
+  "pedal-octave-4": [
+   31,
+   32
+  ],
+  "pedal-posaune-16": [
+   33,
+   34
+  ],
+  "pedal-principalbass-16": [
+   35,
+   36
+  ],
+  "pedal-subbass-16": [
+   37,
+   38
+  ],
+  "pedal-violonbass-16": [
+   39,
+   40
+  ],
+  "positive-flaut-major-8": [
+   41,
+   42
+  ],
+  "positive-geigenprincipal-8": [
+   43,
+   44
+  ],
+  "positive-portunal-flaut-4": [
+   45,
+   46
+  ],
+  "positive-portunal-flaut-8": [
+   47,
+   48
+  ],
+  "positive-salicet-8": [
+   49,
+   50
+  ],
+  "positive-viol-principal-4": [
+   51,
+   52
+  ]
+ },
+ "tremulants": {},
+ "couplers": {
+  "coupler 1": [
+   53,
+   54
+  ],
+  "coupler 2": [
+   55,
+   56
+  ]
+ },
+ "stopsModel": "organ/lipiny/noise-stops",
+ "blower": "organ/lipiny/noise-blower",
+ "ambient": "organ/lipiny/noise-ambient"
+}
