@@ -379,7 +379,7 @@ export class Division implements Playable {
     if (this.waiting.has(def.name)) {
       // retired before its models had loaded: it never sounded
       this.waiting.delete(def.name);
-    } else if (on && !this.layers.has(def.name) && synth._realtime) {
+    } else if (on && !this.layers.has(def.name) && synth._realtime && !this.organ._isConstructing()) {
       // In real time, a stop whose models are still loading does not hold up the caller (a
       // key, a MIDI program change): it sounds as soon as they have loaded.
       const ids = synth._preload(this.models(def), this.organ);
@@ -526,6 +526,7 @@ export class Organ {
   private active: string | undefined;
   private midiListener: ((e: MidiEvent) => void) | undefined;
   private removed = false;
+  private constructing = false;
   private readonly trems: TremulantDefinition[];
   private tremOn: boolean[];
   private noiseState: OrganNoiseSettings = { blower: false, ambient: false, action: false };
@@ -594,7 +595,13 @@ export class Organ {
         }
       }
       this.set({ wind, ...(options.tremulant !== undefined ? { tremulant: options.tremulant } : {}) });
-      this.preset(preset);
+      // the starting registration sounds as soon as add() returns, also in real time
+      this.constructing = true;
+      try {
+        this.preset(preset);
+      } finally {
+        this.constructing = false;
+      }
       if (options.noises) this.set({ noises: options.noises });
     } catch (e) {
       this.removed = true;
@@ -825,6 +832,11 @@ export class Organ {
   /** @internal */
   _isRemoved(): boolean {
     return this.removed;
+  }
+
+  /** @internal Applying the registration given to `synth.add` (its models load at once). */
+  _isConstructing(): boolean {
+    return this.constructing;
   }
 
   /** @internal A failure in the background: the synth's `'error'` event, when it has listeners. */

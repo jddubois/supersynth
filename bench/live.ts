@@ -209,7 +209,9 @@ async function runScenario(sc: Scenario): Promise<Result> {
   synth['emulateRealtime'] = true; // the engine is driven here as by real-time output
   const native = synth._native();
   const events = sc.setup(synth).sort((a, b) => a.time - b.time);
-  // every model loaded before the clock starts (background loading would compete for the CPU)
+  // a performer waits for the instrument to be ready (stops still loading in the background
+  // would otherwise be applied from the event loop, which this synchronous loop never yields to,
+  // and the loading would compete for the CPU)
   await synth.ready();
   native.render(SR / 2); // settle: setup commands, reverb buffers
   const n = Math.ceil((SECONDS * SR) / BUFFER);
