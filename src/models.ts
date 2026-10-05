@@ -1,5 +1,5 @@
 // Where `.ssm` models are found. The core instruments ship in supersynth's own `models/`; each
-// organ sample set ships in its own npm package (`supersynth-organ-<id>`), with the same tree
+// organ sample set ships in its own npm package (`@supersynth/organ-<id>`), with the same tree
 // under the package's `models/` (`organ/<id>/<stop>.ssm`, the Bureå organ `organ/<stop>.ssm`).
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -8,7 +8,7 @@ import path from 'node:path';
 import { SupersynthError } from './errors.js';
 import { packageRoot } from './native.js';
 
-/** @internal Organs whose models are in a package of their own (`supersynth-organ-<id>`). */
+/** @internal Organs whose models are in a package of their own (`@supersynth/organ-<id>`). */
 export const ORGAN_MODEL_PACKAGES = [
   'burea',
   'azzio',
@@ -31,14 +31,14 @@ export const ORGAN_MODEL_PACKAGES = [
 const PACKAGED = new Set<string>(ORGAN_MODEL_PACKAGES);
 
 /** @internal The organ and npm package a model ships in, or `undefined` for a core model
- *  (shipped with supersynth). `organ/<id>/<stop>` is in `supersynth-organ-<id>`, `organ/<stop>`
- *  (the Bureå organ) in `supersynth-organ-burea`. */
+ *  (shipped with supersynth). `organ/<id>/<stop>` is in `@supersynth/organ-<id>`, `organ/<stop>`
+ *  (the Bureå organ) in `@supersynth/organ-burea`. */
 export function modelPackage(name: string): { organ: string; pkg: string } | undefined {
   const parts = name.split('/');
   if (parts[0] !== 'organ') return undefined;
   const organ = parts.length === 2 ? 'burea' : parts.length === 3 ? parts[1]! : undefined;
   if (!organ || !PACKAGED.has(organ)) return undefined;
-  return { organ, pkg: `supersynth-organ-${organ}` };
+  return { organ, pkg: `@supersynth/organ-${organ}` };
 }
 
 /** @internal Finds the directory of an installed package, or `undefined`. */
@@ -63,7 +63,7 @@ export const findPackageDir: PackageFinder = (pkg) => {
     }
   }
   if (!dir) {
-    const workspace = path.join(packageRoot(), 'packages', pkg.replace(/^supersynth-/, ''));
+    const workspace = path.join(packageRoot(), 'packages', pkg.replace(/^@supersynth\//, ''));
     if (existsSync(path.join(workspace, 'package.json'))) dir = workspace;
   }
   if (dir) packageDirs.set(pkg, dir);

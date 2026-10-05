@@ -20,33 +20,33 @@ Every organ is an `OrganDefinition` exported from `supersynth` and `supersynth/o
 `PIOTR_ORGANS`). Sample sets © Piotr Grabowski; the models are not covered by the MIT license
 and may not be sold or built into products for sale — see NOTICE.md.
 
-Each organ's models are an npm package of their own, `supersynth-organ-<id>`: install the organs
-you play (`npm install supersynth-organ-friesach`), or all of them with `npm install supersynth-organs`.
+Each organ's models are an npm package of their own, `@supersynth/organ-<id>`: install the organs
+you play (`npm install @supersynth/organ-friesach`), or all of them with `npm install @supersynth/organs`.
 Adding an organ whose package is not installed throws a `SupersynthError` that names the package.
 
 | Id | Organ | Stops | Package | Models |
 |---|---|---|---|---|
-| `azzio` | Azzio | 12 | `supersynth-organ-azzio` | 20 MB |
-| `cracow` | Cracow, St. John Cantius | 40 | `supersynth-organ-cracow` | 70 MB |
-| `dluga-koscielna` | Długa Kościelna | 22 | `supersynth-organ-dluga-koscielna` | 31 MB |
-| `friesach` | Friesach, St. Bartholomäus | 44 | `supersynth-organ-friesach` | 83 MB |
-| `giubiasco` | Giubiasco | 22 | `supersynth-organ-giubiasco` | 37 MB |
-| `green-positiv` | Green Positiv | 5 | `supersynth-organ-green-positiv` | 5 MB |
-| `harmonium` | Harmonium Emil Müller | 16 | `supersynth-organ-harmonium` | 24 MB |
-| `ledziny` | Lędziny, St. Clement | 11 | `supersynth-organ-ledziny` | 14 MB |
-| `lipiny` | Lipiny | 25 | `supersynth-organ-lipiny` | 30 MB |
-| `melcer` | Melcer Chamber Music Hall | 18 | `supersynth-organ-melcer` | 28 MB |
-| `raszczyce` | Raszczyce | 21 | `supersynth-organ-raszczyce` | 34 MB |
-| `saint-jean-de-luz` | Saint-Jean-de-Luz (chœur) | 16 | `supersynth-organ-saint-jean-de-luz` | 18 MB |
-| `skrzatusz` | Skrzatusz sanctuary | 19 | `supersynth-organ-skrzatusz` | 27 MB |
-| `strassburg` | Strassburg | 20 | `supersynth-organ-strassburg` | 25 MB |
-| `szczecinek` | Szczecinek | 35 | `supersynth-organ-szczecinek` | 53 MB |
+| `azzio` | Azzio | 12 | `@supersynth/organ-azzio` | 20 MB |
+| `cracow` | Cracow, St. John Cantius | 40 | `@supersynth/organ-cracow` | 70 MB |
+| `dluga-koscielna` | Długa Kościelna | 22 | `@supersynth/organ-dluga-koscielna` | 31 MB |
+| `friesach` | Friesach, St. Bartholomäus | 44 | `@supersynth/organ-friesach` | 83 MB |
+| `giubiasco` | Giubiasco | 22 | `@supersynth/organ-giubiasco` | 37 MB |
+| `green-positiv` | Green Positiv | 5 | `@supersynth/organ-green-positiv` | 5 MB |
+| `harmonium` | Harmonium Emil Müller | 16 | `@supersynth/organ-harmonium` | 24 MB |
+| `ledziny` | Lędziny, St. Clement | 11 | `@supersynth/organ-ledziny` | 14 MB |
+| `lipiny` | Lipiny | 25 | `@supersynth/organ-lipiny` | 30 MB |
+| `melcer` | Melcer Chamber Music Hall | 18 | `@supersynth/organ-melcer` | 28 MB |
+| `raszczyce` | Raszczyce | 21 | `@supersynth/organ-raszczyce` | 34 MB |
+| `saint-jean-de-luz` | Saint-Jean-de-Luz (chœur) | 16 | `@supersynth/organ-saint-jean-de-luz` | 18 MB |
+| `skrzatusz` | Skrzatusz sanctuary | 19 | `@supersynth/organ-skrzatusz` | 27 MB |
+| `strassburg` | Strassburg | 20 | `@supersynth/organ-strassburg` | 25 MB |
+| `szczecinek` | Szczecinek | 35 | `@supersynth/organ-szczecinek` | 53 MB |
 
 ## `azzio` — Azzio
 
 Mascioni 2016, Azzio (Italy): 11 stops on two manuals and pedal in the Italian style, at a ≈ 420 Hz.
 
-Install: `npm install supersynth-organ-azzio`. Config: `AZZIO_ORGAN`. Default preset: `ripieno`. Tremulant on the great.
+Install: `npm install @supersynth/organ-azzio`. Config: `AZZIO_ORGAN`. Default preset: `ripieno`. Tremulant on the great.
 
 **Great:** Principale 8', Flauto camino 8', Ottava 4', Sesquialtera 2 2/3', Sesquialtera II, Ripieno 3-4 file
 
@@ -68,7 +68,7 @@ Install: `npm install supersynth-organ-azzio`. Config: `AZZIO_ORGAN`. Default pr
 
 Jacek Siedlar 2004, St. John Cantius, Cracow (Poland): a French-symphonic organ, 40 stops on three manuals (the Récit enclosed) and pedal.
 
-Install: `npm install supersynth-organ-cracow`. Config: `CRACOW_ORGAN`. Default preset: `fonds`. Tremulant on the swell. In a swell box: swell.
+Install: `npm install @supersynth/organ-cracow`. Config: `CRACOW_ORGAN`. Default preset: `fonds`. Tremulant on the swell. In a swell box: swell.
 
 **Great:** Bourdon 16', Montre 8', Flûte Harmonique 8', Bourdon 8', Viole de Gambe 8', Prestant 4', Flûte douce 4', Doublette 2', Cornet 5x, Plein Jeu 5x, Trompette 8', Clairon 4'
 
@@ -97,7 +97,7 @@ Install: `npm install supersynth-organ-cracow`. Config: `CRACOW_ORGAN`. Default 
 
 Kamiński 2012, Długa Kościelna (Poland): 22 stops on two manuals and pedal, a principal chorus with Mixtura on the great and a flute-and-mutation positive with Krumhorn.
 
-Install: `npm install supersynth-organ-dluga-koscielna`. Config: `DLUGA_KOSCIELNA_ORGAN`. Default preset: `principal-chorus`. Tremulant on the positive.
+Install: `npm install @supersynth/organ-dluga-koscielna`. Config: `DLUGA_KOSCIELNA_ORGAN`. Default preset: `principal-chorus`. Tremulant on the positive.
 
 **Great:** Pryncypał 8', Flet kryty 8', Viola di Gamba 8', Oktawa 4', Flet rurkowy 4', Oktawa 2', Mixtura 1 1/3'
 
@@ -123,7 +123,7 @@ Install: `npm install supersynth-organ-dluga-koscielna`. Config: `DLUGA_KOSCIELN
 
 Eisenbarth 2000, St. Bartholomäus, Friesach (Austria): 44 stops on three manuals (Hauptwerk, Schwellwerk, a French Solowerk with Trompete en chamade) and pedal with Untersatz 32'.
 
-Install: `npm install supersynth-organ-friesach`. Config: `FRIESACH_ORGAN`. Default preset: `principal-chorus`. Tremulant on the swell. In a swell box: swell.
+Install: `npm install @supersynth/organ-friesach`. Config: `FRIESACH_ORGAN`. Default preset: `principal-chorus`. Tremulant on the swell. In a swell box: swell.
 
 **Great:** Praestant 16', Principal 8', Holzflöte 8', Röhrflöte 8', Gambe 8', Octave 4', Spitzflöte 4', Quinte 2 2/3', Octave 2', Mixtur major 4-5f. 2 2/3', Mixtur minor 4f. 1 1/3', Trompete 16', Trompete 8'
 
@@ -154,7 +154,7 @@ Install: `npm install supersynth-organ-friesach`. Config: `FRIESACH_ORGAN`. Defa
 
 Mascioni 2008, Giubiasco (Switzerland): 22 stops in the Italian style on Grande organo, Positivo tergale and pedal with Ripieno, Voce umana and Cornetto.
 
-Install: `npm install supersynth-organ-giubiasco`. Config: `GIUBIASCO_ORGAN`. Default preset: `ripieno`. Tremulant on the positive.
+Install: `npm install @supersynth/organ-giubiasco`. Config: `GIUBIASCO_ORGAN`. Default preset: `ripieno`. Tremulant on the positive.
 
 **Great:** Principale 8', Viola da Gamba 8', Flauto a camino 8', Voce umana 8', Ottava 4', Flauto conico 4', Quintadecima 2', Cornetto 2 2/3', Ripieno 4 file, Violoncello 8'
 
@@ -180,7 +180,7 @@ Install: `npm install supersynth-organ-giubiasco`. Config: `GIUBIASCO_ORGAN`. De
 
 Stanisław Pielczyk 2008, Katowice (Poland): a continuo positive, one manual, 5 stops from 3 ranks, at Baroque pitch (a semitone below A440).
 
-Install: `npm install supersynth-organ-green-positiv`. Config: `GREEN_POSITIV_ORGAN`. Default preset: `continuo`.
+Install: `npm install @supersynth/organ-green-positiv`. Config: `GREEN_POSITIV_ORGAN`. Default preset: `continuo`.
 
 **Great:** Flet kryty 8', Flet kryty 4', Pryncypał 4', Pryncypał 2', Kwinta 1 1/3'
 
@@ -197,7 +197,7 @@ Install: `npm install supersynth-organ-green-positiv`. Config: `GREEN_POSITIV_OR
 
 Emil Müller, about 1920, Diocesan Music School, Gliwice (Poland): a two-manual harmonium with pedal; 5 registers, divided into bass and treble, each also with its forte.
 
-Install: `npm install supersynth-organ-harmonium`. Config: `HARMONIUM_ORGAN`. Default preset: `diapason`. Tremulant on the swell. In a swell box: great, swell, pedal.
+Install: `npm install @supersynth/organ-harmonium`. Config: `HARMONIUM_ORGAN`. Default preset: `diapason`. Tremulant on the swell. In a swell box: great, swell, pedal.
 
 **Great:** Diapason 8', Melodia 8', Diapason 8' Forte, Melodia 8' Forte, Viola 4', Flöte 4', Viola 4' Forte, Flöte 4' Forte
 
@@ -219,7 +219,7 @@ Install: `npm install supersynth-organ-harmonium`. Config: `HARMONIUM_ORGAN`. De
 
 Carl Volkmann 1888, St. Clement, Lędziny (Poland): a one-manual Romantic organ, 11 stops on manual and pedal.
 
-Install: `npm install supersynth-organ-ledziny`. Config: `LEDZINY_ORGAN`. Default preset: `foundations`.
+Install: `npm install @supersynth/organ-ledziny`. Config: `LEDZINY_ORGAN`. Default preset: `foundations`.
 
 **Great:** Principal 8', Salicet 8', Portunal-Flöte 8', Flaut major 8', Principal 4', Flauto traverse 4', Quinte 2 2/3' Octave 2', Mixtur 2 fach
 
@@ -239,7 +239,7 @@ Install: `npm install supersynth-organ-ledziny`. Config: `LEDZINY_ORGAN`. Defaul
 
 Adolf Volkmann 1898, Lipiny, Świętochłowice (Poland): a Romantic organ, 25 stops on two manuals and pedal.
 
-Install: `npm install supersynth-organ-lipiny`. Config: `LIPINY_ORGAN`. Default preset: `foundations`.
+Install: `npm install @supersynth/organ-lipiny`. Config: `LIPINY_ORGAN`. Default preset: `foundations`.
 
 **Great:** Bordun 16', Principal 8', Viola di Gamba 8', Gemshorn 8', Doppelröhrflöte 8', Octave 4', Doppelröhrflöte 4', Quinte 2 2/3', Octave 2', Cornett 3 Fach, Mixtur 4 Fach, Trompete 8'
 
@@ -265,7 +265,7 @@ Install: `npm install supersynth-organ-lipiny`. Config: `LIPINY_ORGAN`. Default 
 
 Walcker 1993, Melcer Chamber Music Hall, Warsaw (Poland): 18 stops on two manuals (the Brustwerk enclosed) and pedal, in a concert hall.
 
-Install: `npm install supersynth-organ-melcer`. Config: `MELCER_ORGAN`. Default preset: `principal-chorus`. Tremulant on the swell. In a swell box: swell.
+Install: `npm install @supersynth/organ-melcer`. Config: `MELCER_ORGAN`. Default preset: `principal-chorus`. Tremulant on the swell. In a swell box: swell.
 
 **Great:** Nachthorn 8', Prinzipal 4', Nasard 2 2/3', Oktave 2', Mixtur 1 1/3' 4f, Trompete 8'
 
@@ -289,7 +289,7 @@ Install: `npm install supersynth-organ-melcer`. Config: `MELCER_ORGAN`. Default 
 
 Vermeulen (Alkmaar) 1965, Raszczyce (Poland): a Dutch neo-Baroque organ, 21 stops on Hoofdwerk, Rugwerk and pedal.
 
-Install: `npm install supersynth-organ-raszczyce`. Config: `RASZCZYCE_ORGAN`. Default preset: `principal-chorus`.
+Install: `npm install @supersynth/organ-raszczyce`. Config: `RASZCZYCE_ORGAN`. Default preset: `principal-chorus`.
 
 **Great:** Prestant 8', Roerfluit 8', Octaaf 4', Gedekt fluit 4', Nasard 2 2/3', Woudfluit 2', Sesquialter II, Mixtuur IV, Trompet 8'
 
@@ -314,7 +314,7 @@ Install: `npm install supersynth-organ-raszczyce`. Config: `RASZCZYCE_ORGAN`. De
 
 Victor Gonzalez 1931, choir organ of Saint-Jean-Baptiste, Saint-Jean-de-Luz (France): 16 stops on two manuals (both enclosed) and pedal.
 
-Install: `npm install supersynth-organ-saint-jean-de-luz`. Config: `SAINT_JEAN_DE_LUZ_ORGAN`. Default preset: `fonds`. Tremulant on the great. In a swell box: great, swell.
+Install: `npm install @supersynth/organ-saint-jean-de-luz`. Config: `SAINT_JEAN_DE_LUZ_ORGAN`. Default preset: `fonds`. Tremulant on the great. In a swell box: great, swell.
 
 **Great:** Bourdon 16', Flûte harmonique 8', Bourdon 8', Prestant 4', Quinte 2 2/3', Doublette 2', Tierce 1 3/5'
 
@@ -338,7 +338,7 @@ Install: `npm install supersynth-organ-saint-jean-de-luz`. Config: `SAINT_JEAN_D
 
 Wilhelm Sauer 1876, sanctuary of Skrzatusz (Poland): 19 stops on two manuals and pedal.
 
-Install: `npm install supersynth-organ-skrzatusz`. Config: `SKRZATUSZ_ORGAN`. Default preset: `principal-chorus`. Tremulant on the positive.
+Install: `npm install @supersynth/organ-skrzatusz`. Config: `SKRZATUSZ_ORGAN`. Default preset: `principal-chorus`. Tremulant on the positive.
 
 **Great:** Bordun 16', Principal 8', Fugara 8', Flûte harmonique 8', Octave 4', Quinte 2 2/3', Octave 2', Cornett 4f, Mixtur 3f
 
@@ -363,7 +363,7 @@ Install: `npm install supersynth-organ-skrzatusz`. Config: `SKRZATUSZ_ORGAN`. De
 
 Cyriach Werner 1743, Strassburg (Carinthia, Austria): a Baroque organ, 20 stops on Hauptwerk, Positiv and pedal.
 
-Install: `npm install supersynth-organ-strassburg`. Config: `STRASSBURG_ORGAN`. Default preset: `principal-chorus`.
+Install: `npm install @supersynth/organ-strassburg`. Config: `STRASSBURG_ORGAN`. Default preset: `principal-chorus`.
 
 **Great:** Prinzipal 8', Gedeckt 8', Gemshorn 8', Oktav 4', Flöte 4', Quint 2 2/3', Oktav 2', Oktav 1', Mixtur 1 1/3'
 
@@ -387,7 +387,7 @@ Install: `npm install supersynth-organ-strassburg`. Config: `STRASSBURG_ORGAN`. 
 
 P. B. Voelkner (Bromberg) 1908, Szczecinek (Poland): a late-Romantic organ, 35 stops on two manuals (the second enclosed) and pedal.
 
-Install: `npm install supersynth-organ-szczecinek`. Config: `SZCZECINEK_ORGAN`. Default preset: `foundations`. Tremulant on the swell. In a swell box: swell.
+Install: `npm install @supersynth/organ-szczecinek`. Config: `SZCZECINEK_ORGAN`. Default preset: `foundations`. Tremulant on the swell. In a swell box: swell.
 
 **Great:** Principal 16', Bordun 16', Principal 8', Gambe 8', Salicional 8', Röhrflöte 8', Flûte harmonique 8', Octave 4', Hohlflöte 4', Piccolo 2', Rauschquinte 2 2/3' u. 2', Cornett 2-4 fach, Mixtur 5 fach, Trompete 8'
 

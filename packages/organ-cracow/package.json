@@ -1,5 +1,5 @@
 {
-  "name": "supersynth-organ-cracow",
+  "name": "@supersynth/organ-cracow",
   "version": "0.2.0",
   "description": "The Cracow, St. John Cantius organ for supersynth: spectral models of every stop of Piotr Grabowski's free sample set (not for sale)",
   "license": "SEE LICENSE IN NOTICE.md",

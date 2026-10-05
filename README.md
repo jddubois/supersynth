@@ -87,9 +87,9 @@ Linux the engine uses ALSA's `libasound.so.2` (package `libasound2` or `alsa-lib
 Each organ's models are a package of their own, so you download only the organs you play:
 
 ```bash
-npm install supersynth-organ-burea      # the Bureå organ (71 MB)
-npm install supersynth-organ-friesach   # one of Piotr Grabowski's organs: supersynth-organ-<id>
-npm install supersynth-organs           # all 16 organs (about 550 MB)
+npm install @supersynth/organ-burea      # the Bureå organ (71 MB)
+npm install @supersynth/organ-friesach   # one of Piotr Grabowski's organs: @supersynth/organ-<id>
+npm install @supersynth/organs           # all 16 organs (about 550 MB)
 ```
 
 `synth.add('friesach')` without its package throws an error naming the package to install. The
@@ -149,7 +149,7 @@ piano.presets();                            // the instrument's presets and your
 ### The church organ
 
 ```ts
-const organ = synth.add('burea', { preset: 'plenum' });   // npm install supersynth-organ-burea
+const organ = synth.add('burea', { preset: 'plenum' });   // npm install @supersynth/organ-burea
 organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
 organ.pedal.play('C2', { duration: 4 });
 
@@ -254,8 +254,8 @@ tools/ssm/                     Python analysis: recordings → models; evaluatio
 models/                        the analysed instruments shipped with supersynth (CC0)
 packages/organ-<id>/           one npm package per organ: models/organ/<id>/*.ssm
                                (Bureå: packages/organ-burea/models/organ/*.ssm)
-packages/organs/               supersynth-organs: depends on every organ package
-npm/<platform>/                the engine prebuilt per platform (supersynth-<platform>)
+packages/organs/               @supersynth/organs: depends on every organ package
+npm/<platform>/                the engine prebuilt per platform (@supersynth/<platform>)
 scripts/                       build-native.mjs, release helpers, doc generators
 ```
 
@@ -275,6 +275,6 @@ npm run test:rust    # engine and DSP
 ## License
 
 Code: MIT. The instrument models in `supersynth` are derived from CC0 recordings. The organ
-packages carry their own licenses: `supersynth-organ-burea` CC BY-SA 2.5 SE (attribution: Lars
-Palo); Piotr Grabowski's organs (`supersynth-organ-<id>`) may be used freely but not sold or built
+packages carry their own licenses: `@supersynth/organ-burea` CC BY-SA 2.5 SE (attribution: Lars
+Palo); Piotr Grabowski's organs (`@supersynth/organ-<id>`) may be used freely but not sold or built
 into products for sale. See [NOTICE.md](NOTICE.md).

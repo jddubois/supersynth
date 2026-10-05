@@ -25,7 +25,7 @@ for (const f of Object.keys(fam)) {
     for (const [k, p] of Object.entries(d.presets)) md += `| \`${k}\` | ${p.description} |\n`;
   }
 }
-md += '\nThe church organs (`synth.add(\'burea\')`, …) have four divisions with drawable stops, their models in packages of their own (`npm install supersynth-organ-burea`) — see [organ.md](organ.md).\n';
+md += '\nThe church organs (`synth.add(\'burea\')`, …) have four divisions with drawable stops, their models in packages of their own (`npm install @supersynth/organ-burea`) — see [organ.md](organ.md).\n';
 writeFileSync('docs/instruments.md', md);
 
 let org = '';

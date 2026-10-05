@@ -2,7 +2,7 @@
 
 The instrument models are spectral analyses (partial envelopes, noise spectra and short attack
 excerpts) of the following recordings. The `supersynth` package ships the CC0 models in
-`models/`; each organ sample set ships in an npm package of its own (`supersynth-organ-<id>`,
+`models/`; each organ sample set ships in an npm package of its own (`@supersynth/organ-<id>`,
 source in `packages/organ-<id>/`), which carries its own NOTICE.md and license.
 
 ## Versilian Community Sample Library (VCSL)
@@ -21,13 +21,13 @@ trumpet-muted, french-horn, trombone, tuba.
 Organ by Nils Hammarberg (1967), Bureå Church, Sweden. GrandOrgue sample set recorded by
 **Lars Palo** (2010, updated 2023) — https://familjenpalo.se/vpo/ — licensed under
 **Creative Commons Attribution-ShareAlike 2.5 Sweden** (http://creativecommons.org/licenses/by-sa/2.5/se/).
-Models: `models/organ/*` in the package `supersynth-organ-burea` (`packages/organ-burea/`). These
+Models: `models/organ/*` in the package `@supersynth/organ-burea` (`packages/organ-burea/`). These
 models are an adaptation of that work and are distributed under the same license (CC BY-SA 2.5 SE).
 
 ## Piotr Grabowski's free organ sample sets
 Sample sets recorded and produced by **Piotr Grabowski** (Piotr Grabowski Wirtualne Organy) —
 https://piotrgrabowski.pl/instruments/ — distributed by him free of charge. Models:
-`models/organ/<organ>/*` in the package `supersynth-organ-<organ>` (`packages/organ-<organ>/`) for
+`models/organ/<organ>/*` in the package `@supersynth/organ-<organ>` (`packages/organ-<organ>/`) for
 the organs `azzio`, `cracow`, `dluga-koscielna`, `friesach`, `giubiasco`, `green-positiv`,
 `harmonium`, `ledziny`, `lipiny`, `melcer`, `raszczyce`, `saint-jean-de-luz`, `skrzatusz`,
 `strassburg`, `szczecinek`. Each stop was analysed from the sample set's recordings as its organ

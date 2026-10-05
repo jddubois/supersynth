@@ -17,7 +17,7 @@ try {
   synth.add(organId).great.play(['C4', 'G4'], { duration: 0.4 });
   organ = organId;
 } catch (e) {
-  if (!/npm install supersynth-organ-/.test(e.message)) throw e;
+  if (!/npm install @supersynth\/organ-/.test(e.message)) throw e;
 }
 const audio = synth.render(0.8);
 const level = peak(audio.left);

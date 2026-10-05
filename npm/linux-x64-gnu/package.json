@@ -1,5 +1,5 @@
 {
-  "name": "supersynth-linux-x64-gnu",
+  "name": "@supersynth/linux-x64-gnu",
   "version": "0.2.0",
   "description": "supersynth's native engine for Linux x64 (glibc)",
   "license": "MIT",

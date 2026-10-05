@@ -1,12 +1,12 @@
-# supersynth-organs
+# @supersynth/organs
 
 Every organ for [supersynth](https://www.npmjs.com/package/supersynth) in one install: the Bureå
 Church organ and Piotr Grabowski's 15 organs (about 550 MB of models). It only depends on
-the model packages `supersynth-organ-<id>`; install just the ones you play to save space
-(`npm install supersynth-organ-friesach`).
+the model packages `@supersynth/organ-<id>`; install just the ones you play to save space
+(`npm install @supersynth/organ-friesach`).
 
 ```bash
-npm install supersynth supersynth-organs
+npm install supersynth @supersynth/organs
 ```
 
 ```ts

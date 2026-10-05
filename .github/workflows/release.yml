@@ -2,7 +2,7 @@ name: Release
 
 # Push a tag vX.Y.Z (after `npm version X.Y.Z`, which also moves the platform packages to X.Y.Z):
 # builds the engine for every platform, then publishes to npm, in order, the platform packages,
-# the organ model packages and supersynth-organs (only versions not on npm yet), and supersynth.
+# the organ model packages and @supersynth/organs (only versions not on npm yet), and supersynth.
 on:
   push:
     tags: ['v*']

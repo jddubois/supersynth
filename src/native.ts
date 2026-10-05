@@ -73,7 +73,7 @@ export function packageRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 }
 
-/** @internal Platforms with a prebuilt engine, each in the npm package `supersynth-<platform>`. */
+/** @internal Platforms with a prebuilt engine, each in the npm package `@supersynth/<platform>`. */
 export const NATIVE_PLATFORMS = ['linux-x64-gnu', 'linux-x64-musl', 'linux-arm64-gnu', 'darwin-x64', 'darwin-arm64', 'win32-x64-msvc'] as const;
 
 /** @internal Whether this Linux uses musl (Alpine) rather than glibc. */
@@ -106,7 +106,7 @@ export function nativePlatform(): string {
 /**
  * @internal Load the compiled engine: `supersynth.node` built in a source checkout
  * (`npm run build:native`; never published), else the platform package
- * (`supersynth-<platform>`, an optional dependency), else `supersynth.<platform>.node` next to
+ * (`@supersynth/<platform>`, an optional dependency), else `supersynth.<platform>.node` next to
  * the package.
  */
 export function loadNative(): NativeModule {
@@ -114,7 +114,7 @@ export function loadNative(): NativeModule {
   const require = createRequire(import.meta.url);
   const root = packageRoot();
   const platform = nativePlatform();
-  const pkg = `supersynth-${platform}`;
+  const pkg = `@supersynth/${platform}`;
   const candidates = [path.join(root, 'supersynth.node'), pkg, path.join(root, `supersynth.${platform}.node`)];
   const errors: string[] = [];
   for (const id of candidates) {

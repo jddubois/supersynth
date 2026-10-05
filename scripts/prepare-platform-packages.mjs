@@ -27,7 +27,7 @@ for (const triple of readdirSync(path.join(root, 'npm'))) {
   const file = path.join(dir, 'package.json');
   const pkg = readJson(file);
   const [os, cpu, abi] = triple.split('-');
-  if (pkg.name !== `supersynth-${triple}`) fail(`${file}: name should be supersynth-${triple}`);
+  if (pkg.name !== `@supersynth/${triple}`) fail(`${file}: name should be @supersynth/${triple}`);
   if (pkg.version !== version) fail(`${pkg.name}: version ${pkg.version}, root ${version} (run node scripts/sync-versions.mjs)`);
   if (optionalDependencies[pkg.name] !== version) fail(`package.json: optionalDependencies["${pkg.name}"] should be ${version}`);
   if (!existsSync(path.join(dir, pkg.main))) fail(`${pkg.name}: ${pkg.main} is missing (node scripts/build-native.mjs --target ${triple})`);
@@ -39,6 +39,6 @@ for (const triple of readdirSync(path.join(root, 'npm'))) {
   console.log(`${pkg.name}@${pkg.version}: os ${pkg.os}, cpu ${pkg.cpu}${pkg.libc ? `, libc ${pkg.libc}` : ''}`);
 }
 for (const name of Object.keys(optionalDependencies)) {
-  if (name.startsWith('supersynth-') && !existsSync(path.join(root, 'npm', name.slice('supersynth-'.length)))) fail(`package.json: optional dependency ${name} has no npm/ folder`);
+  if (name.startsWith('@supersynth/') && !name.startsWith('@supersynth/organ') && !existsSync(path.join(root, 'npm', name.slice('@supersynth/'.length)))) fail(`package.json: optional dependency ${name} has no npm/ folder`);
 }
 process.exit(failed ? 1 : 0);

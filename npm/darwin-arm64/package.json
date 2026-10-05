@@ -1,5 +1,5 @@
 {
-  "name": "supersynth-darwin-arm64",
+  "name": "@supersynth/darwin-arm64",
   "version": "0.2.0",
   "description": "supersynth's native engine for macOS arm64 (Apple silicon)",
   "license": "MIT",

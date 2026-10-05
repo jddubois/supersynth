@@ -1,5 +1,5 @@
 {
-  "name": "supersynth-organ-burea",
+  "name": "@supersynth/organ-burea",
   "version": "0.2.0",
   "description": "The Bureå Church organ (Hammarberg 1967, 40 stops) for supersynth: spectral models of every stop of Lars Palo's sample set (CC BY-SA 2.5 SE)",
   "license": "SEE LICENSE IN NOTICE.md",

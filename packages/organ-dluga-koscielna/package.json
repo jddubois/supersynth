@@ -1,5 +1,5 @@
 {
-  "name": "supersynth-organ-dluga-koscielna",
+  "name": "@supersynth/organ-dluga-koscielna",
   "version": "0.2.0",
   "description": "The Długa Kościelna organ for supersynth: spectral models of every stop of Piotr Grabowski's free sample set (not for sale)",
   "license": "SEE LICENSE IN NOTICE.md",

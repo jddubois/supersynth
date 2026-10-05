@@ -43,7 +43,7 @@ export interface SynthOptions extends Omit<SynthSettings, 'reverb'> {
   bufferSize?: number;
   /** Directory searched first for `.ssm` models, laid out like the package's `models/`
    *  (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`). Default: the models shipped
-   *  with supersynth and the installed organ packages (`supersynth-organ-<id>`). */
+   *  with supersynth and the installed organ packages (`@supersynth/organ-<id>`). */
   modelsDirectory?: string;
   /** CPU/quality trade-off: partials per note up to 512 (`'high'`), 128 (`'balanced'`) or 32 (`'eco'`,
    *  for small boards such as a Raspberry Pi). @default 'high' */

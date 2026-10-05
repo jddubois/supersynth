@@ -20,9 +20,9 @@ describe('model packages', () => {
   test('which package a model is in', () => {
     expect(modelPackage('grand-piano')).toBeUndefined();
     expect(modelPackage('pipe-organ-soft')).toBeUndefined();
-    expect(modelPackage('organ/great-principal-8')).toEqual({ organ: 'burea', pkg: 'supersynth-organ-burea' });
-    expect(modelPackage('organ/friesach/great-principal-8')).toEqual({ organ: 'friesach', pkg: 'supersynth-organ-friesach' });
-    expect(modelPackage('organ/saint-jean-de-luz/x')).toEqual({ organ: 'saint-jean-de-luz', pkg: 'supersynth-organ-saint-jean-de-luz' });
+    expect(modelPackage('organ/great-principal-8')).toEqual({ organ: 'burea', pkg: '@supersynth/organ-burea' });
+    expect(modelPackage('organ/friesach/great-principal-8')).toEqual({ organ: 'friesach', pkg: '@supersynth/organ-friesach' });
+    expect(modelPackage('organ/saint-jean-de-luz/x')).toEqual({ organ: 'saint-jean-de-luz', pkg: '@supersynth/organ-saint-jean-de-luz' });
     expect(modelPackage('organ/unknown/x')).toBeUndefined();
   });
 });
@@ -51,10 +51,10 @@ describe('resolveModelFile', () => {
   });
 
   test("organ models come from the organ's package", () => {
-    const friesach = findPackageDir('supersynth-organ-friesach');
+    const friesach = findPackageDir('@supersynth/organ-friesach');
     expect(friesach).toBeDefined();
     expect(resolveModelFile('organ/friesach/great-principal-8')).toBe(path.join(friesach!, 'models', 'organ', 'friesach', 'great-principal-8.ssm'));
-    expect(resolveModelFile('organ/great-principal-8')).toBe(path.join(findPackageDir('supersynth-organ-burea')!, 'models', 'organ', 'great-principal-8.ssm'));
+    expect(resolveModelFile('organ/great-principal-8')).toBe(path.join(findPackageDir('@supersynth/organ-burea')!, 'models', 'organ', 'great-principal-8.ssm'));
   });
 
   test('modelsDirectory, then $SUPERSYNTH_MODELS_DIR, come first (the whole tree)', () => {
@@ -70,9 +70,9 @@ describe('resolveModelFile', () => {
   test('a missing organ package names the package to install', () => {
     expect(() => resolveModelFile('organ/friesach/great-principal-8', undefined, none)).toThrow(SupersynthError);
     expect(() => resolveModelFile('organ/friesach/great-principal-8', undefined, none)).toThrow(
-      "The organ 'friesach' needs its models: npm install supersynth-organ-friesach",
+      "The organ 'friesach' needs its models: npm install @supersynth/organ-friesach",
     );
-    expect(() => resolveModelFile('organ/great-principal-8', undefined, none)).toThrow('npm install supersynth-organ-burea');
+    expect(() => resolveModelFile('organ/great-principal-8', undefined, none)).toThrow('npm install @supersynth/organ-burea');
     // a models directory that has them is enough
     put(tmp, 'organ/friesach/great-principal-8');
     expect(resolveModelFile('organ/friesach/great-principal-8', tmp, none)).toBe(path.join(tmp, 'organ', 'friesach', 'great-principal-8.ssm'));
@@ -80,7 +80,7 @@ describe('resolveModelFile', () => {
 
   test('a package without the model, and unknown models, say where they looked', () => {
     put(path.join(tmp, 'models'), 'organ/friesach/other');
-    expect(() => resolveModelFile('organ/friesach/great-principal-8', undefined, () => tmp)).toThrow(/not in supersynth-organ-friesach/);
+    expect(() => resolveModelFile('organ/friesach/great-principal-8', undefined, () => tmp)).toThrow(/not in @supersynth\/organ-friesach/);
     expect(() => resolveModelFile('no-such-instrument')).toThrow(/Instrument model 'no-such-instrument' not found/);
   });
 

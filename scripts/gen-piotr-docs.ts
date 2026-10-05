@@ -33,16 +33,16 @@ Every organ is an \`OrganDefinition\` exported from \`supersynth\` and \`supersy
 \`PIOTR_ORGANS\`). Sample sets © Piotr Grabowski; the models are not covered by the MIT license
 and may not be sold or built into products for sale — see NOTICE.md.
 
-Each organ's models are an npm package of their own, \`supersynth-organ-<id>\`: install the organs
-you play (\`npm install supersynth-organ-friesach\`), or all of them with \`npm install supersynth-organs\`.
+Each organ's models are an npm package of their own, \`@supersynth/organ-<id>\`: install the organs
+you play (\`npm install @supersynth/organ-friesach\`), or all of them with \`npm install @supersynth/organs\`.
 Adding an organ whose package is not installed throws a \`SupersynthError\` that names the package.
 
 | Id | Organ | Stops | Package | Models |
 |---|---|---|---|---|
 `;
-for (const o of Object.values(PIOTR_ORGANS)) md += `| \`${o.id}\` | ${o.name} | ${o.stops.length} | \`supersynth-organ-${o.id}\` | ${modelsMB(o.id)} MB |\n`;
+for (const o of Object.values(PIOTR_ORGANS)) md += `| \`${o.id}\` | ${o.name} | ${o.stops.length} | \`@supersynth/organ-${o.id}\` | ${modelsMB(o.id)} MB |\n`;
 for (const o of Object.values(PIOTR_ORGANS)) {
-  md += `\n## \`${o.id}\` — ${o.name}\n\n${o.description}\n\nInstall: \`npm install supersynth-organ-${o.id}\`. Config: \`${constName(o.id)}\`. Default preset: \`${o.defaultPreset}\`.`;
+  md += `\n## \`${o.id}\` — ${o.name}\n\n${o.description}\n\nInstall: \`npm install @supersynth/organ-${o.id}\`. Config: \`${constName(o.id)}\`. Default preset: \`${o.defaultPreset}\`.`;
   if (o.tremulant) md += ` Tremulant on the ${o.tremulant.division}.`;
   const boxed = Object.entries(o.divisions ?? {}).filter(([k, d]) => d?.swellBox && o.stops.some((s) => s.division === k)).map(([k]) => k);
   if (boxed.length) md += ` In a swell box: ${boxed.join(', ')}.`;
