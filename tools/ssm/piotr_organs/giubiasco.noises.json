@@ -1,0 +1,129 @@
+{
+ "keys": {
+  "pedal": {
+   "down": "organ/giubiasco/noise-keys-pedal-down",
+   "up": "organ/giubiasco/noise-keys-pedal-up"
+  },
+  "positive": {
+   "down": "organ/giubiasco/noise-keys-positive-down",
+   "up": "organ/giubiasco/noise-keys-positive-up"
+  },
+  "great": {
+   "down": "organ/giubiasco/noise-keys-great-down",
+   "up": "organ/giubiasco/noise-keys-great-up"
+  }
+ },
+ "stops": {
+  "great-cornetto-2-2-3": [
+   3,
+   4
+  ],
+  "great-flauto-a-camino-8": [
+   5,
+   6
+  ],
+  "great-flauto-conico-4": [
+   7,
+   8
+  ],
+  "great-ottava-4": [
+   9,
+   10
+  ],
+  "great-principale-8": [
+   11,
+   12
+  ],
+  "great-quintadecima-2": [
+   13,
+   14
+  ],
+  "great-ripieno-4-file": [
+   15,
+   16
+  ],
+  "great-viola-da-gamba-8": [
+   17,
+   18
+  ],
+  "great-violoncello-8": [
+   19,
+   20
+  ],
+  "great-voce-umana-8": [
+   21,
+   22
+  ],
+  "pedal-contro-fagotto-16": [
+   23,
+   24
+  ],
+  "pedal-flauto-8": [
+   25,
+   26
+  ],
+  "pedal-ottava-4": [
+   27,
+   28
+  ],
+  "pedal-subbasso-16": [
+   29,
+   30
+  ],
+  "positive-bordone-8": [
+   31,
+   32
+  ],
+  "positive-cimbalo-2-file": [
+   33,
+   34
+  ],
+  "positive-flauto-4": [
+   35,
+   36
+  ],
+  "positive-larigot-1-1-3": [
+   37,
+   38
+  ],
+  "positive-principale-2": [
+   39,
+   40
+  ],
+  "positive-quinta-2-2-3": [
+   41,
+   42
+  ],
+  "positive-regale-8": [
+   43,
+   44
+  ],
+  "positive-terza-1-3-5": [
+   45,
+   46
+  ]
+ },
+ "tremulants": {
+  "tremulant 1 man": [
+   47,
+   48
+  ]
+ },
+ "couplers": {
+  "coupler 1": [
+   49,
+   50
+  ],
+  "coupler 2": [
+   51,
+   52
+  ],
+  "coupler 3": [
+   53,
+   54
+  ]
+ },
+ "stopsModel": "organ/giubiasco/noise-stops",
+ "blower": "organ/giubiasco/noise-blower",
+ "ambient": "organ/giubiasco/noise-ambient"
+}
