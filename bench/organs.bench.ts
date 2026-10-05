@@ -13,6 +13,8 @@
  *   npm run bench:organs -- --max-voices 512  the Synth `maxVoices` option
  *   npm run bench:organs -- --no-bach         skip the BWV 532 runs
  *   npm run bench:organs -- --json out.json   machine-readable results
+ *   npm run bench:organs -- --repeat 3        each buffer's fastest of 3 runs (drops the stalls a
+ *                                             busy or virtual machine adds at random)
  *
  * load: wall-clock render time / buffer duration (> 100 % is a dropout); cpu: CPU time of all
  * threads / real time (100 % = one core busy).
@@ -36,6 +38,7 @@ const SLOWDOWN = Number(opt('slowdown', '1'));
 const THREADS = args.includes('--threads') ? opt('threads', 'auto') : undefined;
 const MAX_VOICES = args.includes('--max-voices') ? Number(opt('max-voices', '0')) : undefined;
 const JSON_OUT = opt('json', '');
+const REPEAT = Math.max(1, Number(opt('repeat', '1')));
 const HOLD = 3;
 const TAIL = 2;
 const BACH_SECONDS = Number(opt('bach-seconds', '20'));
@@ -63,8 +66,37 @@ function synthOptions() {
   };
 }
 
+/** Play `make()` `REPEAT` times; each buffer's fastest time counts (the render is deterministic). */
+async function run(organ: string, preset: string, make: () => [Synth, Ev[]], seconds: number): Promise<Row> {
+  let best: { loads: Float64Array; cpuUs: number; voices: number } | undefined;
+  for (let r = 0; r < REPEAT; r++) {
+    const [synth, events] = make();
+    const one = await playOnce(synth, events, seconds);
+    if (!best) best = one;
+    else {
+      for (let b = 0; b < one.loads.length; b++) best.loads[b] = Math.min(best.loads[b]!, one.loads[b]!);
+      best.cpuUs = Math.min(best.cpuUs, one.cpuUs);
+    }
+  }
+  const { loads, cpuUs, voices } = best!;
+  const n = loads.length;
+  const sorted = Float64Array.from(loads).sort();
+  const mean = loads.reduce((a, b) => a + b, 0) / n;
+  return {
+    organ,
+    preset,
+    mean,
+    p999: sorted[Math.min(n - 1, Math.floor(0.999 * n))]!,
+    max: sorted[n - 1]!,
+    cpu: cpuUs / 1000 / (n * budgetMs),
+    voices,
+    dropouts: loads.filter((l) => l > 1).length,
+    dropoutsSlow: loads.filter((l) => l * SLOWDOWN > 1).length,
+  };
+}
+
 /** Render `seconds` buffer by buffer, applying `events` at buffer boundaries (as live input). */
-async function run(organ: string, preset: string, synth: Synth, events: Ev[], seconds: number): Promise<Row> {
+async function playOnce(synth: Synth, events: Ev[], seconds: number) {
   const nat = synth._native();
   events.sort((a, b) => a.time - b.time);
   // every model loaded before the clock starts (background loading would compete for the CPU)
@@ -88,22 +120,14 @@ async function run(organ: string, preset: string, synth: Synth, events: Ev[], se
     if ((b & 15) === 0) voices = Math.max(voices, nat.activeVoices);
   }
   synth.close();
-  const sorted = Float64Array.from(loads).sort();
-  const mean = loads.reduce((a, b) => a + b, 0) / n;
-  return {
-    organ,
-    preset,
-    mean,
-    p999: sorted[Math.min(n - 1, Math.floor(0.999 * n))]!,
-    max: sorted[n - 1]!,
-    cpu: cpuUs / 1000 / (n * budgetMs),
-    voices,
-    dropouts: loads.filter((l) => l > 1).length,
-    dropoutsSlow: loads.filter((l) => l * SLOWDOWN > 1).length,
-  };
+  return { loads, cpuUs, voices };
 }
 
 function chord(id: string, preset: unknown, label: string): Promise<Row> {
+  return run(id, label, () => chordSetup(id, preset), HOLD + TAIL);
+}
+
+function chordSetup(id: string, preset: unknown): [Synth, Ev[]] {
   const synth = new Synth(synthOptions());
   synth['emulateRealtime'] = true; // the engine is driven here as by real-time output
   const o = synth.add(id as OrganId, { preset: preset as never });
@@ -113,11 +137,15 @@ function chord(id: string, preset: unknown, label: string): Promise<Row> {
     { time: 0.05, run: () => { great.forEach((n) => o.great.noteOn(n)); pedal.forEach((n) => o.pedal.noteOn(n)); } },
     { time: 0.05 + HOLD, run: () => { great.forEach((n) => o.great.noteOff(n)); pedal.forEach((n) => o.pedal.noteOff(n)); } },
   ];
-  return run(id, label, synth, ev, HOLD + TAIL);
+  return [synth, ev];
 }
 
 const bach = parseMidiFile(readFileSync(path.join(here, '../examples/jsbwv532.mid')));
 function bachRun(id: string, preset: string): Promise<Row> {
+  return run(id, `${preset} BWV 532`, () => bachSetup(id, preset), BACH_SECONDS + 1);
+}
+
+function bachSetup(id: string, preset: string): [Synth, Ev[]] {
   const synth = new Synth(synthOptions());
   synth['emulateRealtime'] = true;
   const o = synth.add(id as OrganId, { preset: preset as never });
@@ -129,7 +157,7 @@ function bachRun(id: string, preset: string): Promise<Row> {
     if (e.type === 'noteOn') ev.push({ time: e.time, run: () => k.noteOn(e.note, e.velocity) });
     else if (e.type === 'noteOff') ev.push({ time: e.time, run: () => k.noteOff(e.note) });
   }
-  return run(id, `${preset} BWV 532`, synth, ev, BACH_SECONDS + 1);
+  return [synth, ev];
 }
 
 const pct = (x: number) => `${(x * 100).toFixed(0).padStart(5)}%`;
@@ -137,6 +165,7 @@ const probe = new Synth({ sampleRate: SR, ...(THREADS ? { threads: THREADS === '
 console.log(
   `organs: ${BUFFER}-frame buffers @ ${SR} Hz (deadline ${budgetMs.toFixed(2)} ms), ${probe.threads} rendering thread(s)` +
     (SLOWDOWN !== 1 ? `, dropouts also counted for a CPU ${SLOWDOWN}× slower` : '') +
+    (REPEAT > 1 ? `, each buffer's fastest of ${REPEAT} runs` : '') +
     `\nchord: 6 great + 2 pedal notes held ${HOLD} s, then ${TAIL} s of release\n`,
 );
 probe.close();
@@ -170,4 +199,4 @@ const worst = rows.reduce((a, b) => (b.p999 > a.p999 ? b : a), rows[0]!);
 console.log(`\nworst p99.9: ${worst.organ} ${worst.preset} ${pct(worst.p999)}`);
 const rss = process.memoryUsage().rss / 1048576;
 console.log(`peak resident memory of this process: ${rss.toFixed(0)} MB`);
-if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ buffer: BUFFER, slowdown: SLOWDOWN, threads: THREADS ?? 'auto', rows, rssMb: rss }, null, 2));
+if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ buffer: BUFFER, slowdown: SLOWDOWN, threads: THREADS ?? 'auto', repeat: REPEAT, rows, rssMb: rss }, null, 2));

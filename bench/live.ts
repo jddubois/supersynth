@@ -16,6 +16,9 @@
  *   npm run live-test -- --quality balanced    the Synth `quality` option
  *   npm run live-test -- --json out.json       machine-readable results
  *   npm run live-test -- --threads 1           the Synth `threads` option (default: 'auto')
+ *   npm run live-test -- --repeat 3            play each scenario 3 times, keep each buffer's fastest
+ *                                              time: the engine's own worst buffers, without the
+ *                                              stalls a busy (or virtual) machine adds at random
  *
  * Run it on the target machine (e.g. a Raspberry Pi 5) with nothing else busy; exit code 1
  * when any scenario drops out.
@@ -40,6 +43,7 @@ const QUALITY = opt('quality', 'high') as 'high' | 'balanced' | 'eco';
 const JSON_OUT = opt('json', '');
 const MAX_VOICES = args.includes('--max-voices') ? Number(opt('max-voices', '192')) : undefined;
 const THREADS = args.includes('--threads') ? opt('threads', 'auto') : undefined;
+const REPEAT = Math.max(1, Number(opt('repeat', '1')));
 const budgetMs = (BUFFER / SR) * 1000;
 
 /** A timed key event, delivered live. */
@@ -199,7 +203,57 @@ function quantile(sorted: Float64Array, q: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
 }
 
+interface Run {
+  loads: Float64Array;
+  cpuUs: number;
+  maxVoices: number;
+  maxEventMs: number;
+}
+
 async function runScenario(sc: Scenario): Promise<Result> {
+  // the render is deterministic: buffer b holds the same work in every run, so the fastest of
+  // several runs drops the stalls a busy machine adds at random
+  let best: Run | undefined;
+  for (let r = 0; r < REPEAT; r++) {
+    const run = await playOnce(sc);
+    if (!best) {
+      best = run;
+      continue;
+    }
+    for (let b = 0; b < run.loads.length; b++) best.loads[b] = Math.min(best.loads[b]!, run.loads[b]!);
+    best.cpuUs = Math.min(best.cpuUs, run.cpuUs);
+    best.maxEventMs = Math.min(best.maxEventMs, run.maxEventMs);
+  }
+  const { loads, cpuUs, maxVoices, maxEventMs } = best!;
+  const n = loads.length;
+  let maxAt = 0;
+  for (let i = 1; i < n; i++) if (loads[i]! > loads[maxAt]!) maxAt = i;
+  const sorted = Float64Array.from(loads).sort();
+  let sum = 0;
+  let over = 0;
+  let overSlow = 0;
+  for (const l of loads) {
+    sum += l;
+    if (l > 1) over++;
+    if (l * SLOWDOWN > 1) overSlow++;
+  }
+  return {
+    name: sc.name,
+    buffers: n,
+    meanLoad: sum / n,
+    cpuLoad: cpuUs / 1000 / (n * budgetMs),
+    p99Load: quantile(sorted, 0.99),
+    p999Load: quantile(sorted, 0.999),
+    maxLoad: sorted[n - 1]!,
+    maxAt: (maxAt * BUFFER) / SR,
+    over,
+    overSlow,
+    maxVoices,
+    maxEventMs,
+  };
+}
+
+async function playOnce(sc: Scenario): Promise<Run> {
   const synth = new Synth({
     sampleRate: SR,
     quality: QUALITY,
@@ -237,31 +291,7 @@ async function runScenario(sc: Scenario): Promise<Result> {
     if ((b & 63) === 0) maxVoices = Math.max(maxVoices, native.activeVoices);
   }
   synth.close();
-  let maxAt = 0;
-  for (let i = 1; i < n; i++) if (loads[i]! > loads[maxAt]!) maxAt = i;
-  const sorted = Float64Array.from(loads).sort();
-  let sum = 0;
-  let over = 0;
-  let overSlow = 0;
-  for (const l of loads) {
-    sum += l;
-    if (l > 1) over++;
-    if (l * SLOWDOWN > 1) overSlow++;
-  }
-  return {
-    name: sc.name,
-    buffers: n,
-    meanLoad: sum / n,
-    cpuLoad: cpuUs / 1000 / (n * budgetMs),
-    p99Load: quantile(sorted, 0.99),
-    p999Load: quantile(sorted, 0.999),
-    maxLoad: sorted[n - 1]!,
-    maxAt: (maxAt * BUFFER) / SR,
-    over,
-    overSlow,
-    maxVoices,
-    maxEventMs,
-  };
+  return { loads, cpuUs, maxVoices, maxEventMs };
 }
 
 /** Time from a key press (at a buffer boundary) to the sound reaching -40 dB of its peak. */
@@ -283,6 +313,7 @@ const pct = (x: number) => `${(x * 100).toFixed(0).padStart(4)}%`;
 console.log(
   `live test: ${BUFFER}-frame buffers @ ${SR} Hz (deadline ${budgetMs.toFixed(2)} ms), ${SECONDS} s each, quality ${QUALITY}` +
     (SLOWDOWN !== 1 ? `, dropouts also counted for a CPU ${SLOWDOWN}× slower` : '') +
+    (REPEAT > 1 ? `, each buffer's fastest of ${REPEAT} runs` : '') +
     '\nload = wall-clock render time / buffer duration (all render threads at work); > 100% is a dropout' +
     '\ncpu = CPU time of all threads / real time (100% = one core busy)\n',
 );
@@ -314,7 +345,7 @@ for (const [k, v] of Object.entries(latencies)) console.log(`  ${k.padEnd(22)} $
 
 const rss = process.memoryUsage().rss / 1048576;
 console.log(`\npeak resident memory of this process: ${rss.toFixed(0)} MB`);
-if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ sampleRate: SR, buffer: BUFFER, seconds: SECONDS, slowdown: SLOWDOWN, quality: QUALITY, threads: THREADS ?? 'auto', results, latencies, rssMb: rss }, null, 2));
+if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ sampleRate: SR, buffer: BUFFER, seconds: SECONDS, slowdown: SLOWDOWN, quality: QUALITY, threads: THREADS ?? 'auto', repeat: REPEAT, results, latencies, rssMb: rss }, null, 2));
 const failed = results.filter((r) => (SLOWDOWN !== 1 ? r.overSlow : r.over) > 0);
 if (failed.length) {
   console.log(`\nFAIL: dropouts in ${failed.map((r) => r.name).join(', ')}`);
