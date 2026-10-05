@@ -12,9 +12,9 @@ const fam: Record<string, string> = { keyboard: 'Keyboards', organ: 'Organs', st
 let md = '# Instruments\n\nEvery instrument is a spectral model analysed from real recordings (see NOTICE.md).\n' +
   'Add one with `synth.add(id, { preset })`; `INSTRUMENTS` holds them all, by id.\n\n' +
   'Every instrument is also a plain configuration object (`InstrumentDefinition`) exported under the name\n' +
-  'shown with it, from `supersynth` and from `supersynth/instruments`. Pass it to `synth.add`, or\n' +
+  'shown with it, from `@supersynth/core` and from `@supersynth/core/instruments`. Pass it to `synth.add`, or\n' +
   'copy and change it:\n\n' +
-  '```ts\nimport { GRAND_PIANO } from \'supersynth/instruments\';\n' +
+  '```ts\nimport { GRAND_PIANO } from \'@supersynth/core/instruments\';\n' +
   'synth.add({ ...GRAND_PIANO, id: \'dark-piano\', parameters: { brightness: -1.5 } });\n```\n\n' +
   'An `InstrumentDefinition` has an `id`, `name`, `family` (`\'keyboard\'`, `\'strings\'`, …) and `description`;\n' +
   'its `layers`, the models it plays; the `range` of keys `[low, high]` they cover; a suggested `reverb` room;\n' +

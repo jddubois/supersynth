@@ -6,7 +6,7 @@ harmonium, strings, winds, brass and mallets. Each instrument is a spectral mode
 freely licensed recordings.
 
 ```ts
-import { Synth } from 'supersynth';
+import { Synth } from '@supersynth/core';
 
 const synth = new Synth();
 const piano = synth.add('grand-piano');
@@ -121,7 +121,7 @@ Reference: [docs/synth.md](docs/synth.md) (`Synth` and `Instrument`), [docs/orga
 ## Install
 
 ```bash
-npm install supersynth
+npm install @supersynth/core
 ```
 
 This installs the prebuilt engine for your platform and every instrument except the separately
@@ -239,11 +239,11 @@ organ.midi({ great: 1, swell: 2, pedal: 3 });   // keyboards per channel, couple
 
 Every instrument (`GRAND_PIANO`, `VIOLAS`, …) and organ (`BUREA_ORGAN`, `VCSL_ORGAN`,
 `FRIESACH_ORGAN`, …) is a plain object that you can import, copy and modify. They're exported
-from `supersynth` as well as `supersynth/instruments` and `supersynth/organs`:
+from `@supersynth/core` as well as `@supersynth/core/instruments` and `@supersynth/core/organs`:
 
 ```ts
-import { GRAND_PIANO } from 'supersynth/instruments';
-import { BUREA_ORGAN, type OrganDefinition } from 'supersynth/organs';
+import { GRAND_PIANO } from '@supersynth/core/instruments';
+import { BUREA_ORGAN, type OrganDefinition } from '@supersynth/core/organs';
 
 synth.add({ ...GRAND_PIANO, id: 'dark-piano', parameters: { brightness: -1.5 } });
 

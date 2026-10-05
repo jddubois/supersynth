@@ -30,7 +30,8 @@ function modelUrl(name: string, modelsDirectory?: string): string {
   }
   const pkg = modelPackage(name)?.pkg ?? INSTRUMENTS_PACKAGE;
   // (not `new URL('literal', import.meta.url)`: bundlers would try to bundle the directory)
-  const dir = ['..', '..', '..', pkg, 'models', ''].join('/');
+  // from node_modules/@supersynth/core/dist/platform/ up to node_modules/
+  const dir = ['..', '..', '..', '..', pkg, 'models', ''].join('/');
   return new URL(file, new URL(dir, import.meta.url)).href;
 }
 

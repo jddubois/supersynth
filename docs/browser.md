@@ -6,7 +6,7 @@ machine's cores with Web Workers, so a full organ plays in real time where one c
 keep up.
 
 ```ts
-import { Synth } from 'supersynth';
+import { Synth } from '@supersynth/core';
 
 const synth = await Synth.create();         // loads the WebAssembly engine
 await synth.load('grand-piano', 'burea');   // downloads their models
@@ -49,7 +49,7 @@ http://localhost:8080.
 
 | Option | Default | |
 |---|---|---|
-| `wasmUrl` | next to the module: `node_modules/supersynth/wasm/supersynth_bg.wasm` | the engine, `wasm/supersynth_bg.wasm` in the package |
+| `wasmUrl` | next to the module: `node_modules/@supersynth/core/wasm/supersynth_bg.wasm` | the engine, `wasm/supersynth_bg.wasm` in the package |
 | `modelsDirectory` | next to the module: `node_modules/@supersynth/instruments/models/`, `node_modules/@supersynth/organ-<id>/models/` | a URL laid out like the package's `models/` (`grand-piano.ssm`, `organ/friesach/<stop>.ssm`, Bureå `organ/<stop>.ssm`) |
 
 The defaults work when the packages are served as installed: from `node_modules`, or by a CDN
@@ -58,7 +58,7 @@ the files itself and passes their URLs:
 
 ```ts
 const synth = await Synth.create({
-  wasmUrl: '/supersynth/supersynth_bg.wasm',          // copied from node_modules/supersynth/wasm/
+  wasmUrl: '/supersynth/supersynth_bg.wasm',          // copied from node_modules/@supersynth/core/wasm/
   modelsDirectory: 'https://cdn.jsdelivr.net/npm/supersynth@0.3.0/models/',
 });
 ```

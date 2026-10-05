@@ -1,5 +1,5 @@
 // supersynth in a browser: pick an instrument or an organ, play it live.
-import { INSTRUMENTS, ORGANS, Synth } from 'supersynth';
+import { INSTRUMENTS, ORGANS, Synth } from '@supersynth/core';
 
 const $ = (id) => document.getElementById(id);
 const status = (s) => ($('status').textContent = s);

@@ -6,7 +6,7 @@
 //   node scripts/smoke.mjs [organ id]      (default organ: green-positiv, the smallest)
 import { createRequire } from 'node:module';
 
-const { Synth } = await import('supersynth');
+const { Synth } = await import('@supersynth/core');
 const organId = process.argv[2] ?? 'green-positiv';
 
 const peak = (a) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
@@ -27,7 +27,7 @@ if (!(level > 1e-3 && level < 4)) throw new Error(`unexpected peak level ${level
 // require() of the ES module, where Node supports it (20.19+, 22.12+)
 const [major, minor] = process.versions.node.split('.').map(Number);
 if (major >= 23 || (major === 22 && minor >= 12) || (major === 20 && minor >= 19)) {
-  const { Synth: RequiredSynth } = createRequire(import.meta.url)('supersynth');
-  if (RequiredSynth !== Synth) throw new Error('require("supersynth") gave another module');
-  console.log('require("supersynth") ok');
+  const { Synth: RequiredSynth } = createRequire(import.meta.url)('@supersynth/core');
+  if (RequiredSynth !== Synth) throw new Error('require("@supersynth/core") gave another module');
+  console.log('require("@supersynth/core") ok');
 }

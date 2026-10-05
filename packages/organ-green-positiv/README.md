@@ -1,15 +1,15 @@
 # @supersynth/organ-green-positiv
 
-Spectral models of the **Green Positiv organ** for [supersynth](https://www.npmjs.com/package/supersynth),
+Spectral models of the **Green Positiv organ** for [supersynth](https://www.npmjs.com/package/@supersynth/core),
 with every stop analysed from its sample set's recordings. Install this package alongside
 supersynth and it will be found automatically.
 
 ```bash
-npm install supersynth @supersynth/organ-green-positiv
+npm install @supersynth/core @supersynth/organ-green-positiv
 ```
 
 ```ts
-import { Synth } from 'supersynth';
+import { Synth } from '@supersynth/core';
 
 const synth = new Synth();
 const organ = synth.add('green-positiv');

@@ -19,7 +19,7 @@ organ.swell.play(['C4', 'E4', 'G4'], { duration: 4 });
 organ.preset('full');
 ```
 
-Each organ is an `OrganDefinition` exported from `supersynth` and `supersynth/organs`, and
+Each organ is an `OrganDefinition` exported from `@supersynth/core` and `@supersynth/core/organs`, and
 `PIOTR_ORGANS` collects all of them. The sample sets are © Piotr Grabowski. The models aren't
 covered by the MIT license and can't be sold or built into products for sale; see NOTICE.md.
 

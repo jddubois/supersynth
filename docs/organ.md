@@ -253,10 +253,10 @@ its divisions (stereo position, which one has a swell box and how far it closes)
 wind, speech, noises and reverb. The built-in organs are `ORGANS.burea` (`BUREA_ORGAN`),
 `ORGANS.vcsl` (`VCSL_ORGAN`) and Piotr Grabowski's organs (`ORGANS.friesach` /
 `FRIESACH_ORGAN` and so on, all collected in `PIOTR_ORGANS`). They're exported from both
-`supersynth` and `supersynth/organs`, and `synth.add` accepts an id or any `OrganDefinition`:
+`@supersynth/core` and `@supersynth/core/organs`, and `synth.add` accepts an id or any `OrganDefinition`:
 
 ```ts
-import { BUREA_ORGAN, type OrganDefinition } from 'supersynth/organs';
+import { BUREA_ORGAN, type OrganDefinition } from '@supersynth/core/organs';
 
 synth.add(BUREA_ORGAN);                          // same as synth.add('burea')
 

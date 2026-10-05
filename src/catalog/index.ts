@@ -3,7 +3,7 @@
  * to play it, or copy and change it.
  *
  * ```ts
- * import { GRAND_PIANO } from 'supersynth/instruments';
+ * import { GRAND_PIANO } from '@supersynth/core/instruments';
  * synth.add({ ...GRAND_PIANO, id: 'my-piano', parameters: { brightness: -1 } });
  * ```
  */

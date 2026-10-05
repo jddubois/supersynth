@@ -5,7 +5,7 @@ export type { InstrumentOptions } from './Instrument.js';
 export { Organ, Division } from './Organ.js';
 export type { OrganOptions, OrganPreload, OrganSettings, OrganNoiseSettings, DivisionSettings, OrganMidiChannels, OrganMidiOptions } from './Organ.js';
 export type { Playable, PlayOptions, TimeOptions, SequenceStep, SequenceOptions } from './scheduling.js';
-// configurations (also importable on their own from 'supersynth/instruments' and 'supersynth/organs')
+// configurations (also importable on their own from '@supersynth/core/instruments' and '@supersynth/core/organs')
 export * from './catalog/index.js';
 export * from './organs/index.js';
 export { PARAMETER_DEFAULTS, PARAMETER_RANGES } from './parameters.js';

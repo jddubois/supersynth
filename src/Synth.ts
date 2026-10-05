@@ -138,7 +138,7 @@ interface LoadedModel {
  * The synthesizer: an engine that plays the instrument models, in real time or offline.
  *
  * ```ts
- * import { Synth } from 'supersynth';
+ * import { Synth } from '@supersynth/core';
  *
  * const synth = new Synth();
  * const piano = synth.add('grand-piano');

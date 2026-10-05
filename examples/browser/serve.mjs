@@ -4,7 +4,7 @@
 //   npm run build:wasm && npm run build:ts && npm run example:browser   -> http://localhost:8080
 //
 // It serves the page (this folder, or `root`) and this checkout as an application would see the
-// installed packages (`/node_modules/supersynth/…`, `/node_modules/@supersynth/organ-<id>/…`),
+// installed packages (`/node_modules/@supersynth/core/…`, `/node_modules/@supersynth/organ-<id>/…`),
 // with the two headers supersynth needs in a browser: its engine runs on several threads over
 // shared memory, which a page may only use when it is cross-origin isolated.
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -29,7 +29,7 @@ export function serve({ root = here, port = 8080, host = '127.0.0.1', isolate = 
   const server = createServer((req, res) => {
     const url = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname);
     let file;
-    if (url.startsWith('/node_modules/supersynth/')) file = path.join(repo, url.slice('/node_modules/supersynth/'.length));
+    if (url.startsWith('/node_modules/@supersynth/core/')) file = path.join(repo, url.slice('/node_modules/@supersynth/core/'.length));
     else if (url.startsWith('/node_modules/@supersynth/')) file = path.join(repo, 'node_modules', '@supersynth', url.slice('/node_modules/@supersynth/'.length));
     else file = path.join(root, url === '/' ? 'index.html' : url);
     if (!path.resolve(file).startsWith(repo) && !path.resolve(file).startsWith(path.resolve(root))) file = '';

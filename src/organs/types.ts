@@ -116,7 +116,7 @@ export interface TremulantDefinition {
  * changed:
  *
  * ```ts
- * import { BUREA_ORGAN, type OrganDefinition } from 'supersynth/organs';
+ * import { BUREA_ORGAN, type OrganDefinition } from '@supersynth/core/organs';
  * const mine: OrganDefinition = {
  *   ...BUREA_ORGAN,
  *   presets: { ...BUREA_ORGAN.presets, bright: { description: 'Flutes 8 + 2', great: ["Gedackt 8'", "Octave 2'"] } },

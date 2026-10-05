@@ -1,6 +1,6 @@
 // Run in the page by scripts/test-browser.mjs: each case returns measurements, which the runner
 // checks.
-import { encodeWav, Synth } from 'supersynth';
+import { encodeWav, Synth } from '@supersynth/core';
 
 const peak = (a) => {
   let p = 0;

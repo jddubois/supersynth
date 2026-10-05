@@ -1,15 +1,15 @@
 # @supersynth/organ-harmonium
 
-Spectral models of the **Emil Müller harmonium** for [supersynth](https://www.npmjs.com/package/supersynth),
+Spectral models of the **Emil Müller harmonium** for [supersynth](https://www.npmjs.com/package/@supersynth/core),
 with every stop analysed from its sample set's recordings. Install this package alongside
 supersynth and it will be found automatically.
 
 ```bash
-npm install supersynth @supersynth/organ-harmonium
+npm install @supersynth/core @supersynth/organ-harmonium
 ```
 
 ```ts
-import { Synth } from 'supersynth';
+import { Synth } from '@supersynth/core';
 
 const synth = new Synth();
 const organ = synth.add('harmonium');

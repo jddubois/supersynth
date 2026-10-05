@@ -2,7 +2,7 @@
  * Organ configurations: import one to play it, or copy and change it.
  *
  * ```ts
- * import { BUREA_ORGAN } from 'supersynth/organs';
+ * import { BUREA_ORGAN } from '@supersynth/core/organs';
  * synth.add(BUREA_ORGAN, { preset: 'plenum' });
  * ```
  */
