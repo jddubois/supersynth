@@ -128,6 +128,17 @@ pub struct CouplerSpec {
     pub shift: Option<i32>,
 }
 
+/// What the overload guard has done (see [`Host::set_overload_guard`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GuardStats {
+    /// Shedding load now.
+    pub active: bool,
+    /// Released notes ended early so far.
+    pub voices_shed: u64,
+    /// Partials faded out so far (last resort, when no released note was left).
+    pub partials_reduced: u64,
+}
+
 /// Names of the built-in reverb presets.
 pub fn reverb_presets() -> Vec<String> {
     ["room", "studio", "chamber", "hall", "concert-hall", "church", "cathedral", "plate"].iter().map(|s| s.to_string()).collect()
@@ -154,10 +165,19 @@ struct Shared {
     /// Real-time output is running. MIDI input is routed into the engine only then: nothing
     /// would consume it otherwise, and the backlog would all sound at once on `start()`.
     running: AtomicBool,
+    /// `release_resources` was called: the engine is empty and takes no more commands.
+    released: AtomicBool,
+}
+
+fn released() -> Error {
+    err("the engine's resources were released (the synth is closed)")
 }
 
 impl Shared {
     fn send(&self, time: Option<f64>, cmd: Command) -> Result<()> {
+        if self.released.load(Ordering::Acquire) {
+            return Err(released());
+        }
         let frame = match time {
             Some(t) => (finite(t, "time")?.max(0.0) * self.sample_rate as f64).round() as u64,
             None => 0,
@@ -175,6 +195,10 @@ pub struct Host {
     fault: Arc<Fault>,
     sample_rate: u32,
     threads: u32,
+    /// The overload guard is wanted (`set_overload_guard`); it is armed only while rendering
+    /// in real time (output running, or emulated).
+    guard: bool,
+    emulated: bool,
 }
 
 impl Host {
@@ -204,11 +228,14 @@ impl Host {
                 sample_rate: sample_rate as f32,
                 midi_routes: std::array::from_fn(|_| AtomicU8::new(NO_ROUTE)),
                 running: AtomicBool::new(false),
+                released: AtomicBool::new(false),
             }),
             models: ModelStore::default(),
             fault: Arc::new(Fault::default()),
             sample_rate,
             threads,
+            guard: false,
+            emulated: false,
         })
     }
 
@@ -253,6 +280,12 @@ impl Host {
         self.shared.status.load_permille.load(Ordering::Relaxed) as f64 / 1000.0
     }
 
+    /// Peak output level of the last buffers (0–1, falling by half every buffer), in steps of
+    /// 0.001 (-60 dBFS).
+    pub fn peak(&self) -> f64 {
+        self.shared.status.peak_milli.load(Ordering::Relaxed) as f64 / 1000.0
+    }
+
     /// Threads rendering audio (the audio thread included).
     pub fn threads(&self) -> u32 {
         self.threads
@@ -264,9 +297,60 @@ impl Host {
     }
 
     /// Real-time output started (`true`) or stopped: MIDI input is routed into the engine only
-    /// while it runs, and offline rendering is refused.
+    /// while it runs, offline rendering is refused, and the overload guard (if wanted) is armed.
     pub fn set_running(&self, running: bool) {
         self.shared.running.store(running, Ordering::Release);
+        self.arm_guard();
+    }
+
+    /// Fails once `release_resources` was called (the engine takes no more commands).
+    pub fn check_open(&self) -> Result<()> {
+        if self.shared.released.load(Ordering::Acquire) {
+            return Err(released());
+        }
+        Ok(())
+    }
+
+    // ── overload guard ──────────────────────────────────────────────────────
+
+    /// Opt-in overload guard: while rendering in real time, when buffers come close to their
+    /// deadline, end the quietest released notes early (then, as a last resort, fade out upper
+    /// partials). Offline `render()` is never guarded.
+    pub fn set_overload_guard(&mut self, on: bool) {
+        self.guard = on;
+        self.arm_guard();
+    }
+
+    /// Treat `render()` calls as real-time buffers (benchmarks and tests that drive the engine
+    /// buffer by buffer as an audio callback would).
+    pub fn set_realtime_emulation(&mut self, on: bool) {
+        self.emulated = on;
+        self.arm_guard();
+    }
+
+    fn arm_guard(&self) {
+        let st = &self.shared.status;
+        let armed = self.guard && (self.is_running() || self.emulated);
+        st.guard_armed.store(armed, Ordering::Relaxed);
+        if !armed {
+            // (the engine lets go at its next buffer; there may be none)
+            st.guard_active.store(false, Ordering::Relaxed);
+        }
+    }
+
+    /// The overload guard is shedding load now.
+    pub fn guard_active(&self) -> bool {
+        self.shared.status.guard_active.load(Ordering::Relaxed)
+    }
+
+    /// What the overload guard has done so far.
+    pub fn guard_stats(&self) -> GuardStats {
+        let st = &self.shared.status;
+        GuardStats {
+            active: st.guard_active.load(Ordering::Relaxed),
+            voices_shed: st.guard_voices_shed.load(Ordering::Relaxed),
+            partials_reduced: st.guard_partials_reduced.load(Ordering::Relaxed),
+        }
     }
 
     pub fn is_running(&self) -> bool {
@@ -514,8 +598,11 @@ impl Host {
 
     /// Let go of everything the engine holds: its instruments and their models, voices and
     /// buffers, now rather than when the host's object is collected. Stops routing MIDI input;
-    /// the host stops its output first. The engine stays usable but empty.
+    /// the host stops its output first. The engine cannot be used afterwards: its commands
+    /// fail (and the host's `start()`), `render()` renders silence, and its clock and status
+    /// keep their last values.
     pub fn release_resources(&mut self) {
+        self.shared.released.store(true, Ordering::Release);
         self.set_running(false);
         let (engine, ctl) = Engine::new(EngineConfig { sample_rate: self.sample_rate as f32, max_voices: 8, ..EngineConfig::default() });
         let old = std::mem::replace(&mut *lock(&self.engine), engine);
@@ -555,8 +642,12 @@ impl MidiRouter {
             _ => None,
         };
         if let Some(c) = cmd {
-            // (a full queue drops the message: there is no caller to tell)
-            let _ = shared.send(None, c);
+            // live input has room of its own in the queue, so events a program scheduled ahead
+            // never crowd it out; it is applied at the start of the next audio buffer (a full
+            // queue drops the message: there is no caller to tell)
+            if !shared.released.load(Ordering::Acquire) {
+                let _ = lock(&shared.ctl).send_live(c);
+            }
         }
     }
 }

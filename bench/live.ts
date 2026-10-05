@@ -18,6 +18,12 @@
  *   npm run live-test -- --threads 1           the Synth `threads` option (default: 'auto')
  *   npm run live-test -- --release-floor -80    the Synth `releaseCulling: { floorDb }` option (opt-in)
  *   npm run live-test -- --below-mix 80 --hold smooth   `releaseCulling: { belowMixDb, hold }`
+ *   npm run live-test -- --guard              the Synth `overloadGuard` option (opt-in): reports the
+ *                                              notes it shed and how long it was active (with --slowdown,
+ *                                              the guard acts as on that slower CPU: count its dropouts there)
+ *   npm run live-test -- --record out/        write each scenario's output (out/<scenario>.f32, interleaved
+ *                                              stereo float) and the guard's state per buffer
+ *                                              (out/<scenario>.guard, one byte each) for bench/bands.ts
  *   npm run live-test -- --repeat 3            play each scenario 3 times, keep each buffer's fastest
  *                                              time: the engine's own worst buffers, without the
  *                                              stalls a busy (or virtual) machine adds at random
@@ -25,7 +31,7 @@
  * Run it on the target machine (e.g. a Raspberry Pi 5) with nothing else busy; exit code 1
  * when any scenario drops out.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseMidiFile, Synth, type Playable } from '../src/index.ts';
@@ -49,9 +55,14 @@ const REPEAT = Math.max(1, Number(opt('repeat', '1')));
 const RELEASE_FLOOR = args.includes('--release-floor') ? Number(opt('release-floor', '-200')) : undefined;
 const BELOW_MIX = args.includes('--below-mix') ? Number(opt('below-mix', '0')) : undefined;
 const HOLD = opt('hold', 'peak') as 'peak' | 'smooth';
+const GUARD = args.includes('--guard');
+const RECORD = opt('record', '');
 const culling = RELEASE_FLOOR !== undefined || BELOW_MIX !== undefined
   ? { releaseCulling: { ...(RELEASE_FLOOR !== undefined ? { floorDb: RELEASE_FLOOR } : {}), ...(BELOW_MIX !== undefined ? { belowMixDb: BELOW_MIX, hold: HOLD } : {}) } }
   : {};
+const guard = GUARD ? { overloadGuard: true } : {};
+// with a slowdown, the guard acts on the render times of that slower CPU (so that its dropouts count)
+if (GUARD && SLOWDOWN !== 1) process.env.SUPERSYNTH_GUARD_SLOWDOWN = String(SLOWDOWN);
 const budgetMs = (BUFFER / SR) * 1000;
 
 /** A timed key event, delivered live. */
@@ -205,6 +216,10 @@ interface Result {
   maxVoices: number;
   /** Longest the JavaScript thread took to handle one buffer's key events (a late key or stop). */
   maxEventMs: number;
+  /** Overload guard: released notes it ended, partials it faded out, share of buffers it was active. */
+  voicesShed: number;
+  partialsReduced: number;
+  guardShare: number;
 }
 
 function quantile(sorted: Float64Array, q: number): number {
@@ -216,6 +231,9 @@ interface Run {
   cpuUs: number;
   maxVoices: number;
   maxEventMs: number;
+  voicesShed: number;
+  partialsReduced: number;
+  guardShare: number;
 }
 
 async function runScenario(sc: Scenario): Promise<Result> {
@@ -232,7 +250,7 @@ async function runScenario(sc: Scenario): Promise<Result> {
     best.cpuUs = Math.min(best.cpuUs, run.cpuUs);
     best.maxEventMs = Math.min(best.maxEventMs, run.maxEventMs);
   }
-  const { loads, cpuUs, maxVoices, maxEventMs } = best!;
+  const { loads, cpuUs, maxVoices, maxEventMs, voicesShed, partialsReduced, guardShare } = best!;
   const n = loads.length;
   let maxAt = 0;
   for (let i = 1; i < n; i++) if (loads[i]! > loads[maxAt]!) maxAt = i;
@@ -258,6 +276,9 @@ async function runScenario(sc: Scenario): Promise<Result> {
     overSlow,
     maxVoices,
     maxEventMs,
+    voicesShed,
+    partialsReduced,
+    guardShare,
   };
 }
 
@@ -268,6 +289,7 @@ async function playOnce(sc: Scenario): Promise<Run> {
     ...(MAX_VOICES ? { maxVoices: MAX_VOICES } : {}),
     ...(THREADS ? { threads: THREADS === 'auto' ? 'auto' : Number(THREADS) } : {}),
     ...culling,
+    ...guard,
   });
   synth['emulateRealtime'] = true; // the engine is driven here as by real-time output
   const native = synth._native();
@@ -283,6 +305,9 @@ async function playOnce(sc: Scenario): Promise<Run> {
   let maxVoices = 0;
   let maxEventMs = 0;
   let cpuUs = 0;
+  let guardBuffers = 0;
+  const recorded = RECORD ? new Float32Array(n * BUFFER * 2) : undefined;
+  const guardOn = RECORD ? new Uint8Array(n) : undefined;
   for (let b = 0; b < n; b++) {
     const bufferEnd = ((b + 1) * BUFFER) / SR;
     // keys pressed during the previous buffer reach the engine at the start of this one
@@ -291,16 +316,28 @@ async function playOnce(sc: Scenario): Promise<Run> {
     while (next < events.length && events[next]!.time < bufferEnd) events[next++]!.run();
     const c0 = process.cpuUsage();
     const t1 = process.hrtime.bigint();
-    native.render(BUFFER);
+    const out = native.render(BUFFER);
     const t2 = process.hrtime.bigint();
+    recorded?.set(out, b * BUFFER * 2);
+    if (GUARD && native.guardActive) {
+      guardBuffers++;
+      if (guardOn) guardOn[b] = 1;
+    }
     const c1 = process.cpuUsage(c0);
     cpuUs += c1.user + c1.system;
     loads[b] = Number(t2 - t1) / 1e6 / budgetMs;
     maxEventMs = Math.max(maxEventMs, Number(t1 - t0) / 1e6);
     if ((b & 63) === 0) maxVoices = Math.max(maxVoices, native.activeVoices);
   }
+  const { voicesShed, partialsReduced } = synth.guardStats;
   synth.close();
-  return { loads, cpuUs, maxVoices, maxEventMs };
+  if (RECORD) {
+    mkdirSync(RECORD, { recursive: true });
+    const slug = sc.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
+    writeFileSync(path.join(RECORD, `${slug}.f32`), recorded!);
+    writeFileSync(path.join(RECORD, `${slug}.guard`), guardOn!);
+  }
+  return { loads, cpuUs, maxVoices, maxEventMs, voicesShed, partialsReduced, guardShare: guardBuffers / n };
 }
 
 /** Time from a key press (at a buffer boundary) to the sound reaching -40 dB of its peak. */
@@ -325,11 +362,12 @@ console.log(
     (REPEAT > 1 ? `, each buffer's fastest of ${REPEAT} runs` : '') +
     (RELEASE_FLOOR !== undefined ? `, release culling below ${RELEASE_FLOOR} dBFS` : '') +
     (BELOW_MIX !== undefined ? `, release culling ${BELOW_MIX} dB below the mix (${HOLD})` : '') +
+    (GUARD ? ', overload guard on' : '') +
     '\nload = wall-clock render time / buffer duration (all render threads at work); > 100% is a dropout' +
     '\ncpu = CPU time of all threads / real time (100% = one core busy)\n',
 );
 console.log(
-  'scenario'.padEnd(42) + 'mean   p99  p99.9   max  (at)     cpu  voices  dropouts' + (SLOWDOWN !== 1 ? `  @${SLOWDOWN}×` : '') + '  slowest key event',
+  'scenario'.padEnd(42) + 'mean   p99  p99.9   max  (at)     cpu  voices  dropouts' + (SLOWDOWN !== 1 ? `  @${SLOWDOWN}×` : '') + '  slowest key event' + (GUARD ? '   shed  partials  guard on' : ''),
 );
 const results: Result[] = [];
 for (const sc of scenarios) {
@@ -341,7 +379,8 @@ for (const sc of scenarios) {
       `${pct(r.meanLoad)} ${pct(r.p99Load)} ${pct(r.p999Load)} ${pct(r.maxLoad)} ${r.maxAt.toFixed(1).padStart(5)}s ${pct(r.cpuLoad)}` +
       `${String(r.maxVoices).padStart(8)}${String(r.over).padStart(10)}` +
       (SLOWDOWN !== 1 ? `${String(r.overSlow).padStart(7)}` : '') +
-      `${r.maxEventMs.toFixed(1).padStart(10)} ms`,
+      `${r.maxEventMs.toFixed(1).padStart(10)} ms` +
+      (GUARD ? `${String(r.voicesShed).padStart(7)}${String(r.partialsReduced).padStart(10)}${pct(r.guardShare).padStart(10)}` : ''),
   );
 }
 
@@ -356,7 +395,7 @@ for (const [k, v] of Object.entries(latencies)) console.log(`  ${k.padEnd(22)} $
 
 const rss = process.memoryUsage().rss / 1048576;
 console.log(`\npeak resident memory of this process: ${rss.toFixed(0)} MB`);
-if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ sampleRate: SR, buffer: BUFFER, seconds: SECONDS, slowdown: SLOWDOWN, quality: QUALITY, threads: THREADS ?? 'auto', repeat: REPEAT, releaseFloor: RELEASE_FLOOR ?? null, belowMix: BELOW_MIX ?? null, hold: HOLD, results, latencies, rssMb: rss }, null, 2));
+if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ sampleRate: SR, buffer: BUFFER, seconds: SECONDS, slowdown: SLOWDOWN, quality: QUALITY, threads: THREADS ?? 'auto', repeat: REPEAT, releaseFloor: RELEASE_FLOOR ?? null, belowMix: BELOW_MIX ?? null, hold: HOLD, guard: GUARD, results, latencies, rssMb: rss }, null, 2));
 const failed = results.filter((r) => (SLOWDOWN !== 1 ? r.overSlow : r.over) > 0);
 if (failed.length) {
   console.log(`\nFAIL: dropouts in ${failed.map((r) => r.name).join(', ')}`);

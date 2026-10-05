@@ -6,12 +6,12 @@ export const GRAND_PIANO: InstrumentDefinition = {
   id: 'grand-piano',
   name: 'Concert Grand Piano',
   family: 'keyboard',
-  description: 'Steinway model B, three dynamic layers, with real hammer attacks, string stiffness, damper and sympathetic resonances.',
+  description: 'Steinway model B, three dynamic layers: recorded hammer attacks, string stiffness, the resonances in each recording, and a damper release.',
   layers: [{ model: 'grand-piano' }, { model: 'grand-piano-release', trigger: 'release' }],
   range: [21, 108],
   reverb: 'hall',
   presets: {
-    default: { description: 'As recorded' },
+    default: { description: 'No adjustments' },
     bright: { description: 'Harder hammers, pop/rock piano', parameters: { brightness: 1.2, eqHighGain: 2, eqHighFreq: 5000 } },
     mellow: { description: 'Soft hammers, warm and dark', parameters: { brightness: -1.6, noise: -3 } },
     felt: { description: 'Felt-muffled "una corda" intimate piano', parameters: { brightness: -4, noise: -8, attack: 1.4, velocitySensitivity: 0.75, reverbSend: 0.12 } },
@@ -37,10 +37,10 @@ export const UPRIGHT_PIANO: InstrumentDefinition = {
   family: 'keyboard',
   description: 'Yamaha upright: intimate, a little brighter and boxier than the grand.',
   layers: [{ model: 'upright-piano' }, { model: 'upright-piano-release', trigger: 'release' }],
-  range: [21, 108],
+  range: [26, 101],
   reverb: 'room',
   presets: {
-    default: { description: 'As recorded' },
+    default: { description: 'No adjustments' },
     vintage: { description: 'Older instrument: duller, slightly out of tune', parameters: { brightness: -1.2, humanize: 5 } },
     'honky-tonk': {
       description: 'Bar-room detuned upright',
@@ -59,7 +59,7 @@ export const HARPSICHORD: InstrumentDefinition = {
   id: 'harpsichord',
   name: 'Harpsichord',
   family: 'keyboard',
-  description: 'French double-manual harpsichord, plucked attack transients from the real instrument.',
+  description: 'French double-manual harpsichord, with the recorded pluck of each note.',
   layers: [{ model: 'harpsichord' }, { model: 'harpsichord-release', trigger: 'release' }],
   range: [29, 89],
   reverb: 'chamber',
@@ -68,7 +68,7 @@ export const HARPSICHORD: InstrumentDefinition = {
     '8-4': {
       description: "8' + 4' (brilliant, octave coupled)",
       layers: [
-        { model: 'harpsichord' }, { model: 'harpsichord', transpose: 12, gain: -5 },
+        { model: 'harpsichord' }, { model: 'harpsichord', transpose: 12, gain: -5, keyHigh: 77 },
         { model: 'harpsichord-release', trigger: 'release' },
       ],
     },

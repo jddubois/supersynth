@@ -13,17 +13,18 @@ const DIV: Record<string, string> = { great: 'Great', swell: 'Swell', positive: 
 
 let md = `# Piotr Grabowski's organs
 
-Every organ that Piotr Grabowski gives away free at [piotrgrabowski.pl](https://piotrgrabowski.pl/instruments/),
-analysed stop by stop like the Bureå organ (see [models.md](models.md)). Each stop is analysed from
-the sample set's recordings **as its organ definition plays them**: each pipe's attack and sustain,
-its release crossfaded in at key-up, the definition's retuning and level for every pipe, and
-the borrowed, extended and retuned ranks exactly where the sample set places them, and the
-releases recorded after short key presses. Stops keep the organ's own pitch and temperament (an
-organ at Baroque or historic pitch sounds at that pitch), the balance between stops, and the room
-the pipes were recorded in. Keys where a stop has no pipe (a treble-only Cornet) stay silent.
-Swell boxes close as far as the organ definition says; sampled tremulants are measured from the
-pipes recorded with the tremulant on. The machinery noises the sample sets recorded (key and stop
-action, blower, room) play with \`noises: true\`.
+These are all the organs Piotr Grabowski gives away for free at
+[piotrgrabowski.pl](https://piotrgrabowski.pl/instruments/), analysed stop by stop in the same way
+as the Bureå organ (see [models.md](models.md)). Each stop is analysed from the sample set's
+recordings the way its organ definition plays them: every pipe's attack and sustain, its release
+crossfaded in at key-up, the retuning and level the definition gives each pipe, borrowed,
+extended and retuned ranks exactly where the sample set puts them, and the releases recorded
+after short key presses. The stops keep the organ's own pitch and temperament (an organ at a
+Baroque or historic pitch still sounds at that pitch), the balance between stops, and the room
+the pipes were recorded in. Keys where a stop has no pipe, as on a treble-only Cornet, stay
+silent. Swell boxes close as far as the organ definition says, and sampled tremulants are
+measured from pipes recorded with the tremulant on. The machinery noises the sample sets
+recorded (key and stop action, blower, room) play with \`noises: true\`.
 
 \`\`\`ts
 const organ = synth.add('szczecinek', { preset: 'celeste' });
@@ -31,13 +32,13 @@ organ.swell.play(['C4', 'E4', 'G4'], { duration: 4 });
 organ.preset('full');
 \`\`\`
 
-Every organ is an \`OrganDefinition\` exported from \`supersynth\` and \`supersynth/organs\` (all of them also as
-\`PIOTR_ORGANS\`). Sample sets © Piotr Grabowski; the models are not covered by the MIT license
-and may not be sold or built into products for sale — see NOTICE.md.
+Each organ is an \`OrganDefinition\` exported from \`supersynth\` and \`supersynth/organs\`, and
+\`PIOTR_ORGANS\` collects all of them. The sample sets are © Piotr Grabowski. The models aren't
+covered by the MIT license and can't be sold or built into products for sale; see NOTICE.md.
 
-Each organ's models are an npm package of their own, \`@supersynth/organ-<id>\`: install the organs
-you play (\`npm install @supersynth/organ-friesach\`), or all of them with \`npm install @supersynth/organs\`.
-Adding an organ whose package is not installed throws a \`SupersynthError\` that names the package.
+Each organ is a separate npm package, \`@supersynth/organ-<id>\`. Install the ones you play
+(\`npm install @supersynth/organ-friesach\`), or all of them with \`npm install @supersynth/organs\`.
+Adding an organ whose package isn't installed throws a \`SupersynthError\` that names the package.
 
 | Id | Organ | Stops | Package | Models |
 |---|---|---|---|---|

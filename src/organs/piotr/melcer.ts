@@ -51,18 +51,18 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbass 16'"],
   },
   'flute-8': {
-    description: "Gedackt 8' — soft stopped flute",
+    description: "Gedackt 8', soft stopped flute",
     swell: ["Gedackt 8'"],
     pedal: ["Subbass 16'"],
   },
   nasard: {
-    description: "Nachthorn 8', Prinzipal 4' and Nasard 2 2/3' — a solo voice against the Gedackt",
+    description: "Nachthorn 8', Prinzipal 4' and Nasard 2 2/3', a solo voice against the Gedackt",
     great: ["Nachthorn 8'", "Prinzipal 4'", "Nasard 2 2/3'"],
     swell: ["Gedackt 8'"],
     pedal: ["Subbass 16'", "Gedacktbass 8'"],
   },
   sifflote: {
-    description: "Gedackt 8' + Sifflöte 1' — the gapped Baroque registration",
+    description: "Gedackt 8' + Sifflöte 1', the gapped Baroque registration",
     swell: ["Gedackt 8'", "Sifflöte 1'"],
     great: ["Nachthorn 8'"],
     pedal: ["Subbass 16'"],
@@ -74,7 +74,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbass 16'", "Gedacktbass 8'"],
   },
   trumpet: {
-    description: "Trompete 8' with Prinzipal 4' — festive solo",
+    description: "Trompete 8' with Prinzipal 4' as a festive solo",
     great: ["Nachthorn 8'", "Prinzipal 4'", "Trompete 8'"],
     swell: ["Gedackt 8'", "Rohrflöte 4'"],
     pedal: ["Subbass 16'", "Gedacktbass 8'", "Trompete 8'"],

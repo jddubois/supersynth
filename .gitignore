@@ -40,6 +40,7 @@ demos/
 # Python
 __pycache__/
 *.pyc
+docs/organ-stops.generated.md
 
 # Browser engine (scripts/build-wasm.mjs)
 /wasm/

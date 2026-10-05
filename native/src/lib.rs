@@ -14,7 +14,7 @@ use napi_derive::napi;
 use audio::backend::{list_available_backends, BackendKind};
 use audio::output::{default_output_rate, AudioOutput};
 use midi::input::{connect_midi_device, list_midi_devices, MidiInputHandle};
-use supersynth_host::{CouplerSpec, EngineOptions, ErrorKind, Host, LayerSpec};
+use supersynth_host::{CouplerSpec, EngineOptions, ErrorKind, GuardStats, Host, LayerSpec};
 
 // ── JS objects ────────────────────────────────────────────────────────────────
 
@@ -67,6 +67,23 @@ impl From<JsLayer> for LayerSpec {
             speech_ms: l.speech_ms,
             direct_only: l.direct_only,
         }
+    }
+}
+
+/// What the overload guard has done (see `SynthEngine::set_overload_guard`).
+#[napi(object)]
+pub struct JsGuardStats {
+    /// Shedding load now.
+    pub active: bool,
+    /// Released notes ended early so far.
+    pub voices_shed: f64,
+    /// Partials faded out so far (last resort, when no released note was left).
+    pub partials_reduced: f64,
+}
+
+impl From<GuardStats> for JsGuardStats {
+    fn from(s: GuardStats) -> Self {
+        JsGuardStats { active: s.active, voices_shed: s.voices_shed as f64, partials_reduced: s.partials_reduced as f64 }
     }
 }
 
@@ -155,6 +172,13 @@ impl SynthEngine {
         self.host.cpu_load()
     }
 
+    /// Peak output level of the last buffers (0–1, falling by half every buffer), in steps of
+    /// 0.001 (-60 dBFS).
+    #[napi(getter)]
+    pub fn peak(&self) -> f64 {
+        self.host.peak()
+    }
+
     /// Threads rendering audio (the audio thread included).
     #[napi(getter)]
     pub fn threads(&self) -> u32 {
@@ -164,6 +188,33 @@ impl SynthEngine {
     #[napi(getter)]
     pub fn is_running(&self) -> bool {
         self.output.is_some()
+    }
+
+    /// Opt-in overload guard: while rendering in real time, when buffers come close to their
+    /// deadline, end the quietest released notes early (then, as a last resort, fade out upper
+    /// partials). Offline `render()` is never guarded.
+    #[napi]
+    pub fn set_overload_guard(&mut self, on: bool) {
+        self.host.set_overload_guard(on);
+    }
+
+    /// Treat `render()` calls as real-time buffers (benchmarks and tests that drive the engine
+    /// buffer by buffer as an audio callback would).
+    #[napi]
+    pub fn set_realtime_emulation(&mut self, on: bool) {
+        self.host.set_realtime_emulation(on);
+    }
+
+    /// The overload guard is shedding load now.
+    #[napi(getter)]
+    pub fn guard_active(&self) -> bool {
+        self.host.guard_active()
+    }
+
+    /// What the overload guard has done so far.
+    #[napi(getter)]
+    pub fn guard_stats(&self) -> JsGuardStats {
+        self.host.guard_stats().into()
     }
 
     // ── models ──────────────────────────────────────────────────────────────
@@ -329,11 +380,18 @@ impl SynthEngine {
         if self.output.is_some() {
             return Ok(());
         }
-        let out = AudioOutput::start(self.host.engine().clone(), self.host.fault().clone(), &self.backend, self.host.sample_rate(), self.buffer_size)
-            .map_err(err)?;
-        self.output = Some(out);
-        // the render workers follow the audio thread's priority where the system allows it
+        self.host.check_open().map_err(js)?;
+        // asked for before the stream starts, so the audio thread never waits for this lock:
+        // the render workers take the audio thread's priority when it renders its first buffer
         self.host.set_realtime(true);
+        match AudioOutput::start(self.host.engine().clone(), self.host.fault().clone(), &self.backend, self.host.sample_rate(), self.buffer_size) {
+            Ok(out) => self.output = Some(out),
+            Err(e) => {
+                self.host.set_realtime(false);
+                return Err(err(e));
+            }
+        }
+        // (arms the overload guard, if wanted)
         self.host.set_running(true);
         Ok(())
     }
@@ -393,7 +451,9 @@ impl SynthEngine {
 
     /// Stop output and MIDI and let go of everything the engine holds: its instruments and their
     /// models (freed on the loader's reclaim thread), voices and buffers, now rather than when
-    /// the JavaScript object is garbage-collected. The engine stays usable but empty.
+    /// the JavaScript object is garbage-collected. The engine cannot be used afterwards: its
+    /// commands and `start()` fail, `render()` renders silence, and its clock and status keep
+    /// their last values.
     #[napi]
     pub fn release_resources(&mut self) {
         self.host.set_running(false);

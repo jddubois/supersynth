@@ -45,8 +45,14 @@ struct Shared {
     sleeping: [AtomicBool; MAX_THREADS],
     shutdown: AtomicBool,
     panicked: AtomicBool,
-    /// requested scheduling: 0 normal, 1 real-time (applied by each worker when it wakes)
+    /// requested scheduling: 0 normal, 1 real-time (set by the API; the dispatching thread
+    /// turns it into `sched` at the start of its next buffer)
     realtime: AtomicU8,
+    /// the request the dispatching thread last turned into `sched`
+    applied: AtomicU8,
+    /// the scheduling the workers take (applied by each worker when it next gets a job):
+    /// `SCHED_NORMAL`, or the dispatching thread's own (see `encode_sched`)
+    sched: AtomicU32,
     /// the dispatching thread is rendering a buffer: more jobs follow within microseconds, so
     /// idle workers keep spinning instead of parking
     hot: AtomicBool,
@@ -90,6 +96,8 @@ impl Pool {
             shutdown: AtomicBool::new(false),
             panicked: AtomicBool::new(false),
             realtime: AtomicU8::new(0),
+            applied: AtomicU8::new(0),
+            sched: AtomicU32::new(SCHED_NORMAL),
             hot: AtomicBool::new(false),
         });
         let mut workers = Vec::with_capacity(threads - 1);
@@ -109,18 +117,41 @@ impl Pool {
         self.workers.len() + 1
     }
 
-    /// Ask the workers for real-time scheduling (when the engine plays to an audio device) or
-    /// normal scheduling. Applied by each worker the next time it wakes; refused requests
-    /// (no permission) are ignored.
+    /// Ask for real-time scheduling (when the engine plays to an audio device) or normal
+    /// scheduling. The workers take the scheduling of the thread that renders the next buffer
+    /// (the audio callback), never a higher one: they spin while it renders, and a worker
+    /// above it would take the core it needs. Where that thread has no real-time priority,
+    /// it is given one (Linux; the workers then share it) if the system allows it. Refused
+    /// requests (no permission) leave everything at normal priority.
     pub fn set_realtime(&self, on: bool) {
         self.shared.realtime.store(on as u8, Ordering::Relaxed);
     }
 
     /// A buffer's rendering starts (`true`) or ends: in between, idle workers wait for the next
     /// job spinning rather than parked, so that the jobs of one buffer (two per block) start
-    /// on every core at once.
+    /// on every core at once. Called by the dispatching thread.
     pub fn set_hot(&self, hot: bool) {
-        self.shared.hot.store(hot, Ordering::Relaxed);
+        let sh = &*self.shared;
+        if hot {
+            let want = sh.realtime.load(Ordering::Relaxed);
+            if want != sh.applied.load(Ordering::Relaxed) {
+                // once per start or stop of real-time output: a few system calls
+                sh.applied.store(want, Ordering::Relaxed);
+                let sched = if want != 0 { dispatcher_realtime() } else { SCHED_NORMAL };
+                sh.sched.store(sched, Ordering::Relaxed);
+            }
+        }
+        sh.hot.store(hot, Ordering::Relaxed);
+    }
+
+    /// The scheduling the workers take (for tests): `None` for normal, else the policy
+    /// (`"fifo"`, `"rr"`, `"max"`) and priority.
+    pub fn worker_scheduling(&self) -> Option<(&'static str, u8)> {
+        match self.shared.sched.load(Ordering::Relaxed) {
+            SCHED_NORMAL => None,
+            SCHED_MAX => Some(("max", 0)),
+            s => Some((if s >> 8 == 2 { "rr" } else { "fifo" }, s as u8)),
+        }
     }
 
     /// Run `f(item, thread)` for every item in 0..n, on this thread and the workers, and
@@ -218,7 +249,7 @@ fn worker(sh: Arc<Shared>, w: usize) {
     // the same floating-point mode as the dispatching thread renders with
     let _ftz = FlushDenormals::new();
     let mut seen = gen_of(sh.state.load(Ordering::Acquire));
-    let mut realtime = 0u8;
+    let mut sched = SCHED_NORMAL;
     loop {
         // wait for a new generation: spin, then park
         let mut spin = Spin::default();
@@ -243,11 +274,11 @@ fn worker(sh: Arc<Shared>, w: usize) {
             }
             sh.sleeping[w].store(false, Ordering::Relaxed);
             spin = Spin::default();
-            let want = sh.realtime.load(Ordering::Relaxed);
-            if want != realtime {
-                realtime = want;
-                set_scheduling(want != 0);
-            }
+        }
+        let want = sh.sched.load(Ordering::Relaxed);
+        if want != sched {
+            sched = want;
+            set_scheduling(want);
         }
         claim_items(&sh, seen, w);
     }
@@ -276,26 +307,82 @@ impl Spin {
     }
 }
 
-/// Real-time (or normal) scheduling for the calling thread, if the system allows it (not in
-/// WebAssembly: a browser schedules its workers itself).
-#[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
-fn set_scheduling(realtime: bool) {
+/// Workers at normal priority.
+const SCHED_NORMAL: u32 = 0;
+/// Workers at the platform's highest priority (Windows).
+const SCHED_MAX: u32 = 0xFFFF;
+/// Real-time priority given to a dispatching thread that has none (Linux, `SCHED_FIFO`).
+#[cfg(target_os = "linux")]
+const DISPATCH_PRIORITY: u8 = 80;
+
+/// A real-time scheduling for the workers: policy 1 (FIFO) or 2 (round robin), priority.
+#[cfg_attr(not(unix), allow(dead_code))]
+const fn encode_sched(policy: u32, priority: u8) -> u32 {
+    policy << 8 | priority as u32
+}
+
+/// Called on the dispatching thread when real-time output starts: the scheduling the workers
+/// should take, which is that thread's own when it is real-time (JACK, PipeWire). Elsewhere
+/// on Linux (ALSA), the dispatching thread is given `SCHED_FIFO` first, if allowed. In
+/// WebAssembly the workers stay as they are (a browser schedules its Web Workers itself).
+fn dispatcher_realtime() -> u32 {
     #[cfg(all(unix, not(target_arch = "wasm32")))]
     {
         use thread_priority::unix::*;
-        use thread_priority::{ThreadPriority, ThreadPriorityValue};
         let id = thread_native_id();
-        let _ = if realtime {
-            let prio = ThreadPriorityValue::try_from(80u8).map(ThreadPriority::Crossplatform).unwrap_or(ThreadPriority::Max);
-            set_thread_priority_and_policy(id, prio, ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::Fifo))
-        } else {
-            set_thread_priority_and_policy(id, ThreadPriority::Min, ThreadSchedulePolicy::Normal(NormalThreadSchedulePolicy::Other))
+        let own = |(policy, params): (ThreadSchedulePolicy, ScheduleParams)| match policy {
+            ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::Fifo) => Some(encode_sched(1, params.sched_priority.clamp(1, 99) as u8)),
+            ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::RoundRobin) => Some(encode_sched(2, params.sched_priority.clamp(1, 99) as u8)),
+            _ => None,
+        };
+        if let Some(s) = thread_schedule_policy_param(id).ok().and_then(own) {
+            return s;
+        }
+        // macOS: the audio thread has a time-constraint policy of its own, which changing its
+        // POSIX scheduling would take away; the workers stay at normal priority
+        #[cfg(target_os = "linux")]
+        {
+            use thread_priority::{ThreadPriority, ThreadPriorityValue};
+            let prio = ThreadPriorityValue::try_from(DISPATCH_PRIORITY).map(ThreadPriority::Crossplatform).unwrap_or(ThreadPriority::Max);
+            let fifo = ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::Fifo);
+            if set_thread_priority_and_policy(id, prio, fifo).is_ok() {
+                return thread_schedule_policy_param(id).ok().and_then(own).unwrap_or(SCHED_NORMAL);
+            }
+        }
+        SCHED_NORMAL
+    }
+    #[cfg(not(any(unix, target_arch = "wasm32")))]
+    {
+        SCHED_MAX
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        SCHED_NORMAL
+    }
+}
+
+/// Apply a scheduling from `dispatcher_realtime` (or `SCHED_NORMAL`) to the calling worker,
+/// if the system allows it.
+#[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
+fn set_scheduling(sched: u32) {
+    #[cfg(all(unix, not(target_arch = "wasm32")))]
+    {
+        use thread_priority::unix::*;
+        use thread_priority::ThreadPriority;
+        let id = thread_native_id();
+        let _ = match sched {
+            SCHED_NORMAL | SCHED_MAX => set_thread_priority_and_policy(id, ThreadPriority::Min, ThreadSchedulePolicy::Normal(NormalThreadSchedulePolicy::Other)),
+            s => {
+                let policy = if s >> 8 == 2 { RealtimeThreadSchedulePolicy::RoundRobin } else { RealtimeThreadSchedulePolicy::Fifo };
+                let prio = ThreadPriority::from_posix(ScheduleParams { sched_priority: (s & 0xFF) as _ });
+                set_thread_priority_and_policy(id, prio, ThreadSchedulePolicy::Realtime(policy))
+            }
         };
     }
     #[cfg(not(any(unix, target_arch = "wasm32")))]
     {
         use thread_priority::{set_current_thread_priority, ThreadPriority};
-        let _ = set_current_thread_priority(if realtime { ThreadPriority::Max } else { ThreadPriority::Crossplatform(50u8.try_into().unwrap()) });
+        let _ = set_current_thread_priority(if sched == SCHED_NORMAL { ThreadPriority::Crossplatform(50u8.try_into().unwrap()) } else { ThreadPriority::Max });
     }
 }
 
@@ -341,5 +428,34 @@ mod tests {
             count.fetch_add(1, Ordering::Relaxed);
         });
         assert_eq!(count.load(Ordering::Relaxed), 10);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn workers_take_the_dispatching_threads_scheduling() {
+        // on a thread of its own: it may be given real-time priority
+        std::thread::spawn(|| {
+            use thread_priority::unix::*;
+            let pool = Pool::new(2);
+            pool.set_hot(true);
+            assert_eq!(pool.worker_scheduling(), None, "normal until real-time output starts");
+            pool.set_realtime(true);
+            pool.set_hot(true);
+            let (policy, params) = thread_schedule_policy_param(thread_native_id()).unwrap();
+            let expected = match policy {
+                ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::Fifo) => Some(("fifo", params.sched_priority as u8)),
+                ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::RoundRobin) => Some(("rr", params.sched_priority as u8)),
+                // no permission: the dispatching thread stayed normal, so do the workers
+                _ => None,
+            };
+            assert_eq!(pool.worker_scheduling(), expected, "never above the dispatching thread");
+            pool.run(8, &|_, _| {});
+            pool.set_realtime(false);
+            pool.set_hot(true);
+            assert_eq!(pool.worker_scheduling(), None);
+            pool.set_hot(false);
+        })
+        .join()
+        .unwrap();
     }
 }

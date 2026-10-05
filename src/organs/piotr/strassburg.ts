@@ -59,7 +59,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbaß 16'", "Gedacktbaß 8'"],
   },
   'flute-8': {
-    description: "Gedackt 8' — the Positiv's soft stopped flute",
+    description: "Gedackt 8', the Positiv's soft stopped flute",
     positive: ["Gedackt 8'"],
     pedal: ["Subbaß 16'"],
   },
@@ -69,12 +69,12 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbaß 16'", "Gedacktbaß 8'"],
   },
   gemshorn: {
-    description: "Gemshorn 8' with Flöte 4' — the gentle colour of the Hauptwerk",
+    description: "Gemshorn 8' with Flöte 4', the gentle colour of the Hauptwerk",
     great: ["Gemshorn 8'", "Flöte 4'"],
     pedal: ["Subbaß 16'"],
   },
   'cornet-decompose': {
-    description: "Gedeckt 8', Flöte 4' and Quint 2 2/3' — a gapped solo against the Positiv Gedackt",
+    description: "Gedeckt 8', Flöte 4' and Quint 2 2/3', a gapped solo against the Positiv Gedackt",
     great: ["Gedeckt 8'", "Flöte 4'", "Quint 2 2/3'"],
     positive: ["Gedackt 8'"],
     pedal: ["Subbaß 16'", "Gedacktbaß 8'"],

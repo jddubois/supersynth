@@ -8,12 +8,12 @@ import { parseMidiFile, type MidiFileData, type MidiFileEvent } from './midifile
 import type { NativeEngine, NativeLayer } from './engine.js';
 import { instrumentModels, organModels } from './models.js';
 import type { ReverbOptions, ReverbPreset } from './parameters.js';
-import { defaultParameter, PARAMETER_NAMES, REVERB_FIELDS, toNativeParameter, type InstrumentParameters } from './parameters.js';
+import { defaultParameter, PARAMETER_NAMES, REVERB_FIELDS, REVERB_PRESETS, toNativeParameter, type InstrumentParameters } from './parameters.js';
 import { Organ, type Division, type OrganOptions } from './Organ.js';
 import { ORGAN_DEFAULTS } from './organs/defaults.js';
 import { ORGANS, type OrganDefinition, type OrganId } from './organs/index.js';
 import { resolveTime, type TimeOptions } from './scheduling.js';
-import { atLeast, clamp, finite, guardEngine, integer, positive, QUEUE_CAPACITY } from './validate.js';
+import { atLeast, finite, guardEngine, inRange, integer, positive, QUEUE_CAPACITY } from './validate.js';
 import { deinterleave, makeAudioBuffer, writeWav, type AudioBuffer, type WavOptions } from './wav.js';
 import type { MidiEvent } from './types.js';
 
@@ -29,12 +29,29 @@ export interface SynthSettings {
    *  recorded pipe and room tail) early, once they are quiet. `false` (the default) plays every
    *  tail out in full. See {@link ReleaseCulling}. */
   releaseCulling?: ReleaseCulling | false;
+  /** Opt-in, real-time output only: when audio buffers come close to their deadline (the
+   *  machine is too slow for what is playing), end the quietest notes in their release early,
+   *  with a short fade, instead of letting the sound crackle; only if no released note is left,
+   *  fade out upper partials of the quietest notes. Held notes and attacks are never touched,
+   *  and as long as nothing is overloaded the sound is bit-for-bit the same as without it.
+   *  Offline rendering is never guarded. See {@link Synth.guardStats}. @default false */
+  overloadGuard?: boolean;
+}
+
+/** What the overload guard has done ({@link Synth.guardStats}). */
+export interface GuardStats {
+  /** Shedding load now. */
+  active: boolean;
+  /** Released notes ended early so far. */
+  voicesShed: number;
+  /** Partials faded out so far (the last resort, when no released note was left). */
+  partialsReduced: number;
 }
 
 /**
  * When to end a released note early ({@link SynthSettings.releaseCulling}). This trades sound
  * for CPU: measured on BWV 532 on the Friesach plenum (hall reverb), `floorDb: -80` halves the
- * voices (mean 671 → 334) and changes third-octave band levels by at most 1.8 dB (p99 0.18 dB);
+ * voices (mean 586 → 287) and changes third-octave band levels by at most 1.8 dB (p99 0.18 dB);
  * on the smaller Bureå organ the savings are smaller and single bands of the room tail change
  * by up to 15 dB.
  */
@@ -118,7 +135,7 @@ interface LoadedModel {
 }
 
 /**
- * The synthesizer: an engine that plays real instruments, in real time or offline.
+ * The synthesizer: an engine that plays the instrument models, in real time or offline.
  *
  * ```ts
  * import { Synth } from 'supersynth';
@@ -127,6 +144,8 @@ interface LoadedModel {
  * const piano = synth.add('grand-piano');
  * await synth.start();                  // real-time output
  * piano.play(['C4', 'E4', 'G4'], { duration: 2 });
+ * await synth.idle();                   // until it has played out
+ * synth.close();
  *
  * // or offline, without an audio device:
  * const audio = synth.render(3);        // { sampleRate, left, right, duration }
@@ -166,11 +185,23 @@ export class Synth extends EventEmitter {
   private reverbOn = true;
   private maxPartials: number;
   private closed = false;
-  /** Behave as with real-time output running (benchmarks that drive the engine themselves). */
-  private emulateRealtime = false;
+  /** Behave as with real-time output running (benchmarks that drive the engine themselves:
+   *  each `render()` is then a real-time buffer, e.g. for the overload guard). */
+  private realtimeEmulated = false;
+  private get emulateRealtime(): boolean {
+    return this.realtimeEmulated;
+  }
+  private set emulateRealtime(on: boolean) {
+    this.realtimeEmulated = on;
+    this.engine.setRealtimeEmulation(on);
+  }
 
   constructor(options: SynthOptions = {}) {
     super();
+    const quality = options.quality ?? 'high';
+    const partials = ({ high: 512, balanced: 128, eco: 32 } as Record<string, number>)[quality];
+    if (partials === undefined) throw new SupersynthError(`quality must be 'high', 'balanced' or 'eco', got ${String(quality)}`);
+    this.maxPartials = partials;
     const reverbPreset = typeof options.reverb === 'string' && options.reverb !== 'auto' ? options.reverb : 'hall';
     try {
       this.engine = guardEngine(platform.createEngine({
@@ -185,11 +216,11 @@ export class Synth extends EventEmitter {
       throw e instanceof SupersynthError ? e : new SupersynthError((e as Error).message);
     }
     this.modelsDirectory = options.modelsDirectory;
-    this.maxPartials = { high: 512, balanced: 128, eco: 32 }[options.quality ?? 'high'];
     this.reverbMode = options.reverb === undefined || options.reverb === 'auto' ? 'auto' : 'set';
     this.set({
       volume: options.volume ?? 0.5,
       ...(options.releaseCulling ? { releaseCulling: options.releaseCulling } : {}),
+      ...(options.overloadGuard !== undefined ? { overloadGuard: options.overloadGuard } : {}),
       ...(options.reverb !== undefined && options.reverb !== 'auto' ? { reverb: options.reverb } : {}),
     });
   }
@@ -218,6 +249,19 @@ export class Synth extends EventEmitter {
   /** Threads rendering audio, the audio thread included (see {@link SynthOptions.threads}). */
   get threads(): number {
     return this.engine.threads;
+  }
+
+  /** The overload guard ({@link SynthSettings.overloadGuard}) is shedding load now: the machine
+   *  is too slow for what is playing, and release tails are being shortened. */
+  get guardActive(): boolean {
+    return this.engine.guardActive;
+  }
+
+  /** What the overload guard has done so far: whether it is active, released notes it ended
+   *  early, partials it faded out (all zero while it never had to act). */
+  get guardStats(): GuardStats {
+    const s = this.engine.guardStats;
+    return { active: s.active, voicesShed: s.voicesShed, partialsReduced: s.partialsReduced };
   }
 
   get isRunning(): boolean {
@@ -328,14 +372,27 @@ export class Synth extends EventEmitter {
     this.checkOpen();
     const t = resolveTime(this.currentTime, options);
     const n = this.engine;
-    const volume = settings.volume === undefined ? undefined : clamp(settings.volume, 0, 1, 'volume');
+    // everything is checked before anything is sent, so a refused call changes nothing
+    const volume = settings.volume === undefined ? undefined : inRange(settings.volume, 0, 1, 'volume');
     const reverb = settings.reverb;
     const opts: ReverbOptions | undefined = reverb === undefined || reverb === false ? undefined : typeof reverb === 'string' ? { preset: reverb } : reverb;
+    if (opts?.preset !== undefined && !REVERB_PRESETS.includes(opts.preset)) {
+      throw new SupersynthError(`Unknown reverb preset '${String(opts.preset)}'. Presets: ${REVERB_PRESETS.join(', ')}`);
+    }
     for (const k of Object.keys(REVERB_FIELDS)) {
       const v = (opts as Record<string, unknown> | undefined)?.[k];
       if (v !== undefined) finite(v, `reverb.${k}`);
     }
-    this._reserve(5 + Object.keys(REVERB_FIELDS).length * 2);
+    const rc = settings.releaseCulling;
+    const culling = rc === undefined ? undefined : rc === false ? {} : rc;
+    if (culling?.hold !== undefined && culling.hold !== 'peak' && culling.hold !== 'smooth') {
+      throw new SupersynthError(`releaseCulling.hold must be 'peak' or 'smooth', got ${String(culling.hold)}`);
+    }
+    const floorDb = culling?.floorDb === undefined ? -200 : inRange(culling.floorDb, -200, 0, 'releaseCulling.floorDb');
+    const belowMixDb = culling?.belowMixDb === undefined ? 0 : inRange(culling.belowMixDb, 0, 200, 'releaseCulling.belowMixDb');
+    const guard = settings.overloadGuard;
+    if (guard !== undefined && typeof guard !== 'boolean') throw new SupersynthError(`overloadGuard must be true or false, got ${String(guard)}`);
+    this._reserve(5 + 11 + Object.keys(REVERB_FIELDS).length);
     if (reverb !== undefined) {
       this.reverbMode = 'set';
       if (reverb === false) {
@@ -353,32 +410,34 @@ export class Synth extends EventEmitter {
       }
     }
     if (volume !== undefined) n.setMasterParam('volume', volume <= 0 ? -120 : 20 * Math.log10(volume), t);
-    const rc = settings.releaseCulling;
-    if (rc !== undefined) {
-      const on = rc === false ? {} : rc;
-      n.setMasterParam('releaseFloor', on.floorDb === undefined ? -200 : clamp(on.floorDb, -200, 0, 'releaseCulling.floorDb'), t);
-      n.setMasterParam('releaseBelowMix', on.belowMixDb === undefined ? 0 : clamp(on.belowMixDb, 0, 200, 'releaseCulling.belowMixDb'), t);
-      if (on.hold !== undefined && on.hold !== 'peak' && on.hold !== 'smooth') throw new SupersynthError(`releaseCulling.hold must be 'peak' or 'smooth', got ${String(on.hold)}`);
-      n.setMasterParam('releaseHold', on.hold === 'smooth' ? 0 : 1, t);
+    if (culling !== undefined) {
+      n.setMasterParam('releaseFloor', floorDb, t);
+      n.setMasterParam('releaseBelowMix', belowMixDb, t);
+      n.setMasterParam('releaseHold', culling.hold === 'smooth' ? 0 : 1, t);
     }
+    if (guard !== undefined) n.setOverloadGuard(guard); // (at once: it is not an event of the music)
     return this;
   }
 
   /** Release every held note of every instrument and organ. */
   allNotesOff(options: TimeOptions = {}): this {
+    this.checkOpen();
     this.engine.allNotesOff(null, resolveTime(this.currentTime, options));
     return this;
   }
 
   /** Silence everything immediately. */
   panic(): this {
+    this.checkOpen();
     this.engine.allSoundOff();
     return this;
   }
 
   // ── output ────────────────────────────────────────────────────────────────
 
-  /** Start real-time audio output. */
+  /** Start real-time audio output. The output alone does not keep Node.js running: a script
+   *  that plays and ends exits at once, so wait for the music with {@link idle} (or keep the
+   *  process busy otherwise: a server, MIDI input, a timer). */
   async start(): Promise<this> {
     this.checkOpen();
     try {
@@ -387,6 +446,38 @@ export class Synth extends EventEmitter {
       throw new AudioBackendError(`Failed to start audio: ${(e as Error).message}`);
     }
     return this;
+  }
+
+  /**
+   * Resolves once what was sent so far has played out with real-time output running: no event
+   * is waiting for its time, no note is sounding and the output (the reverb's tail too) has
+   * fallen below -60 dBFS. A note held without a `noteOff` (or an organ's blower and room
+   * noises) keeps it waiting. Resolves at once without real-time output, and when output
+   * stops or the synth is closed. Node.js keeps running while it waits.
+   *
+   * ```ts
+   * await synth.start();
+   * piano.play(['C4', 'E4', 'G4'], { duration: 2 });
+   * await synth.idle();
+   * synth.close();
+   * ```
+   */
+  async idle(): Promise<void> {
+    await new Promise<void>((resolve) => {
+      // three checks in a row (100 ms): the peak meter falls between buffers
+      let quiet = 0;
+      const check = () => {
+        if (this.closed || !this.isRunning) quiet = 3;
+        else if (this.engine.queueFree === QUEUE_CAPACITY && this.engine.activeVoices === 0 && this.engine.peak < 0.001) quiet++;
+        else quiet = 0;
+        if (quiet >= 3) {
+          clearInterval(timer);
+          resolve();
+        }
+      };
+      const timer = setInterval(check, 50);
+      check();
+    });
   }
 
   /** Stop real-time output (the engine keeps its state; `render()` works again). */
@@ -500,6 +591,7 @@ export class Synth extends EventEmitter {
     const signal = options.signal;
     if (signal?.aborted) throw abortError(signal);
     if (!this.isRunning) await this.start();
+    if (signal?.aborted) throw abortError(signal); // while output was starting
     const { midi, route, tail, release, channels } = this.prepareMidi(file, options);
     const events = midi.events;
     const t0 = this.currentTime + 0.2;
@@ -573,14 +665,33 @@ export class Synth extends EventEmitter {
     // GM drums (channel 10): skipped unless mapped
     const skip = (e: MidiFileEvent) => e.type === 'program' || (!options.byTrack && e.channel === 10 && !options.channels?.[10]);
     const added: Instrument[] = [];
+    /** Engine channels of the instruments and divisions passed in (not removed afterwards). */
+    const given = new Set<number>();
     const release = () => {
+      // what the file leaves on the instruments passed in (a missing note-off, the pedal down,
+      // a bend) does not carry over into what they play next
+      for (const ch of given) {
+        if (this.closed || this.slots[ch] === null) continue;
+        try {
+          this.engine.allNotesOff(ch);
+          this.engine.controlChange(ch, 64, 0);
+          this.engine.controlChange(ch, 1, 0);
+          this.engine.controlChange(ch, 11, 127);
+          this.engine.pitchBend(ch, 0);
+        } catch {
+          /* queue full */
+        }
+      }
+      given.clear();
       for (const i of added.splice(0)) this.remove(i);
     };
     const channelByKey = new Map<number, number>();
+    // channels (or tracks) with notes: one with only controllers gets no instrument
+    const playing = new Set(midi.events.filter((e) => e.type === 'noteOn' && !skip(e)).map(keyOf));
     try {
       for (const e of midi.events) {
         const key = keyOf(e);
-        if (skip(e) || channelByKey.has(key)) continue;
+        if (skip(e) || !playing.has(key) || channelByKey.has(key)) continue;
         const spec = options.channels?.[key] ?? options.instrument ?? 'grand-piano';
         if (typeof spec === 'string') {
           const inst = this.add(spec);
@@ -593,6 +704,7 @@ export class Synth extends EventEmitter {
         } else {
           spec._engine(); // not removed
           channelByKey.set(key, spec.channel);
+          given.add(spec.channel);
         }
       }
     } catch (e) {
@@ -601,8 +713,8 @@ export class Synth extends EventEmitter {
     }
     const n = this.engine;
     const route = (e: MidiFileEvent, t0: number) => {
-      if (skip(e)) return;
-      const ch = channelByKey.get(keyOf(e))!;
+      const ch = channelByKey.get(keyOf(e));
+      if (skip(e) || ch === undefined) return;
       const at = t0 + e.time;
       switch (e.type) {
         case 'noteOn': {

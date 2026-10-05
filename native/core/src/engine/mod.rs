@@ -19,7 +19,7 @@ pub mod params;
 pub mod pool;
 
 use std::collections::BinaryHeap;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::dsp::denormal::FlushDenormals;
@@ -39,8 +39,14 @@ use params::{MasterParam, PartParam};
 use pool::Pool;
 
 pub const MAX_PARTS: usize = 32;
-/// Most events waiting to be applied at once.
+/// Most events waiting to be applied at once (`Controller::send`).
 pub const QUEUE_CAPACITY: usize = 1 << 15;
+/// Room kept on top of `QUEUE_CAPACITY` for live input (`Controller::send_live`): a program
+/// that fills the queue with events scheduled ahead never locks out a MIDI keyboard, nor makes
+/// it lose a note-off.
+pub const LIVE_RESERVE: usize = 1024;
+/// Events the ring and the engine hold from the controller, at most.
+const SENT_CAPACITY: usize = QUEUE_CAPACITY + LIVE_RESERVE;
 
 // ── instruments ───────────────────────────────────────────────────────────────
 
@@ -274,6 +280,13 @@ pub struct Status {
     pub load_permille: AtomicU32,
     /// Events sent but not yet applied (queued or waiting for their time).
     pub pending_events: AtomicUsize,
+    /// Set by the API: the overload guard watches the render time of every buffer (only while
+    /// rendering in real time; see [`Engine::set_overload_guard`]).
+    pub guard_armed: AtomicBool,
+    /// Published by the engine: the guard is shedding load now, and what it has done so far.
+    pub guard_active: AtomicBool,
+    pub guard_voices_shed: AtomicU64,
+    pub guard_partials_reduced: AtomicU64,
 }
 
 // ── controller (API side) ────────────────────────────────────────────────────
@@ -291,11 +304,26 @@ impl Controller {
     /// Queue `cmd` for engine frame `time` (0 or a past frame: as soon as possible). Fails,
     /// without queueing, when QUEUE_CAPACITY events are already waiting: an event is never
     /// applied before its time.
-    pub fn send(&mut self, time: u64, mut cmd: Command) -> Result<(), String> {
+    pub fn send(&mut self, time: u64, cmd: Command) -> Result<(), String> {
         self.collect_garbage();
         if self.queue_free() == 0 {
             return Err(format!("supersynth command queue is full ({QUEUE_CAPACITY} events waiting)"));
         }
+        self.push(time, cmd)
+    }
+
+    /// Queue `cmd` from live input (a MIDI keyboard), to apply as soon as possible. It may also
+    /// use the `LIVE_RESERVE` events kept for live input, so it is refused only when that is
+    /// full too (over a thousand live messages waiting for one buffer).
+    pub fn send_live(&mut self, cmd: Command) -> Result<(), String> {
+        self.collect_garbage();
+        if self.status.pending_events.load(Ordering::Acquire) >= SENT_CAPACITY {
+            return Err(format!("supersynth command queue is full ({SENT_CAPACITY} events waiting)"));
+        }
+        self.push(0, cmd)
+    }
+
+    fn push(&mut self, time: u64, mut cmd: Command) -> Result<(), String> {
         self.prepare(&mut cmd);
         let bank_for = match &cmd {
             Command::SetInstrument { part, noise: Some(_), .. } | Command::AddLayer { part, noise: Some(_), .. } => Some(*part),
@@ -612,11 +640,114 @@ pub struct Engine {
     part_md: [BlockMod; MAX_PARTS],
     pout: Vec<[[f32; BLOCK]; 4]>,
     recover: Vec<bool>,
+    guard: Guard,
+}
+
+// ── overload guard ───────────────────────────────────────────────────────────
+
+/// Smoothed load (render time / buffer duration) above which the guard engages…
+const GUARD_ENGAGE: f32 = 0.85;
+/// …the load it sheds down to while engaged…
+const GUARD_TARGET: f32 = 0.7;
+/// …and below which it lets go, once it has been calm for `GUARD_CALM_S` and engaged for at
+/// least `GUARD_HOLD_S`.
+const GUARD_RELEASE: f32 = 0.5;
+const GUARD_CALM_S: f32 = 0.5;
+const GUARD_HOLD_S: f32 = 1.0;
+/// An overrun counts at once, but only on an engine that is busy anyway (an isolated stall of a
+/// lightly loaded engine is the system's, and shedding would not help).
+const GUARD_OVERRUN_BUSY: f32 = 0.5;
+/// Time constants of the load followers: the slow one decides when to engage and release, the
+/// fast one how much to shed.
+const GUARD_SLOW_S: f32 = 0.1;
+const GUARD_FAST_S: f32 = 0.012;
+/// Youngest note the guard touches: a released note younger than this is still its attack.
+const GUARD_SHED_MIN_S: f32 = 0.1;
+/// Last resort, partials: only notes past their attack, at most every `GUARD_THIN_EVERY_S`,
+/// each by a quarter of its partials, never below a quarter of them (and 8).
+const GUARD_THIN_MIN_S: f32 = 0.3;
+const GUARD_THIN_EVERY_S: f32 = 0.03;
+/// Share of a voice's cost one thinning step is reckoned to save.
+const GUARD_THIN_SAVES: f32 = 0.15;
+
+/// Opt-in overload guard (see [`Engine::set_overload_guard`]).
+struct Guard {
+    /// was armed for the last buffer
+    armed: bool,
+    /// the last buffer: load and duration (s)
+    last: f32,
+    last_dur: f32,
+    slow: f32,
+    fast: f32,
+    /// load of one voice (smoothed)
+    per_voice: f32,
+    engaged: bool,
+    engaged_s: f32,
+    calm_s: f32,
+    thin_wait_s: f32,
+    voices_shed: u64,
+    partials_reduced: u64,
+    /// candidates (level, slot), room for every slot
+    cand: Vec<(f32, u32)>,
+    /// tests: the load to act on instead of the measured one
+    force: Option<(f32, f32)>,
+    /// benchmarks: act as on a machine this many times slower (`SUPERSYNTH_GUARD_SLOWDOWN`)
+    slowdown: f32,
+}
+
+impl Guard {
+    fn new(slots: usize) -> Self {
+        Guard {
+            armed: false,
+            last: 0.0,
+            last_dur: 0.0,
+            slow: 0.0,
+            fast: 0.0,
+            per_voice: 0.0,
+            engaged: false,
+            engaged_s: 0.0,
+            calm_s: 0.0,
+            thin_wait_s: 0.0,
+            voices_shed: 0,
+            partials_reduced: 0,
+            cand: Vec::with_capacity(slots),
+            force: None,
+            slowdown: std::env::var("SUPERSYNTH_GUARD_SLOWDOWN").ok().and_then(|s| s.parse::<f32>().ok()).filter(|x| x.is_finite() && *x > 0.0).unwrap_or(1.0),
+        }
+    }
+
+    /// Follow the load of a buffer just rendered (`voices` sounding after it).
+    fn observe(&mut self, load: f32, dur: f32, voices: usize) {
+        let load = self.force.map_or(load * self.slowdown, |(fixed, per_voice)| fixed + per_voice * voices as f32);
+        if !load.is_finite() || dur <= 0.0 {
+            return;
+        }
+        self.last = load;
+        self.last_dur = dur;
+        let a_slow = 1.0 - (-dur / GUARD_SLOW_S).exp();
+        self.slow += (load - self.slow) * a_slow;
+        self.fast += (load - self.fast) * (1.0 - (-dur / GUARD_FAST_S).exp());
+        if voices > 0 {
+            let pv = load / voices as f32;
+            self.per_voice = if self.per_voice > 0.0 { self.per_voice + (pv - self.per_voice) * a_slow } else { pv };
+        }
+    }
+
+    fn reset_measurements(&mut self) {
+        self.last = 0.0;
+        self.last_dur = 0.0;
+        self.slow = 0.0;
+        self.fast = 0.0;
+        self.per_voice = 0.0;
+        self.engaged_s = 0.0;
+        self.calm_s = 0.0;
+        self.thin_wait_s = 0.0;
+    }
 }
 
 impl Engine {
     pub fn new(cfg: EngineConfig) -> (Engine, Controller) {
-        let (tx, rx) = rtrb::RingBuffer::new(QUEUE_CAPACITY);
+        let (tx, rx) = rtrb::RingBuffer::new(SENT_CAPACITY);
         let (gtx, grx) = rtrb::RingBuffer::new(GARBAGE_CAPACITY);
         let status = Arc::new(Status::default());
         let sr = cfg.sample_rate;
@@ -639,7 +770,7 @@ impl Engine {
             rx,
             garbage: gtx,
             status: Arc::clone(&status),
-            heap: BinaryHeap::with_capacity(QUEUE_CAPACITY + INTERNAL_CAPACITY),
+            heap: BinaryHeap::with_capacity(SENT_CAPACITY + INTERNAL_CAPACITY),
             internal_pending: 0,
             seq: 0,
             now: 0,
@@ -685,6 +816,7 @@ impl Engine {
             part_md: [BlockMod::default(); MAX_PARTS],
             pout: vec![[[0.0; BLOCK]; 4]; MAX_PARTS],
             recover: vec![false; MAX_PARTS],
+            guard: Guard::new(slots),
         };
         let ctl = Controller { tx, garbage: grx, status, sample_rate: sr, noise_sent: 0 };
         (engine, ctl)
@@ -707,6 +839,34 @@ impl Engine {
 
     pub fn now(&self) -> u64 {
         self.now
+    }
+
+    /// Arm or disarm the opt-in overload guard (the same as storing `Status::guard_armed`).
+    ///
+    /// Armed, the engine measures the wall-clock time each call to `process_*` takes against
+    /// the duration of the audio it renders: arm it only while those calls are real-time
+    /// buffers (an audio callback). When the smoothed load passes 85 % (or a buffer overran on
+    /// an engine above 50 %), it sheds load until the next buffers fit in 70 %: first it ends
+    /// the quietest released notes (never a held note, nor one in its first 100 ms) with a
+    /// 10 ms fade, as many as the measured cost per voice says are needed; only when no
+    /// released note is left does it fade out the upper partials of the quietest notes past
+    /// their attack. It lets go (and fades the partials back in) once the load has stayed under
+    /// 50 % for 0.5 s, at least 1 s after engaging. While nothing is overloaded it changes
+    /// nothing: the output is bit-identical to an engine without it.
+    pub fn set_overload_guard(&self, on: bool) {
+        self.status.guard_armed.store(on, Ordering::Relaxed);
+    }
+    /// Tests: act on the load `fixed + per_voice × voices sounding` instead of the measured one.
+    /// Tests: act on this load (render time / buffer duration) instead of the measured one.
+    #[doc(hidden)]
+    pub fn force_guard_load(&mut self, load: Option<(f32, f32)>) {
+        self.guard.force = load;
+    }
+
+    /// Whether the guard is shedding load now; voices it has ended and partials it has faded
+    /// out so far.
+    pub fn guard_stats(&self) -> (bool, u64, u64) {
+        (self.guard.engaged, self.guard.voices_shed, self.guard.partials_reduced)
     }
 
     pub fn active_voices(&self) -> usize {
@@ -757,6 +917,7 @@ impl Engine {
         let start = std::time::Instant::now();
         self.pool.set_hot(true);
         self.drain_queue();
+        self.guard_step();
         let frames = left.len();
         let mut i = 0;
         while i < frames {
@@ -817,21 +978,154 @@ impl Engine {
         self.peak *= 0.5;
     }
 
-    /// Record that rendering `frames` took `secs` (the CPU load the status reports). Rendering
-    /// does this itself, except in WebAssembly, which has no clock: its host measures instead.
-    pub fn report_load(&self, secs: f32, frames: usize) {
+    /// Record that rendering `frames` took `secs`: the CPU load the status reports, and what the
+    /// overload guard follows. Rendering does this itself, except in WebAssembly, which has no
+    /// clock: its host measures instead.
+    pub fn report_load(&mut self, secs: f32, frames: usize) {
         if frames > 0 {
+            let st = &self.status;
             let load = secs / (frames as f32 / self.sr);
-            self.status.load_permille.store((load * 1000.0) as u32, Ordering::Relaxed);
+            st.load_permille.store((load * 1000.0) as u32, Ordering::Relaxed);
+            if self.guard.armed {
+                let voices = st.active_voices.load(Ordering::Relaxed) as usize;
+                self.guard.observe(load, frames as f32 / self.sr, voices);
+            }
         }
     }
 
+    // ── overload guard ──────────────────────────────────────────────────────
+
+    /// Before a buffer: shed load if the last buffers were too slow (see
+    /// [`set_overload_guard`](Self::set_overload_guard)). Only reads, unless overloaded.
+    fn guard_step(&mut self) {
+        let armed = self.status.guard_armed.load(Ordering::Relaxed);
+        if armed != self.guard.armed {
+            self.guard.armed = armed;
+            // measurements start afresh (offline renders in between are not real-time buffers)
+            self.guard.reset_measurements();
+            if !armed && self.guard.engaged {
+                self.guard_let_go();
+            }
+        }
+        if !armed || self.guard.last_dur <= 0.0 {
+            return;
+        }
+        let g = &mut self.guard;
+        let dur = g.last_dur;
+        let overrun = g.last > 1.0 && g.slow > GUARD_OVERRUN_BUSY;
+        if !g.engaged {
+            if g.slow <= GUARD_ENGAGE && !overrun {
+                return;
+            }
+            g.engaged = true;
+            g.engaged_s = 0.0;
+            g.calm_s = 0.0;
+            self.status.guard_active.store(true, Ordering::Relaxed);
+        } else {
+            g.engaged_s += dur;
+            g.calm_s = if g.slow < GUARD_RELEASE { g.calm_s + dur } else { 0.0 };
+            if g.engaged_s >= GUARD_HOLD_S && g.calm_s >= GUARD_CALM_S {
+                self.guard_let_go();
+                return;
+            }
+        }
+        g.thin_wait_s -= dur;
+        // (how much: the fast follower, which an overrun has raised; the overrun itself may be a
+        // stall of the system rather than the engine's work)
+        let load = g.fast;
+        let excess = load - GUARD_TARGET;
+        if excess <= 0.0 || g.per_voice <= 0.0 {
+            return;
+        }
+        // voices to end for the load to fit, less those already fading out
+        let need = (excess / g.per_voice).ceil().min(self.voices.len() as f32) as usize;
+        let fading = self.voices.iter().filter(|v| v.is_killing()).count();
+        let todo = need.saturating_sub(fading);
+        if todo == 0 {
+            return;
+        }
+        let shed = self.guard_shed(todo);
+        if shed < todo && self.guard.thin_wait_s <= 0.0 {
+            self.guard_thin((todo - shed) as f32);
+        }
+        let st = &self.status;
+        st.guard_voices_shed.store(self.guard.voices_shed, Ordering::Relaxed);
+        st.guard_partials_reduced.store(self.guard.partials_reduced, Ordering::Relaxed);
+    }
+
+    /// End up to `count` of the quietest released voices (past their attack) with a short fade.
+    /// Returns how many.
+    fn guard_shed(&mut self, count: usize) -> usize {
+        let cand = &mut self.guard.cand;
+        cand.clear();
+        for (i, v) in self.voices.iter().enumerate() {
+            if v.is_active() && v.is_released() && !v.is_killing() && v.time_s() >= GUARD_SHED_MIN_S {
+                cand.push((v.output_level_db() + self.parts[v.part].volume_db, i as u32));
+            }
+        }
+        let n = count.min(cand.len());
+        if n == 0 {
+            return 0;
+        }
+        if n < cand.len() {
+            cand.select_nth_unstable_by(n - 1, |a, b| a.0.total_cmp(&b.0));
+        }
+        for &(_, i) in &cand[..n] {
+            self.voices[i as usize].shed();
+        }
+        self.guard.voices_shed += n as u64;
+        n
+    }
+
+    /// Last resort: fade out a quarter of the partials of the quietest voices past their
+    /// attack, enough of them to save about `voices` voices' worth of rendering.
+    fn guard_thin(&mut self, voices: f32) {
+        let cand = &mut self.guard.cand;
+        cand.clear();
+        for (i, v) in self.voices.iter().enumerate() {
+            let k = v.partials() as f32;
+            let floor = (k / 4.0).max(8.0);
+            if v.is_active() && !v.is_killing() && v.time_s() >= GUARD_THIN_MIN_S && !v.plays_transient() && v.partial_cap().min(k) > floor {
+                cand.push((v.output_level_db() + self.parts[v.part].volume_db, i as u32));
+            }
+        }
+        let n = ((voices / GUARD_THIN_SAVES).ceil() as usize).min(cand.len());
+        if n == 0 {
+            return;
+        }
+        if n < cand.len() {
+            cand.select_nth_unstable_by(n - 1, |a, b| a.0.total_cmp(&b.0));
+        }
+        for &(_, i) in &cand[..n] {
+            let v = &mut self.voices[i as usize];
+            let k = v.partials() as f32;
+            let cur = v.partial_cap().min(k);
+            let to = (cur * 0.75).floor().max((k / 4.0).max(8.0));
+            v.set_partial_cap(to);
+            self.guard.partials_reduced += (cur - to).max(0.0) as u64;
+        }
+        self.guard.thin_wait_s = GUARD_THIN_EVERY_S;
+    }
+
+    /// Disengage: every voice gets its partials back (faded in).
+    fn guard_let_go(&mut self) {
+        self.guard.engaged = false;
+        self.guard.engaged_s = 0.0;
+        self.guard.calm_s = 0.0;
+        for v in self.voices.iter_mut() {
+            if v.partial_cap() != f32::INFINITY {
+                v.set_partial_cap(f32::INFINITY);
+            }
+        }
+        self.status.guard_active.store(false, Ordering::Relaxed);
+    }
+
     fn drain_queue(&mut self) {
-        // The controller admits at most QUEUE_CAPACITY unapplied events and the engine schedules
+        // The controller admits at most SENT_CAPACITY unapplied events and the engine schedules
         // at most INTERNAL_CAPACITY of its own, so the heap (with room for both reserved) never
         // grows here; should it be full, events wait in the ring rather than being applied
         // before their time.
-        while self.heap.len() < QUEUE_CAPACITY + INTERNAL_CAPACITY {
+        while self.heap.len() < SENT_CAPACITY + INTERNAL_CAPACITY {
             let Ok(ev) = self.rx.pop() else { break };
             self.seq += 1;
             self.heap.push(Pending { time: ev.time, seq: self.seq, cmd: ev.cmd, internal: false });
@@ -962,8 +1256,10 @@ impl Engine {
                 if let Some(s) = spare {
                     trash(q, Garbage::Instrument(s));
                 }
+                // kept even when the layer is not added: the controller counts this part as
+                // having a bank from now on, and sends none again
                 match noise {
-                    Some(nb) if added && p.noise.is_none() => p.noise = Some(nb),
+                    Some(nb) if p.noise.is_none() => p.noise = Some(nb),
                     Some(nb) => trash(q, Garbage::Noise(nb)),
                     None => {}
                 }
@@ -2399,6 +2695,29 @@ mod tests {
     }
 
     #[test]
+    fn live_input_still_plays_when_the_queue_is_full() {
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(testing::model()))).unwrap();
+        render(&mut eng, 64);
+        for i in 0..QUEUE_CAPACITY as u64 {
+            ctl.send(480_000 + i, Command::NoteOff { part: 0, note: 40 }).unwrap();
+        }
+        assert!(ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 90 }).is_err());
+        ctl.send_live(Command::NoteOn { part: 0, note: 72, velocity: 90 }).unwrap();
+        render(&mut eng, 256);
+        assert_eq!(eng.active_voices(), 1, "a key played on a MIDI keyboard sounds");
+        ctl.send_live(Command::NoteOff { part: 0, note: 72 }).unwrap();
+        render(&mut eng, 256);
+        assert!(eng.voices.iter().filter(|v| v.is_active()).all(|v| v.is_released()), "and its note-off is not lost");
+        for _ in 0..LIVE_RESERVE {
+            ctl.send_live(Command::NoteOff { part: 0, note: 41 }).unwrap();
+        }
+        assert!(ctl.send_live(Command::NoteOff { part: 0, note: 41 }).is_err(), "the reserve is bounded");
+        render(&mut eng, 64);
+        ctl.send_live(Command::NoteOff { part: 0, note: 41 }).unwrap();
+    }
+
+    #[test]
     fn rendering_restores_the_callers_denormal_mode() {
         let denormal = || std::hint::black_box(1e-30f32) * std::hint::black_box(1e-10f32);
         let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
@@ -2607,5 +2926,252 @@ mod tests {
         ctl.send(eng.now(), Command::SetLayerEnabled { part: 0, layer: 1, enabled: true }).unwrap();
         render(&mut eng, 4800);
         assert_eq!(speaking(&eng, 0), 2);
+    }
+
+    // ── overload guard ──────────────────────────────────────────────────────
+
+    #[derive(Clone, Copy)]
+    enum Load {
+        /// guard not armed
+        Off,
+        /// armed, acting on the measured render time
+        Measured,
+        /// armed, acting on this load
+        Forced(f32, f32),
+        /// this load, the guard not armed
+        Disarmed(f32, f32),
+    }
+
+    /// Piano with pedal, a string section, or an organ plenum with pedal (great + pedal), playing
+    /// for `seconds` in 128-frame buffers (as an audio callback). Returns the output
+    /// (interleaved by buffer), whether the guard ever engaged, and the engine.
+    fn guarded(kind: &str, load: Load, seconds: f32) -> Option<(Vec<f32>, bool, Engine, usize)> {
+        let (mut eng, mut ctl) = Engine::new(EngineConfig { threads: 3, ..EngineConfig::default() });
+        let sr = 48000.0;
+        let at = |t: f32| (t * sr) as u64;
+        match kind {
+            "piano" => {
+                ctl.send(0, Command::set_instrument(0, Instrument::single(model("grand-piano")?))).unwrap();
+                let mut t = 0.05;
+                let mut i = 0u8;
+                while t < seconds - 0.3 {
+                    let n = 40 + (i * 7) % 36;
+                    ctl.send(at(t), Command::NoteOn { part: 0, note: n, velocity: 70 + i % 40 }).unwrap();
+                    ctl.send(at(t + 0.25), Command::NoteOff { part: 0, note: n }).unwrap();
+                    if i.is_multiple_of(8) {
+                        let value = if i.is_multiple_of(16) { 127 } else { 0 };
+                        ctl.send(at(t), Command::ControlChange { part: 0, controller: 64, value }).unwrap();
+                    }
+                    t += 0.12;
+                    i = i.wrapping_add(1);
+                }
+            }
+            "strings" => {
+                let mut s = Instrument::default();
+                for name in ["violins", "violas", "cellos"] {
+                    s.layers.push(InstLayer::new(model(name)?));
+                }
+                ctl.send(0, Command::set_instrument(0, s)).unwrap();
+                let mut t = 0.05;
+                let mut i = 0u8;
+                while t < seconds - 0.3 {
+                    let n = 50 + (i * 5) % 24;
+                    ctl.send(at(t), Command::NoteOn { part: 0, note: n, velocity: 90 }).unwrap();
+                    ctl.send(at(t + 0.6), Command::NoteOff { part: 0, note: n }).unwrap();
+                    t += 0.3;
+                    i = i.wrapping_add(1);
+                }
+            }
+            _ => {
+                let mut g = Instrument::default();
+                for name in ["great-principal-8", "great-octave-4", "great-octave-2", "great-mixture"] {
+                    g.layers.push(InstLayer { speech_ms: 10.0, ..InstLayer::new(model(&format!("organ/{name}"))?) });
+                }
+                let mut p = Instrument::default();
+                for name in ["pedal-subbass-16", "pedal-principal-8"] {
+                    p.layers.push(InstLayer { speech_ms: 10.0, ..InstLayer::new(model(&format!("organ/{name}"))?) });
+                }
+                ctl.send(0, Command::set_instrument(0, g)).unwrap();
+                ctl.send(0, Command::set_instrument(1, p)).unwrap();
+                let mut t = 0.05;
+                let mut i = 0u8;
+                while t < seconds - 0.3 {
+                    for n in [60 + (i * 3) % 12, 67 + (i * 5) % 10] {
+                        ctl.send(at(t), Command::NoteOn { part: 0, note: n, velocity: 100 }).unwrap();
+                        ctl.send(at(t + 0.11), Command::NoteOff { part: 0, note: n }).unwrap();
+                    }
+                    if i.is_multiple_of(4) {
+                        let n = 36 + i % 7;
+                        ctl.send(at(t), Command::NoteOn { part: 1, note: n, velocity: 100 }).unwrap();
+                        ctl.send(at(t + 0.45), Command::NoteOff { part: 1, note: n }).unwrap();
+                    }
+                    t += 0.25;
+                    i = i.wrapping_add(1);
+                }
+            }
+        }
+        match load {
+            Load::Off => {}
+            Load::Measured => eng.set_overload_guard(true),
+            Load::Forced(fixed, per_voice) => {
+                eng.set_overload_guard(true);
+                eng.force_guard_load(Some((fixed, per_voice)));
+            }
+            Load::Disarmed(fixed, per_voice) => eng.force_guard_load(Some((fixed, per_voice))),
+        }
+        let n = (seconds * sr) as usize;
+        let mut out = vec![0.0f32; 2 * n];
+        let (mut l, mut r) = ([0.0f32; 128], [0.0f32; 128]);
+        let (mut engaged, mut most) = (false, 0);
+        for b in 0..n / 128 {
+            eng.process_planar(&mut l, &mut r);
+            out[b * 256..b * 256 + 128].copy_from_slice(&l);
+            out[b * 256 + 128..b * 256 + 256].copy_from_slice(&r);
+            engaged |= eng.guard_stats().0;
+            most = most.max(eng.active_voices());
+        }
+        Some((out, engaged, eng, most))
+    }
+
+    fn same_bits(a: &[f32], b: &[f32]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+    }
+
+    #[test]
+    fn the_overload_guard_changes_nothing_without_an_overload() {
+        for kind in ["piano", "strings", "plenum"] {
+            let Some((reference, _, _, _)) = guarded(kind, Load::Off, 3.0) else { return };
+            assert!(rms(&reference) > 1e-3, "{kind} sounds");
+            // a busy engine, below the guard's threshold: it watches and does nothing
+            let (out, engaged, eng, _) = guarded(kind, Load::Forced(0.8, 0.0), 3.0).unwrap();
+            assert!(!engaged, "{kind}: 80 % load does not engage the guard");
+            assert_eq!(eng.guard_stats(), (false, 0, 0));
+            assert!(same_bits(&out, &reference), "{kind}: the armed guard changed the output");
+            // the real clock (release builds: a debug build may well be overloaded; and other
+            // tests running at the same time may overload this machine for a while: retried)
+            if !cfg!(debug_assertions) {
+                let mut tries = 0;
+                loop {
+                    let (out, engaged, _, _) = guarded(kind, Load::Measured, 3.0).unwrap();
+                    if !engaged {
+                        assert!(same_bits(&out, &reference), "{kind}: the armed guard changed the output");
+                        break;
+                    }
+                    tries += 1;
+                    if tries == 4 {
+                        eprintln!("{kind}: this machine kept the engine overloaded; null test on the measured load skipped");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_overload_guard_sheds_the_quietest_released_notes_never_held_ones() {
+        let Some(p8) = model("organ/great-principal-8") else { return };
+        let o4 = model("organ/great-octave-4").unwrap();
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        let mut g = Instrument::single(p8);
+        g.layers.push(InstLayer::new(o4));
+        ctl.send(0, Command::set_instrument(0, g)).unwrap();
+        // held: a chord; released: a run of short notes, whose recorded releases ring on
+        for n in [48u8, 52, 55] {
+            ctl.send(0, Command::NoteOn { part: 0, note: n, velocity: 100 }).unwrap();
+        }
+        for (i, n) in (60u8..84).enumerate() {
+            let t = 4800 + i as u64 * 2400;
+            ctl.send(t, Command::NoteOn { part: 0, note: n, velocity: 100 }).unwrap();
+            ctl.send(t + 7200, Command::NoteOff { part: 0, note: n }).unwrap();
+        }
+        let (mut l, mut r) = ([0.0f32; 128], [0.0f32; 128]);
+        let mut last = 0.0f32;
+        let mut step = |l: &[f32], most: &mut f32| {
+            for &x in l {
+                *most = most.max((x - last).abs());
+                last = x;
+            }
+        };
+        // 1.5 s: every short note released, their tails ringing
+        let mut step_before = 0.0f32;
+        for _ in 0..560 {
+            eng.process_planar(&mut l, &mut r);
+            step(&l, &mut step_before);
+        }
+        let held = |e: &Engine| e.voices.iter().filter(|v| v.is_active() && !v.is_released()).count();
+        let tails = |e: &Engine| e.voices.iter().filter(|v| v.is_active() && v.is_released() && !v.is_killing()).count();
+        assert_eq!(held(&eng), 6, "the chord's pipes");
+        let ringing = tails(&eng);
+        assert!(ringing > 10, "released pipes ringing: {ringing}");
+
+        // just overloaded: some tails go, the quietest
+        eng.set_overload_guard(true);
+        eng.force_guard_load(Some((0.0, 1.0 / (6 + ringing) as f32)));
+        let mut step_shed = 0.0f32;
+        let mut checked = false;
+        for _ in 0..200 {
+            let levels: Vec<(usize, f32)> =
+                eng.voices.iter().enumerate().filter(|(_, v)| v.is_active() && v.is_released() && !v.is_killing()).map(|(i, v)| (i, v.output_level_db())).collect();
+            let shed_before = eng.guard_stats().1;
+            eng.process_planar(&mut l, &mut r);
+            step(&l, &mut step_shed);
+            if !checked && eng.guard_stats().1 > shed_before {
+                let (gone, kept): (Vec<_>, Vec<_>) = levels.iter().copied().partition(|&(i, _): &(usize, f32)| eng.voices[i].is_killing() || !eng.voices[i].is_active());
+                let loudest_gone = gone.iter().map(|g| g.1).fold(-200.0f32, f32::max);
+                let quietest_kept = kept.iter().map(|k| k.1).fold(200.0f32, f32::min);
+                assert!(!gone.is_empty() && !kept.is_empty(), "a mild overload sheds some tails ({} of {})", gone.len(), levels.len());
+                assert!(loudest_gone <= quietest_kept, "quietest first: shed up to {loudest_gone} dB, kept from {quietest_kept} dB");
+                checked = true;
+            }
+        }
+        assert!(checked, "the guard engaged");
+        assert_eq!(held(&eng), 6, "held notes are never shed");
+        assert_eq!(eng.guard_stats().2, 0, "tails are left: no partial is touched");
+
+        // heavily overloaded: every tail goes, then (last resort) partials of the held notes
+        eng.force_guard_load(Some((0.0, 0.5)));
+        for _ in 0..100 {
+            eng.process_planar(&mut l, &mut r);
+            step(&l, &mut step_shed);
+        }
+        let (active, shed, partials) = eng.guard_stats();
+        assert!(active && eng.status.guard_active.load(Ordering::Relaxed));
+        assert_eq!(eng.status.guard_voices_shed.load(Ordering::Relaxed), shed);
+        assert!(shed > 0 && tails(&eng) == 0, "every tail shed under a heavy overload ({shed} shed, {} left)", tails(&eng));
+        assert_eq!(held(&eng), 6, "held notes are never shed");
+        assert!(partials > 0, "with no tail left, partials of the held notes go (last resort)");
+        assert!(step_shed < 1.5 * step_before + 1e-3, "no click: largest sample step {step_shed} (before the guard: {step_before})");
+
+        // load back to normal: the guard lets go after its hold time, the partials return
+        eng.force_guard_load(Some((0.3, 0.0)));
+        for _ in 0..600 {
+            eng.process_planar(&mut l, &mut r);
+        }
+        assert!(!eng.guard_stats().0, "released after the overload");
+        assert!(!eng.status.guard_active.load(Ordering::Relaxed));
+        assert!(eng.voices.iter().filter(|v| v.is_active()).all(|v| v.partial_cap() == f32::INFINITY));
+        assert_eq!(held(&eng), 6);
+    }
+
+    #[test]
+    fn a_mild_overload_shortens_only_some_tails() {
+        let Some((reference, _, _, most)) = guarded("plenum", Load::Off, 2.5) else { return };
+        let (out, engaged, eng, _) = guarded("plenum", Load::Forced(0.0, 0.95 / most as f32), 2.5).unwrap();
+        let (_, shed, partials) = eng.guard_stats();
+        assert!(engaged && shed > 0, "90 % load engages the guard");
+        assert_eq!(partials, 0, "enough tails: no partial is touched");
+        assert!(!same_bits(&out, &reference));
+        let (a, b) = (rms(&out), rms(&reference));
+        assert!((a - b).abs() < 0.05 * b, "the music is the same, its quietest tails shorter: rms {a} vs {b}");
+    }
+
+    #[test]
+    fn a_disarmed_guard_does_nothing_even_overloaded() {
+        // (offline rendering: the guard is never armed, whatever the load)
+        let Some((reference, _, _, _)) = guarded("plenum", Load::Off, 1.5) else { return };
+        let (out, engaged, eng, _) = guarded("plenum", Load::Disarmed(5.0, 0.0), 1.5).unwrap();
+        assert!(!engaged);
+        assert_eq!(eng.guard_stats(), (false, 0, 0));
+        assert!(same_bits(&out, &reference));
     }
 }

@@ -15,7 +15,13 @@ let md = '# Instruments\n\nEvery instrument is a spectral model analysed from re
   'shown with it, from `supersynth` and from `supersynth/instruments`. Pass it to `synth.add`, or\n' +
   'copy and change it:\n\n' +
   '```ts\nimport { GRAND_PIANO } from \'supersynth/instruments\';\n' +
-  'synth.add({ ...GRAND_PIANO, id: \'dark-piano\', parameters: { brightness: -1.5 } });\n```\n';
+  'synth.add({ ...GRAND_PIANO, id: \'dark-piano\', parameters: { brightness: -1.5 } });\n```\n\n' +
+  'An `InstrumentDefinition` has an `id`, `name`, `family` (`\'keyboard\'`, `\'strings\'`, …) and `description`;\n' +
+  'its `layers`, the models it plays; the `range` of keys `[low, high]` they cover; a suggested `reverb` room;\n' +
+  '`parameters` (see [parameters.md](parameters.md)) and its `presets` (`{ description, parameters, layers, reverb }`).\n' +
+  'A layer plays the model `models/<model>.ssm` with optional `transpose` (semitones), `gain` (dB), `pan`,\n' +
+  '`detune` (cents), `keyLow`/`keyHigh` (the keys it plays) and `trigger: \'release\'` (it sounds at key-up:\n' +
+  'damper and jack noise).\n';
 for (const f of Object.keys(fam)) {
   md += `\n## ${fam[f]}\n`;
   for (const d of Object.values(INSTRUMENTS).filter((x) => x.family === f)) {
@@ -25,7 +31,7 @@ for (const f of Object.keys(fam)) {
     for (const [k, p] of Object.entries(d.presets)) md += `| \`${k}\` | ${p.description} |\n`;
   }
 }
-md += '\nThe church organs (`synth.add(\'burea\')`, …) have four divisions with drawable stops, their models in packages of their own (`npm install @supersynth/organ-burea`) — see [organ.md](organ.md).\n';
+md += '\nThe church organs (`synth.add(\'burea\')`, …) have four divisions with drawable stops, and their models come in separate packages (`npm install @supersynth/organ-burea`); see [organ.md](organ.md).\n';
 writeFileSync('docs/instruments.md', md);
 
 let org = '';

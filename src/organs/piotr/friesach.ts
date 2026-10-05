@@ -94,18 +94,18 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbaß 16'", "Gedackt 8'"],
   },
   'flute-8': {
-    description: "Nachthorn Gedackt 8' — soft stopped flute",
+    description: "Nachthorn Gedackt 8', soft stopped flute",
     swell: ["Nachthorn Gedackt 8'"],
     pedal: ["Subbaß 16'"],
   },
   'flute-harmonique': {
-    description: "Jubalflöte 8' + Trichterflöte 4' — the Solowerk's big flutes, accompanied by the Schwellwerk",
+    description: "Jubalflöte 8' + Trichterflöte 4', the Solowerk's big flutes, accompanied by the Schwellwerk",
     positive: ["Jubalflöte 8'", "Trichterflöte 4'"],
     swell: ["Nachthorn Gedackt 8'", "Viola 8'"],
     pedal: ["Subbaß 16'", "Gedackt 8'"],
   },
   celeste: {
-    description: "Viola + Vox celeste 8' (from c) — the swell strings for Romantic music",
+    description: "Viola + Vox celeste 8' (from c), the swell strings for Romantic music",
     swell: ["Viola 8'", "Vox celeste 8'"],
     pedal: ["Subbaß 16'"],
   },
@@ -134,7 +134,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Subbaß 16'"],
   },
   chamade: {
-    description: "Trompete en chamade 8' — the horizontal trumpet in fanfare against the full Hauptwerk",
+    description: "Trompete en chamade 8', the horizontal trumpet in fanfare against the full Hauptwerk",
     positive: ["Trompete en chamade 8'"],
     great: ["Principal 8'", "Octave 4'", "Octave 2'", "Mixtur major 4-5f. 2 2/3'"],
     pedal: ["Contrabaß 16'", "Subbaß 16'", "Octavbaß 8'", "Posaune 16'"],

@@ -34,7 +34,7 @@ describe('background model loading', () => {
     expect(synth._modelBytes()).toBeGreaterThan(100e6);
     synth.close();
     expect(synth._loadedModels()).toEqual([]);
-  });
+  }, 30_000); // loads a whole organ: seconds on a busy or small machine
 
   test("preload 'preset' and false load only what is drawn; a stop drawn later loads then", async () => {
     for (const preload of ['preset', false] as const) {
@@ -71,7 +71,7 @@ describe('background model loading', () => {
     const loaded = render(false);
     expect(rms(late)).toBeGreaterThan(1e-3);
     expect(late).toEqual(loaded);
-  });
+  }, 30_000); // loads the full registration twice: seconds on a busy or small machine
 
   test('in real time too, the registration given to add() sounds as soon as add() returns', () => {
     const synth = new Synth({ sampleRate: 22050, reverb: false });

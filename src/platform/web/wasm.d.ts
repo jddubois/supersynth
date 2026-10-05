@@ -14,6 +14,13 @@ export class SynthEngine {
   readonly cpuLoad: number;
   readonly threads: number;
   readonly queueFree: number;
+  readonly peak: number;
+  readonly guardActive: boolean;
+  /** [active (0/1), voices shed, partials reduced] */
+  guardStats(): Float64Array;
+  setOverloadGuard(on: boolean): void;
+  setRealtimeEmulation(on: boolean): void;
+  checkOpen(): void;
   setRunning(running: boolean): void;
   loadModel(bytes: Uint8Array): number;
   queueModelBytes(name: string, bytes: Uint8Array): number;

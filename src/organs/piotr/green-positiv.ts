@@ -14,15 +14,15 @@ const STOPS: StopDefinition[] = [
 
 const PRESETS: Record<string, OrganPreset> = {
   'flute-8': {
-    description: "Flet kryty 8' alone — the soft stopped flute for continuo",
+    description: "Flet kryty 8' alone, the soft stopped flute for continuo",
     great: ["Flet kryty 8'"],
   },
   continuo: {
-    description: "Flet kryty 8' + 4' — continuo for a choir or an ensemble",
+    description: "Flet kryty 8' + 4', continuo for a choir or an ensemble",
     great: ["Flet kryty 8'", "Flet kryty 4'"],
   },
   'flute-2': {
-    description: "Flet kryty 8' with Pryncypał 2' — bright solo or continuo for a larger ensemble",
+    description: "Flet kryty 8' with Pryncypał 2', bright solo or continuo for a larger ensemble",
     great: ["Flet kryty 8'", "Pryncypał 2'"],
   },
   principal: {

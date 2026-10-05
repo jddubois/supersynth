@@ -95,6 +95,19 @@ describe('MIDI file parser', () => {
     ]);
   });
 
+  test('a zero-length note keeps its note-off after its note-on; a re-struck note is ended first', () => {
+    // tick 0: C4 on; tick 480: C4 on (re-struck, written before the note-off ending the first),
+    // C4 off, E4 on and off (zero length, as drum and notation exports write them)
+    const body = [0, 0x90, 60, 100, ...vlq(480), 0x90, 60, 90, 0, 0x80, 60, 0, 0, 0x90, 64, 80, 0, 0x80, 64, 0, ...vlq(480), 0x80, 60, 0, ...END_OF_TRACK];
+    const midi = parseMidiFile(smf([trackChunk(body)], { tracks: 1, format: 0 }));
+    expect(midi.events.map((e) => [e.type, 'note' in e ? e.note : 0, e.time])).toEqual([
+      ['noteOn', 60, 0], ['noteOff', 60, 0.5], ['noteOn', 60, 0.5], ['noteOn', 64, 0.5], ['noteOff', 64, 0.5], ['noteOff', 60, 1],
+    ]);
+    // a trailing tempo change is not part of the music
+    const tempoAfter = parseMidiFile(smf([trackChunk([0, 0x90, 60, 100, ...vlq(480), 0x80, 60, 0, ...tempo(480, 400000), ...END_OF_TRACK])], { tracks: 1, format: 0 }));
+    expect(tempoAfter.duration).toBeCloseTo(0.5);
+  });
+
   test('chunks that are not tracks are skipped', () => {
     const alien = [0x58, 0x58, 0x58, 0x58, ...u32(3), 1, 2, 3];
     const midi = parseMidiFile(smf([alien, trackChunk([0, 0x90, 60, 1, ...END_OF_TRACK])], { tracks: 1, format: 0 }));

@@ -1,11 +1,11 @@
 # The church organ
 
-`synth.add('burea')` adds a real church organ: the **Bureå Church organ** (Nils Hammarberg,
-1967, Sweden), every pipe of 40 stops analysed from Lars Palo's GrandOrgue sample set (CC BY-SA).
-Pipes keep their own tuning and voicing, stops keep their natural balance, and the pipes carry
-the church acoustic they were recorded in.
+`synth.add('burea')` adds a model of a real church organ: the Bureå Church organ in Sweden
+(Nils Hammarberg, 1967). Every pipe of its 40 stops is analysed from Lars Palo's GrandOrgue
+sample set (CC BY-SA). Each pipe keeps its recorded tuning and level, and the church's acoustic
+is part of the recordings.
 
-Each organ's models are an npm package of their own (only the VCSL organ ships with supersynth):
+Each organ comes as a separate npm package; only the VCSL organ is included with supersynth:
 
 ```bash
 npm install @supersynth/organ-burea        # the Bureå organ (71 MB)
@@ -13,7 +13,8 @@ npm install @supersynth/organ-friesach     # one of Piotr Grabowski's organs
 npm install @supersynth/organs             # every organ (about 900 MB)
 ```
 
-Adding an organ whose package is missing throws a `SupersynthError` naming the package to install.
+If an organ's package isn't installed, adding it throws a `SupersynthError` that names the
+package.
 
 ```ts
 const organ = synth.add('burea', { preset: 'plenum' });
@@ -33,7 +34,7 @@ organ.swell.unison(false);                      // unison off: only the octave c
 organ.pedal.uncouple('great');
 organ.swell.expression(0.5);                    // swell pedal
 organ.set({ tremulant: true });                 // every tremulant; or { swell: true }
-organ.set({ noises: true });                    // blower, room, key and stop action
+organ.set({ noises: true });                    // blower, room, key and stop action (organs that recorded them, see Noises)
 ```
 
 Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
@@ -50,39 +51,42 @@ Stops are named as on the stop knob (`"Trumpet 8'"`, case-insensitive) or by id
 | `forte(on)` | a harmonium's Forte: stops with a forte recording play it |
 | `set({ stops, couple, unison, forte })` | replace the stops drawn and/or the couplers as a whole (`[]` for none) |
 | `stops()`, `drawn()`, `coupled()`, `unisonOn()`, `forteIsOn()` | the division's stops, those drawn, its couplers |
+| `name` | `'great'`, `'swell'`, `'positive'` or `'pedal'` |
 
 | Organ | |
 |---|---|
 | `great`, `swell`, `positive`, `pedal`, `divisions()`, `division(name)` | the keyboards |
 | `preset(name \| preset)`, `presets()`, `savePreset(name, preset?)`, `current()`, `activePreset()` | presets, as on an instrument |
-| `set({ tremulant, wind, noises })` | the tremulants (`true`, or by division: `{ swell: true }`); how much the wind sags when many pipes start (0 steady – 1 flexible); the machinery noises |
+| `set({ tremulant, wind, noises })` | the tremulants (`true`, or by division: `{ swell: true }`); how much the wind sags when many pipes start (0 … 4: 0 steady, 1 flexible); the machinery noises |
 | `tremulants()`, `noisesOn()` | the tremulants and whether each is on; which noises are on (`{ blower, ambient, action }`) |
 | `midi(channels, { presets })` | play it from MIDI keyboards |
-| `allNotesOff()`, `stops()`, `definition` | |
+| `allNotesOff()`, `stops()`, `definition`, `synth` | |
 | `ready` | a promise: every model the organ loads in the background is loaded (see [Loading](#loading)) |
 
-Every change takes `{ at }` or `{ delay }` last, like a note, so registration changes can be
-scheduled with the music: `organ.preset('full', { at: 30 })`, `organ.swell.pull("Schalmei 8'", { at: 12.5 })`.
+Like notes, every change takes `{ at }` or `{ delay }` as its last argument, so you can
+schedule registration changes along with the music: `organ.preset('full', { at: 30 })`,
+`organ.swell.pull("Schalmei 8'", { at: 12.5 })`.
 
-Couplers live in the engine, so they act on every note: from the API, a MIDI keyboard or a MIDI
-file. A pipe reached from two keyboards (or, through an octave coupler, two keys) at once sounds
-once, until both keys are up. As on a real organ they are not transitive: with Swell to Great
-and Great to Pedal, the pedal plays the great's stops but not the swell's.
+Couplers are handled in the engine, so they apply to every note, whether it comes from the API,
+a MIDI keyboard or a MIDI file. If a pipe is reached from two keyboards at once (or from two
+keys through an octave coupler), it only sounds once, and keeps sounding until both keys are
+released. As on a real organ, couplers aren't transitive: with Swell to Great and Great to
+Pedal, the pedal plays the great's stops but not the swell's.
 
-Pipes speak as recorded: each key's pipes start after a short random delay (`speech`, up to
-10 ms, different for every pipe and note, as the tracker action and the pipe feet of a real
-organ make them), so unison stops beat and blend instead of starting in lockstep. Where a sample
-set recorded a pipe's release after short key presses too (most of Piotr Grabowski's do, after
-0.1–0.6 s), a staccato note ends with that release: the room has not filled yet and the pipe
-had not reached full speech.
+Each pipe starts with its recorded attack after a short random delay (`speech`, up to 10 ms,
+different for every pipe and note), much like the tracker action and pipe feet of a real organ.
+That way unison stops beat and blend instead of starting in lockstep. Most of Piotr Grabowski's
+sample sets also record each pipe's release after a short key press (0.1–0.6 s). Where they
+do, a staccato note ends with that shorter release, since the room hasn't filled yet and the
+pipe hasn't reached full speech.
 
 ## Loading
 
-An organ's stops are hundreds of megabytes of models once decoded, so `synth.add()` loads only
-what its starting preset needs before it returns (in parallel, on several cores): that preset
-sounds at once. Every other stop's model (and the Forte and noise models) then loads in the
-background, off the JavaScript thread, so drawing stops and changing presets later is instant
-and never stalls a key or a MIDI clock:
+Decoded, an organ's models take hundreds of megabytes, so `synth.add()` only loads what the
+starting preset needs before returning (in parallel, on several cores), and that preset plays
+right away. The models for the other stops, plus the Forte and noise models, then load in the
+background off the JavaScript thread. Drawing stops or changing presets later is instant and
+doesn't delay a key press or a MIDI clock:
 
 ```ts
 const organ = synth.add('friesach', { preset: 'plenum' });   // ~0.1 s; the plenum plays now
@@ -90,14 +94,15 @@ organ.great.play('C4');
 await organ.ready;               // optional: every stop is loaded (~0.5 s on a desktop)
 ```
 
-A stop drawn before its model has loaded never holds up playing. With real-time output running
-the call returns at once and the stop sounds as soon as its model has loaded (it is moved to the
-front: a few tens of milliseconds on a desktop); `drawn()` lists it meanwhile, and retiring it
-first means it never sounds. Offline, the call waits for that one model only (loaded on the spot
-if no background thread has started it), and `render()` waits for any stop drawn in real time
-that is still loading, so a render always contains exactly what was drawn.
+Drawing a stop whose model hasn't loaded yet doesn't hold up playback either. With real-time
+output running, the call returns immediately and the stop starts sounding once its model is
+loaded; it's moved to the front of the queue, so that takes a few tens of milliseconds on a
+desktop. In the meantime `drawn()` already lists it, and if you retire it before it loads, it
+never sounds. Offline, the call waits for just that one model, loading it right away if no
+background thread has picked it up yet. `render()` also waits for any stop drawn in real time
+that's still loading, so a render always contains exactly the stops that were drawn.
 
-The `preload` option of `synth.add()` chooses what loads in the background:
+The `preload` option of `synth.add()` controls what loads in the background:
 
 | `preload` | |
 |---|---|
@@ -106,14 +111,15 @@ The `preload` option of `synth.add()` chooses what loads in the background:
 | `false` | nothing in the background: each model, the preset's too, loads on the JavaScript thread when first needed |
 
 Decoded, the largest organs take about 430 MB (Friesach, 44 stops), 280 MB (Cracow, 40) and
-245 MB (Bureå, 40), about three times the size of their package; `npm run load-test` measures
-it. A model that fails to load in the background (a damaged file) rejects `organ.ready` with a
-`SupersynthError`, is emitted as the synth's `'error'` event when it has listeners, and drawing
-that stop throws the same error; the other stops play. Removing the organ (or `synth.close()`)
-stops its loading. Unloaded models are freed on a background thread once the engine has let
-go of them, never inside a render or the audio callback. The background threads are the CPU's cores less two (1–6), at a low
-priority so that they yield to the audio and JavaScript threads; `$SUPERSYNTH_LOAD_THREADS` sets
-their number.
+245 MB (Bureå, 40), about three times the size of the package; `npm run load-test` measures
+this. If a model fails to load in the background (a damaged file, say), `organ.ready` rejects
+with a `SupersynthError`, the synth emits it as an `'error'` event if anything is listening, and
+drawing that stop throws the same error. The other stops still play. Removing the organ, or
+calling `synth.close()`, stops the loading. Unloaded models are freed on a background thread
+once the engine is done with them, never during a render or in the audio callback. The number
+of background loading threads is the number of CPU cores minus two, between 1 and 6, and they
+run at low priority so the audio and JavaScript threads come first. Set
+`$SUPERSYNTH_LOAD_THREADS` to change it.
 
 ## Noises
 
@@ -123,32 +129,38 @@ organ.set({ noises: { blower: false, ambient: false } });   // the action only
 organ.set({ noises: false });
 ```
 
-The organs whose sample sets recorded their machinery play it with `noises: true`: the blower
-and the empty church while the organ is on, each key's action going down and coming up (on its
-own keyboard only, not through couplers), and the stop knobs, couplers and tremulants as they
-are drawn and retired. The noises are recorded with the pipes, at their real level (in some
-churches the blower and the room are louder than a key's click: `noises: { blower: false,
-ambient: false }` keeps only the action; `noises.gain` in a copied definition sets their level).
+For organs whose sample sets recorded the machinery, `noises: true` plays it: the blower and
+the empty church while the organ is on, the key action going down and coming up (only on the
+keyboard actually played, not through couplers), and the stop knobs, couplers and tremulants
+as they're drawn and retired. The noises were recorded along with the pipes and play at their
+real level. In some churches the blower and the room are louder than a key click;
+`noises: { blower: false, ambient: false }` keeps just the action, and `noises.gain` in a copied
+definition sets the overall level.
 
-**CPU.** Each pipe sounding is a voice, and a released pipe stays a voice while its recorded
-room tail dies away. Fast passages on large registrations of the big organs (Friesach,
-Cracow) hold hundreds of voices at once: render them offline, or raise `maxVoices` and expect
-to need a fast machine (not a Raspberry Pi) for live play. Short-press releases cost nothing
-extra (a staccato note plays a shorter recorded tail instead of the long one). Noises add two
-voices for the blower and the room and a short voice per key movement and stop change: leave
-them off where CPU is tight.
+### CPU
 
-**Live play.** The speech delay puts each pipe up to 10 ms after its key, as on a real organ:
-playing live on a slow machine with audio buffering on top, set `speech: 0` (a copied
-definition: `synth.add({ ...FRIESACH_ORGAN, speech: 0 })`) for the lowest latency and CPU (at
-present each delayed pipe start also splits the engine's audio block).
+Every sounding pipe is a voice, and a released pipe stays a voice until its recorded room tail
+has died away. Fast passages on large registrations of the big organs (Friesach, Cracow) keep
+hundreds of voices going at once. Render those offline, or raise `maxVoices` and use a fast
+machine (not a Raspberry Pi) for live playing. Short-press releases don't cost anything extra,
+since a staccato note just plays a shorter recorded tail. Noises add two voices for the blower
+and room, plus a short voice for each key movement and stop change, so leave them off when CPU
+is tight.
+
+### Live playing
+
+The speech delay puts each pipe up to 10 ms after its key, as on a real organ. If you're
+playing live on a slow machine with audio buffering on top of that, set `speech: 0` in a copied
+definition (`synth.add({ ...FRIESACH_ORGAN, speech: 0 })`) for the lowest latency and CPU use.
+Each delayed pipe start currently also splits the engine's audio block.
 
 ## Presets
 
-A preset (registration) is the stops of each division and the couplers (also: `unisonOff`, the
-keyboards whose unison is off; `tremulant`, the divisions whose tremulant is on, left as they are
-when absent; `forte`, a harmonium's divisions with the Forte on). Apply one by name or as an
-object; it replaces everything drawn, and divisions it leaves out fall silent:
+A preset (a registration) lists the stops drawn on each division and the couplers. It can
+also include `unisonOff` (keyboards with unison off), `tremulant` (divisions with the tremulant
+on; left unchanged if missing) and `forte` (a harmonium's divisions with the Forte on). Apply a
+preset by name or as an object. It replaces everything that's drawn, and divisions it doesn't
+mention go silent:
 
 ```ts
 organ.preset('celeste');
@@ -177,16 +189,17 @@ organ.midi();                                    // great 1, swell 2, positive 3
 organ.midi({ great: 1, swell: 2, pedal: 3 }, { presets: ['flutes', 'principal-chorus', 'plenum', 'full'] });
 ```
 
-Each division plays its MIDI channel straight in the engine (no JavaScript in the note path),
-couplers included; CC 11 on a division's channel is its swell pedal. Program change *n* on any of
-the organ's channels selects the *n*-th preset of `presets` (default: all presets, in the order
-of `organ.presets()`; `false` ignores program changes). The preset names are checked when
-`midi()` is called; a preset that cannot be applied when its program change arrives is emitted
-as the synth's `'error'` event if it has listeners, and ignored otherwise (it never throws out of
-the MIDI callback). Calling `midi()` again replaces the organ's channels. MIDI files play an organ with
-`synth.renderMidi(file, { channels: { 1: organ.great, 2: organ.pedal } })`.
+Each division's MIDI channel is played directly in the engine, couplers included, with no
+JavaScript in the note path. CC 11 on a division's channel works as its swell pedal. A program
+change on any of the organ's channels selects one of the `presets`: program 0 the first,
+1 the second, and so on. By default that's every preset, in the order of `organ.presets()`;
+pass `false` to ignore program changes. Preset names are checked when you call `midi()`. If a
+preset can't be applied when its program change arrives, the synth emits an `'error'` event
+when something is listening and otherwise ignores it; nothing is thrown from the MIDI callback.
+Calling `midi()` again replaces the organ's channels. To play a MIDI file on an organ, map
+channels to divisions: `synth.renderMidi(file, { channels: { 1: organ.great, 2: organ.pedal } })`.
 
-## A second organ: the VCSL church organ
+## The VCSL church organ
 
 ```ts
 const organ = synth.add('vcsl', { preset: 'full' });
@@ -195,10 +208,10 @@ organ.preset('chamber');                         // the Renaissance chamber orga
 organ.positive.play(['G4', 'B4', 'D5'], { duration: 3 });
 ```
 
-A church organ recorded in stereo with its room (Simon Dalzell / Ivy Audio, through the
-Versilian Community Sample Library, CC0), with a Renaissance chamber organ as positive. Its
-stops are recorded registrations rather than single ranks, and every third semitone is recorded
-(the notes between are morphed from their neighbours).
+This is a church organ recorded in stereo with its room (Simon Dalzell / Ivy Audio, via the
+Versilian Community Sample Library, CC0), with a Renaissance chamber organ as the positive. Its
+stops are recorded registrations rather than single ranks, and only every third semitone was
+recorded; the notes in between are blended from their neighbours.
 
 | Division | Stops |
 |---|---|
@@ -217,28 +230,30 @@ organ.great.play(['C4', 'E4', 'G4'], { duration: 4 });
 organ.preset('cornet');
 ```
 
-Fifteen more organs, every one Piotr Grabowski gives away free at
-[piotrgrabowski.pl](https://piotrgrabowski.pl/instruments/), each stop analysed from his sample
-set as his organ definition plays it: Friesach (Eisenbarth 2000, 44 stops), Cracow St. John
-Cantius (Siedlar 2004), Szczecinek (Voelkner 1908), Lipiny, Skrzatusz (Sauer 1876), Raszczyce
-(Vermeulen 1965), Długa Kościelna, Giubiasco and Azzio (Mascioni), Strassburg (Werner 1743),
-Melcer Chamber Music Hall (Walcker 1993), Saint-Jean-de-Luz (Gonzalez 1931), Lędziny, the Green
-Positiv and a two-manual Harmonium (Emil Müller). They keep their own pitch (Azzio sounds at
-a ≈ 420 Hz, the Green Positiv a semitone low), their borrowed and extended ranks, and the
-balance between their stops, their releases after short key presses, their swell boxes and
-tremulants as defined for GrandOrgue, and their recorded machinery noises. Each one's models are
-the package `@supersynth/organ-<id>` (`npm install @supersynth/organ-friesach`). Stops, presets,
-ids and package sizes of every organ:
-[piotr-organs.md](piotr-organs.md). These models are not covered by the MIT license — see
-NOTICE.md.
+There are fifteen more organs: all of the ones Piotr Grabowski gives away for free at
+[piotrgrabowski.pl](https://piotrgrabowski.pl/instruments/). Each stop is analysed from his
+sample set the way his organ definition plays it. They are Friesach (Eisenbarth 2000, 44 stops),
+Cracow St. John Cantius (Siedlar 2004), Szczecinek (Voelkner 1908), Lipiny, Skrzatusz (Sauer
+1876), Raszczyce (Vermeulen 1965), Długa Kościelna, Giubiasco and Azzio (Mascioni), Strassburg
+(Werner 1743), Melcer Chamber Music Hall (Walcker 1993), Saint-Jean-de-Luz (Gonzalez 1931),
+Lędziny, the Green Positiv, and a two-manual harmonium by Emil Müller.
+
+Each organ keeps its own pitch (Azzio sounds at a ≈ 420 Hz, the Green Positiv a semitone low),
+its borrowed and extended ranks, the balance between its stops, the releases recorded after
+short key presses, the swell boxes and tremulants from its GrandOrgue definition, and its
+recorded machinery noises. Each organ's models are in the package `@supersynth/organ-<id>`
+(`npm install @supersynth/organ-friesach`). [piotr-organs.md](piotr-organs.md) lists the stops,
+presets, ids and package sizes for each one. These models aren't covered by the MIT license;
+see NOTICE.md.
 
 ## Organs are configuration
 
-Each organ is a plain `OrganDefinition` object: its stops, named presets, the placement of its
-divisions (stereo position, which one stands in a swell box and how far it closes), its
-tremulants, wind, speech, noises and reverb.
-The built-in organs are `ORGANS.burea` (`BUREA_ORGAN`) and `ORGANS.vcsl` (`VCSL_ORGAN`), exported
-from `supersynth` and from `supersynth/organs`; `synth.add` takes an id or any `OrganDefinition`:
+Each organ is a plain `OrganDefinition` object describing its stops, named presets, the layout of
+its divisions (stereo position, which one has a swell box and how far it closes), tremulants,
+wind, speech, noises and reverb. The built-in organs are `ORGANS.burea` (`BUREA_ORGAN`),
+`ORGANS.vcsl` (`VCSL_ORGAN`) and Piotr Grabowski's organs (`ORGANS.friesach` /
+`FRIESACH_ORGAN` and so on, all collected in `PIOTR_ORGANS`). They're exported from both
+`supersynth` and `supersynth/organs`, and `synth.add` accepts an id or any `OrganDefinition`:
 
 ```ts
 import { BUREA_ORGAN, type OrganDefinition } from 'supersynth/organs';
@@ -272,18 +287,32 @@ const box: OrganDefinition = {
 };
 ```
 
-A stop plays the model `organ/<id>` (or its `model`), transposed by `transpose` semitones from
-the key, on the keys `keys: [low, high]` (default: all; e.g. a treble Cornet), and with the
-division's Forte on its `forte` model. A model `<name>` is the file `<name>.ssm`, looked up in the
-Synth's `modelsDirectory` (and `$SUPERSYNTH_MODELS_DIR`) first, then in supersynth's `models/`,
-then in the organ's package (`organ/friesach/…` in `@supersynth/organ-friesach`, `organ/…` in
-`@supersynth/organ-burea`); the same goes for the `forte` and noise models. A division's
-`swellBox` is `true` or `{ closed: -6, shelf: -9 }` (level and treble damping in dB with the
-shutters closed; the default box closes to −9 dB and −14 dB above ~700 Hz). `tremulant` is one
-tremulant or a list, each on a division or several (`{ division: ['great', 'pedal'], depth,
-pitch, rate }`). Optional fields default to `CHURCH_DIVISIONS` (great centre, swell right in its
-swell box, positive left, pedal centre), `SWELL_TREMULANT` and `ORGAN_DEFAULTS`. The rest of this page
-describes the Bureå organ.
+A stop plays the model `organ/<id>` (or the one named in `model`), transposed `transpose`
+semitones from the key pressed. It sounds on the keys in `keys: [low, high]` (all keys by
+default; a treble-only Cornet is one use), and plays its `forte` model when the division's Forte
+is on. A model called `<name>` is the file `<name>.ssm`. It's looked up first in the Synth's
+`modelsDirectory` (or `$SUPERSYNTH_MODELS_DIR`), then in supersynth's `models/`, then in the
+organ's package (`organ/friesach/…` in `@supersynth/organ-friesach`, `organ/…` in
+`@supersynth/organ-burea`). Forte and noise models are found the same way.
+
+A division's `swellBox` is either `true` or something like `{ closed: -6, shelf: -9 }`: the level
+and treble damping in dB with the shutters closed. The default box closes to −9 dB, and −14 dB
+above about 700 Hz. `tremulant` is a single tremulant or a list of them, each acting on one
+division or several (`{ division: ['great', 'pedal'], depth, pitch, rate }`). Optional fields
+fall back to `CHURCH_DIVISIONS` (great in the centre, swell on the right in its swell box,
+positive on the left, pedal in the centre), `SWELL_TREMULANT` and `ORGAN_DEFAULTS`.
+
+Each stop also has a `family` (`'principal'`, `'flute'`, …), an optional `gain` in dB for stops
+whose recordings were normalised separately, and an `actionNoise` pair `[on, off]` giving the
+notes of its drawing and retiring sounds in the stop-action model. Tremulants can have a `name`
+and `actionNoise` too. `noises` names the machinery models: `keys` (per division, `{ down, up }`
+models with a zone per key), `stops` (the stop-action model), `coupler` (its `[on, off]` notes
+in that model), `blower` and `ambient` (`{ model, note? }`), and `gain` in dB. `reverb` is the
+room the synth uses for the organ when the reverb is automatic (`'church'` by default), and
+`reverbSend` is each division's send into it (0.07 by default, because the pipes already carry
+their church's acoustic).
+
+The rest of this page covers the Bureå organ.
 
 ## Stops
 
@@ -351,15 +380,15 @@ describes the Bureå organ.
 
 | Name | Description |
 |---|---|
-| `principal` | Principal 8' alone — the foundation tone of the organ |
+| `principal` | Principal 8' alone, the foundation tone of the organ |
 | `principal-chorus` | Principal chorus 8' 4' 2' (Baroque plenum without mixture) |
 | `plenum` | Organo pleno for Bach preludes and fugues: principals and mixtures |
 | `full` | Full organ with reeds and all manuals coupled |
-| `flutes` | Flutes 8' + 4' — gentle, for chorale preludes |
-| `flute-8` | Gedackt 8' — soft stopped flute |
-| `cornet` | Cornet (8' 4' 2 2/3' 2' 1 3/5') — solo voice for ornamented melodies |
-| `trumpet` | Trumpet 8' with Principal — festive solo |
-| `krummhorn` | Krummhorn 8' — nasal Renaissance reed solo |
-| `celeste` | Salicional + Voix céleste — shimmering strings for romantic music |
+| `flutes` | Flutes 8' + 4', gentle, for chorale preludes |
+| `flute-8` | Gedackt 8', soft stopped flute |
+| `cornet` | Cornet (8' 4' 2 2/3' 2' 1 3/5'), solo voice for ornamented melodies |
+| `trumpet` | Trumpet 8' with Principal as a festive solo |
+| `krummhorn` | Krummhorn 8', nasal Renaissance reed solo |
+| `celeste` | Salicional + Voix céleste, shimmering strings for romantic music |
 | `quiet-strings` | Salicional 8' alone |
-| `sesquialtera-solo` | Sesquialtera solo with flutes — the classic Dutch/Scandinavian chorale cantus |
+| `sesquialtera-solo` | Sesquialtera solo with flutes, the classic Dutch/Scandinavian chorale cantus |

@@ -7,15 +7,16 @@ export const PIPE_ORGAN: InstrumentDefinition = {
   name: 'Pipe Organ (full)',
   family: 'organ',
   description: 'A church organ with a full registration, recorded in its building.',
-  layers: one('pipe-organ'),
-  range: [24, 96],
+  // the full-organ and pedal models are filed an octave below the pitch they sound (see vcsl.ts)
+  layers: [{ model: 'pipe-organ', transpose: -12 }],
+  range: [36, 96],
   reverb: 'church',
   presets: {
     default: { description: 'Full swell' },
     soft: { description: 'Soft flutes', layers: one('pipe-organ-soft') },
     'with-pedal': {
       description: 'Manual plus 16\' pedal below C3',
-      layers: [{ model: 'pipe-organ', keyLow: 48 }, { model: 'pipe-organ-pedal', keyHigh: 47 }],
+      layers: [{ model: 'pipe-organ', transpose: -12, keyLow: 48 }, { model: 'pipe-organ-pedal', transpose: -24, keyHigh: 47 }],
     },
     cathedral: { description: 'In a vast cathedral', parameters: { reverbSend: 0.3 }, reverb: 'cathedral' },
   },

@@ -8,7 +8,7 @@ export const TRUMPET: InstrumentDefinition = {
   family: 'brass',
   description: 'B♭ trumpet.',
   layers: one('trumpet'),
-  range: [52, 84],
+  range: [53, 84],
   reverb: 'hall',
   presets: {
     legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } },
@@ -28,7 +28,7 @@ export const FRENCH_HORN: InstrumentDefinition = {
   range: [34, 77],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' }, distant: { description: 'Distant, at the back of the hall', parameters: { reverbSend: 0.45, brightness: -1 } } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' }, distant: { description: 'Distant, at the back of the hall', parameters: { reverbSend: 0.45, brightness: -1 } } },
 };
 
 /** Trombone. */
@@ -38,10 +38,10 @@ export const TROMBONE: InstrumentDefinition = {
   family: 'brass',
   description: 'Tenor trombone.',
   layers: one('trombone'),
-  range: [28, 72],
+  range: [29, 70],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' } },
 };
 
 /** Tuba. */
@@ -51,10 +51,10 @@ export const TUBA: InstrumentDefinition = {
   family: 'brass',
   description: 'Tuba.',
   layers: one('tuba'),
-  range: [22, 60],
+  range: [24, 60],
   reverb: 'hall',
   presets: {
-    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'As recorded' } },
+    legato: { description: 'Slurred melody: notes connect without re-attacking', parameters: { legato: true, glide: 0.05 } }, default: { description: 'No adjustments' } },
 };
 
 /** Brass Section. */
@@ -69,7 +69,7 @@ export const BRASS: InstrumentDefinition = {
     { model: 'french-horn', keyLow: 48, keyHigh: 70, gain: -2 },
     { model: 'trumpet', keyLow: 58 },
   ],
-  range: [22, 84],
+  range: [24, 84],
   reverb: 'hall',
-  presets: { default: { description: 'As recorded' } },
+  presets: { default: { description: 'No adjustments' } },
 };

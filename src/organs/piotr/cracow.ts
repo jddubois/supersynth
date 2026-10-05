@@ -106,7 +106,7 @@ const PRESETS: Record<string, OrganPreset> = {
     pedal: ["Soubasse 16'"],
   },
   celeste: {
-    description: "Aeoline + Voix Céleste — the récit's undulating strings",
+    description: "Aeoline + Voix Céleste, the récit's undulating strings",
     swell: ["Aeoline 8'", "Voix Céleste 8'"],
     pedal: ["Soubasse 16'"],
   },

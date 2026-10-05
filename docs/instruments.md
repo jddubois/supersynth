@@ -12,17 +12,24 @@ import { GRAND_PIANO } from 'supersynth/instruments';
 synth.add({ ...GRAND_PIANO, id: 'dark-piano', parameters: { brightness: -1.5 } });
 ```
 
+An `InstrumentDefinition` has an `id`, `name`, `family` (`'keyboard'`, `'strings'`, …) and `description`;
+its `layers`, the models it plays; the `range` of keys `[low, high]` they cover; a suggested `reverb` room;
+`parameters` (see [parameters.md](parameters.md)) and its `presets` (`{ description, parameters, layers, reverb }`).
+A layer plays the model `models/<model>.ssm` with optional `transpose` (semitones), `gain` (dB), `pan`,
+`detune` (cents), `keyLow`/`keyHigh` (the keys it plays) and `trigger: 'release'` (it sounds at key-up:
+damper and jack noise).
+
 ## Keyboards
 
 ### `grand-piano` — Concert Grand Piano
 
-Steinway model B, three dynamic layers, with real hammer attacks, string stiffness, damper and sympathetic resonances.
+Steinway model B, three dynamic layers: recorded hammer attacks, string stiffness, the resonances in each recording, and a damper release.
 
 Config: `GRAND_PIANO`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 | `bright` | Harder hammers, pop/rock piano |
 | `mellow` | Soft hammers, warm and dark |
 | `felt` | Felt-muffled "una corda" intimate piano |
@@ -39,14 +46,14 @@ Config: `UPRIGHT_PIANO`. Suggested room: `room`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 | `vintage` | Older instrument: duller, slightly out of tune |
 | `honky-tonk` | Bar-room detuned upright |
 | `dry` | Close-miked, almost no room |
 
 ### `harpsichord` — Harpsichord
 
-French double-manual harpsichord, plucked attack transients from the real instrument.
+French double-manual harpsichord, with the recorded pluck of each note.
 
 Config: `HARPSICHORD`. Suggested room: `chamber`.
 
@@ -90,13 +97,13 @@ Config: `CHAMBER_ORGAN`. Suggested room: `chamber`.
 
 ### `harp` — Concert Harp
 
-Pedal harp with real pluck transients; notes ring until they decay.
+Pedal harp with the recorded pluck of each note; notes ring until they decay.
 
 Config: `HARP`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 | `warm` | Plucked closer to the middle of the string |
 | `pres-de-la-table` | Plucked near the soundboard: metallic, guitar-like |
 | `hall` | In a concert hall |
@@ -109,7 +116,7 @@ Config: `VIOLIN_PIZZICATO`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 | `dry` | Close-miked, almost no room |
 
 ### `cello-pizzicato` — Cello Section Pizzicato
@@ -120,18 +127,18 @@ Config: `CELLO_PIZZICATO`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 | `dry` | Close-miked, almost no room |
 
 ### `contrabass-pizzicato` — Contrabass Pizzicato
 
-Plucked double bass — also a lovely jazz walking bass.
+Plucked double bass.
 
 Config: `CONTRABASS_PIZZICATO`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 | `jazz` | Dry jazz-club bass |
 
 ### `violin` — Solo Violin
@@ -143,7 +150,7 @@ Config: `VIOLIN`. Suggested room: `hall`.
 | Preset | Description |
 |---|---|
 | `legato` | Slurred melody: notes connect without re-attacking |
-| `default` | As recorded |
+| `default` | No adjustments |
 | `senza-vibrato` | Straight tone, no vibrato (baroque style) |
 | `expressive` | Wider romantic vibrato |
 | `intimate` | Close and dry |
@@ -157,7 +164,7 @@ Config: `VIOLINS`. Suggested room: `hall`.
 | Preset | Description |
 |---|---|
 | `legato` | Slurred melody: notes connect without re-attacking |
-| `default` | As recorded |
+| `default` | No adjustments |
 | `lush` | Bigger, wider section |
 | `soft` | Gentle, slow bow attack |
 
@@ -170,7 +177,7 @@ Config: `VIOLAS`. Suggested room: `hall`.
 | Preset | Description |
 |---|---|
 | `legato` | Slurred melody: notes connect without re-attacking |
-| `default` | As recorded |
+| `default` | No adjustments |
 | `soft` | Slow bow attack |
 
 ### `cellos` — Cello Section
@@ -182,7 +189,7 @@ Config: `CELLOS`. Suggested room: `hall`.
 | Preset | Description |
 |---|---|
 | `legato` | Slurred melody: notes connect without re-attacking |
-| `default` | As recorded |
+| `default` | No adjustments |
 | `soft` | Slow bow attack |
 
 ### `contrabass` — Contrabass
@@ -194,7 +201,7 @@ Config: `CONTRABASS`. Suggested room: `hall`.
 | Preset | Description |
 |---|---|
 | `legato` | Slurred melody: notes connect without re-attacking |
-| `default` | As recorded |
+| `default` | No adjustments |
 
 ### `strings` — String Orchestra
 
@@ -222,7 +229,7 @@ Config: `FLUTE`. Suggested room: `hall`.
 | `default` | Straight tone |
 | `vibrato` | With natural flute vibrato |
 | `breathy` | More air in the tone |
-| `piccolo` | Piccolo |
+| `piccolo` | Piccolo (flute below its range) |
 
 ### `oboe` — Oboe
 
@@ -233,7 +240,7 @@ Config: `OBOE`. Suggested room: `hall`.
 | Preset | Description |
 |---|---|
 | `legato` | Slurred melody: notes connect without re-attacking |
-| `default` | As recorded |
+| `default` | No adjustments |
 | `vibrato` | Light vibrato |
 
 ### `clarinet` — Clarinet
@@ -245,7 +252,7 @@ Config: `CLARINET`. Suggested room: `hall`.
 | Preset | Description |
 |---|---|
 | `legato` | Slurred melody: notes connect without re-attacking |
-| `default` | As recorded |
+| `default` | No adjustments |
 | `dark` | Dark, covered tone |
 
 ### `bassoon` — Bassoon
@@ -257,7 +264,7 @@ Config: `BASSOON`. Suggested room: `hall`.
 | Preset | Description |
 |---|---|
 | `legato` | Slurred melody: notes connect without re-attacking |
-| `default` | As recorded |
+| `default` | No adjustments |
 
 ### `tenor-sax` — Tenor Saxophone
 
@@ -296,7 +303,7 @@ Config: `FRENCH_HORN`. Suggested room: `hall`.
 | Preset | Description |
 |---|---|
 | `legato` | Slurred melody: notes connect without re-attacking |
-| `default` | As recorded |
+| `default` | No adjustments |
 | `distant` | Distant, at the back of the hall |
 
 ### `trombone` — Trombone
@@ -308,7 +315,7 @@ Config: `TROMBONE`. Suggested room: `hall`.
 | Preset | Description |
 |---|---|
 | `legato` | Slurred melody: notes connect without re-attacking |
-| `default` | As recorded |
+| `default` | No adjustments |
 
 ### `tuba` — Tuba
 
@@ -319,7 +326,7 @@ Config: `TUBA`. Suggested room: `hall`.
 | Preset | Description |
 |---|---|
 | `legato` | Slurred melody: notes connect without re-attacking |
-| `default` | As recorded |
+| `default` | No adjustments |
 
 ### `brass` — Brass Section
 
@@ -329,7 +336,7 @@ Config: `BRASS`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 
 ## Mallets & bells
 
@@ -341,7 +348,7 @@ Config: `MARIMBA`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 | `soft` | Yarn mallets |
 
 ### `vibraphone` — Vibraphone
@@ -352,7 +359,7 @@ Config: `VIBRAPHONE`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 | `let-ring` | Pedal down: notes ring |
 | `motor` | Motor on: the classic vibraphone pulse |
 
@@ -364,7 +371,7 @@ Config: `XYLOPHONE`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 
 ### `glockenspiel` — Glockenspiel
 
@@ -374,7 +381,7 @@ Config: `GLOCKENSPIEL`. Suggested room: `hall`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 
 ### `tubular-bells` — Tubular Bells
 
@@ -384,6 +391,6 @@ Config: `TUBULAR_BELLS`. Suggested room: `church`.
 
 | Preset | Description |
 |---|---|
-| `default` | As recorded |
+| `default` | No adjustments |
 
-The church organs (`synth.add('burea')`, …) have four divisions with drawable stops, their models in packages of their own (`npm install @supersynth/organ-burea`) — see [organ.md](organ.md).
+The church organs (`synth.add('burea')`, …) have four divisions with drawable stops, and their models come in separate packages (`npm install @supersynth/organ-burea`); see [organ.md](organ.md).

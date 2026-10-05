@@ -118,7 +118,10 @@ maybe('WebAssembly engine', () => {
   test('engine errors become SupersynthErrors', () => {
     const s = wasmSynth();
     expect(() => s._native().noteOn(0, 200, 100)).toThrow(SupersynthError);
-    expect(() => s.set({ reverb: 'no-such-room' as never })).toThrow(/unknown reverb preset/);
+    expect(() => s._native().setReverbPreset('no-such-room')).toThrow(/unknown reverb preset/);
+    const engine = s._native();
     s.close();
+    // a closed synth's engine takes no more commands, as natively
+    expect(() => engine.noteOn(0, 60, 100)).toThrow(/released/);
   });
 });

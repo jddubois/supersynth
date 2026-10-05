@@ -101,4 +101,12 @@ describe('WAV encoding', () => {
   test('an unknown bit depth throws', () => {
     expect(() => encodeWav(audio([0]), { bitDepth: 8 as never })).toThrow(SupersynthError);
   });
+
+  test('audio too long for a WAV file, and a bad sample rate, are refused', () => {
+    const huge = { length: 2 ** 30 } as unknown as Float32Array; // 4 GiB as 16-bit stereo
+    expect(() => encodeWav({ sampleRate: 48000, left: huge, right: huge, duration: 0 })).toThrow(/too long/);
+    const one = new Float32Array(1);
+    expect(() => encodeWav({ sampleRate: 0, left: one, right: one, duration: 0 })).toThrow(/sampleRate/);
+    expect(() => encodeWav({ sampleRate: 44100.5, left: one, right: one, duration: 0 })).toThrow(/sampleRate/);
+  });
 });

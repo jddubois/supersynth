@@ -29,9 +29,18 @@ export interface NativeEngine {
   readonly currentTime: number;
   readonly activeVoices: number;
   readonly cpuLoad: number;
+  /** Peak output level of the last buffers (0–1), in steps of 0.001. */
+  readonly peak: number;
   /** Threads rendering audio, the audio thread included. */
   readonly threads: number;
   readonly isRunning: boolean;
+  /** The overload guard is shedding load now. */
+  readonly guardActive: boolean;
+  readonly guardStats: { active: boolean; voicesShed: number; partialsReduced: number };
+  /** Opt-in overload guard (armed only while rendering in real time). */
+  setOverloadGuard(on: boolean): void;
+  /** Treat `render()` calls as real-time buffers (benchmarks, tests). */
+  setRealtimeEmulation(on: boolean): void;
   readonly queueFree: number;
   /** The audio thread hit an internal error and now outputs silence. */
   readonly faulted: boolean;
@@ -77,7 +86,7 @@ export interface NativeEngine {
   disableMidi(): void;
   /** Resolves once the engine's threads run (a browser's Web Workers start asynchronously). */
   ready?(): Promise<void>;
-  /** Stop and let go of every instrument and model now (the engine stays usable, empty). */
+  /** Stop and let go of every instrument and model now; the engine cannot be used afterwards. */
   releaseResources(): void;
 }
 

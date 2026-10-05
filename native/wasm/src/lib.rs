@@ -92,8 +92,37 @@ impl SynthEngine {
     }
 
     #[wasm_bindgen(getter)]
+    pub fn peak(&self) -> f64 {
+        self.host.peak()
+    }
+
+    #[wasm_bindgen(getter)]
     pub fn threads(&self) -> u32 {
         self.host.threads()
+    }
+
+    /// Opt-in overload guard (armed only while rendering in real time). In a browser it follows
+    /// the load the AudioWorklet reports (every 64 buffers).
+    #[wasm_bindgen(js_name = setOverloadGuard)]
+    pub fn set_overload_guard(&mut self, on: bool) {
+        self.host.set_overload_guard(on);
+    }
+
+    #[wasm_bindgen(js_name = setRealtimeEmulation)]
+    pub fn set_realtime_emulation(&mut self, on: bool) {
+        self.host.set_realtime_emulation(on);
+    }
+
+    #[wasm_bindgen(getter, js_name = guardActive)]
+    pub fn guard_active(&self) -> bool {
+        self.host.guard_active()
+    }
+
+    /// What the overload guard has done so far: `[active (0/1), voices shed, partials reduced]`.
+    #[wasm_bindgen(js_name = guardStats)]
+    pub fn guard_stats(&self) -> Vec<f64> {
+        let s = self.host.guard_stats();
+        vec![s.active as u8 as f64, s.voices_shed as f64, s.partials_reduced as f64]
     }
 
     #[wasm_bindgen(getter, js_name = queueFree)]
@@ -106,6 +135,12 @@ impl SynthEngine {
     #[wasm_bindgen(js_name = setRunning)]
     pub fn set_running(&self, running: bool) {
         self.host.set_running(running);
+    }
+
+    /// Fails once `releaseResources` was called (no more output either).
+    #[wasm_bindgen(js_name = checkOpen)]
+    pub fn check_open(&self) -> Result<(), JsError> {
+        self.host.check_open().map_err(js)
     }
 
     // ── models ──────────────────────────────────────────────────────────────

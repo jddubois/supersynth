@@ -5,7 +5,7 @@ This package only depends on the organ model packages; each carries its own lice
 - `@supersynth/organ-burea` — the Bureå Church organ, an adaptation of Lars Palo's sample set,
   **CC BY-SA 2.5 SE** (attribution: Lars Palo).
 - `@supersynth/organ-<id>` for `azzio`, `cracow`, `dluga-koscielna`, `friesach`, `giubiasco`, `green-positiv`, `harmonium`, `ledziny`, `lipiny`, `melcer`, `raszczyce`, `saint-jean-de-luz`, `skrzatusz`, `strassburg`, `szczecinek` — Piotr Grabowski's free
-  sample sets (https://piotrgrabowski.pl). Not covered by supersynth's MIT license:
+  sample sets (https://piotrgrabowski.pl).
 
 These models are **not** covered by supersynth's MIT license. The sample set's terms
 (https://piotrgrabowski.pl, Terms and Conditions → Licence) do not allow free sample sets, as a

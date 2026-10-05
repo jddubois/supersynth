@@ -159,6 +159,28 @@ export class WasmEngine implements NativeEngine {
     return this.e.threads;
   }
 
+  get peak(): number {
+    return this.e.peak;
+  }
+
+  /** (In a browser the guard follows the load the AudioWorklet reports, every 64 buffers.) */
+  setOverloadGuard(on: boolean): void {
+    this.e.setOverloadGuard(on);
+  }
+
+  setRealtimeEmulation(on: boolean): void {
+    this.e.setRealtimeEmulation(on);
+  }
+
+  get guardActive(): boolean {
+    return this.e.guardActive;
+  }
+
+  get guardStats(): { active: boolean; voicesShed: number; partialsReduced: number } {
+    const [active, voicesShed, partialsReduced] = this.e.guardStats();
+    return { active: active === 1, voicesShed: voicesShed!, partialsReduced: partialsReduced! };
+  }
+
   get isRunning(): boolean {
     return this.node !== undefined;
   }
@@ -310,6 +332,7 @@ export class WasmEngine implements NativeEngine {
    *  to play audio, after a user gesture). */
   async start(): Promise<void> {
     if (this.node || !shared) return;
+    this.e.checkOpen();
     const sampleRate = this.e.sampleRate;
     this.ctx ??= new AudioContext({ sampleRate, latencyHint: this.bufferSize ? this.bufferSize / sampleRate : 'interactive' });
     const ctx = this.ctx;

@@ -82,6 +82,7 @@ nothing else to configure.
 | MIDI input | hardware devices (`midir`) | Web MIDI; `listMidiDevices()` lists the inputs once `enableMidi()` has been granted access |
 | files | `renderToFile()`, `renderMidi(path)` | none: `encodeWav(audio)` makes a WAV file's bytes, `renderMidi(bytes)` |
 | `encodeWav()`, MIDI event `raw` | Buffer | Uint8Array |
+| `overloadGuard` | follows the render time of every buffer | follows the load the AudioWorklet reports every 64 buffers (about 170 ms), so it reacts more slowly |
 | `backend` | the audio API | ignored |
 | `bufferSize` | the device's buffer | the AudioContext's latency hint |
 
