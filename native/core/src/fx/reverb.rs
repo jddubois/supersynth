@@ -124,13 +124,19 @@ impl Default for ReverbParams {
 impl ReverbParams {
     /// Named presets: "room", "studio", "chamber", "hall", "concert-hall",
     /// "church", "cathedral", "plate". Case-insensitive; `_` and spaces are
-    /// accepted in place of `-`.
+    /// accepted in place of `-`. Does not allocate (`sanitized` calls it on
+    /// the audio thread).
     pub fn preset(name: &str) -> Option<ReverbParams> {
-        let key: String = name
-            .trim()
-            .chars()
-            .map(|c| if c == '_' || c == ' ' { '-' } else { c.to_ascii_lowercase() })
-            .collect();
+        let name = name.trim().as_bytes();
+        let mut buf = [0u8; 16];
+        if name.len() > buf.len() {
+            return None;
+        }
+        for (b, &c) in buf.iter_mut().zip(name) {
+            *b = if c == b'_' || c == b' ' { b'-' } else { c.to_ascii_lowercase() };
+        }
+        // Only ASCII bytes were changed, so this is still valid UTF-8.
+        let key = std::str::from_utf8(&buf[..name.len()]).ok()?;
         #[allow(clippy::too_many_arguments)]
         let p = |decay, low_mult, high_mult, size, predelay_ms, diffusion, early, width, low_cut_hz, high_cut_hz, modulation| {
             Some(ReverbParams {
@@ -147,7 +153,7 @@ impl ReverbParams {
                 modulation,
             })
         };
-        match key.as_str() {
+        match key {
             //               decay  lowx  highx size  pre   diff  early width lcut   hcut     mod
             "room" => p(0.6, 1.10, 0.55, 0.20, 3.0, 0.70, 0.60, 0.80, 80.0, 9000.0, 0.15),
             "studio" => p(0.9, 1.00, 0.60, 0.32, 8.0, 0.70, 0.50, 0.90, 90.0, 10000.0, 0.20),
