@@ -52,6 +52,20 @@ pub struct InstLayer {
     pub on_release: bool,
 }
 
+impl InstLayer {
+    /// Replace non-finite placement values by defaults and clamp them to sane ranges.
+    fn sanitize(&mut self) {
+        let fin = |x: f32, lo: f32, hi: f32| if x.is_finite() { x.clamp(lo, hi) } else { 0.0 };
+        self.transpose = fin(self.transpose, -96.0, 96.0);
+        self.gain_db = fin(self.gain_db, -120.0, 48.0);
+        self.pan = fin(self.pan, -1.0, 1.0);
+        self.detune_cents = fin(self.detune_cents, -1200.0, 1200.0);
+    }
+}
+
+/// Most layers one part's instrument can hold (layers added beyond it are ignored).
+pub const MAX_LAYERS: usize = 256;
+
 #[derive(Clone)]
 pub struct Instrument {
     pub layers: Vec<InstLayer>,
@@ -91,9 +105,13 @@ pub enum Command {
     PitchBend { part: u16, value: f32 },
     SetPartParam { part: u16, param: PartParam, value: f32 },
     SetMasterParam { param: MasterParam, value: f32 },
-    SetInstrument { part: u16, instrument: Box<Instrument> },
-    /// Append a layer to a part's instrument without interrupting sounding notes.
-    AddLayer { part: u16, layer: Box<InstLayer> },
+    /// Replace a part's instrument. `noise` is the part's noise bank for the instrument's band
+    /// layout, built by [`Controller::send`] off the audio thread (use [`Command::set_instrument`]).
+    SetInstrument { part: u16, instrument: Box<Instrument>, noise: Option<Box<NoiseBank>> },
+    /// Append a layer to a part's instrument without interrupting sounding notes. `spare` (an
+    /// empty instrument with room for [`MAX_LAYERS`] layers) and `noise` are built by
+    /// [`Controller::send`] so that the audio thread never allocates (use [`Command::add_layer`]).
+    AddLayer { part: u16, layer: Box<InstLayer>, spare: Option<Box<Instrument>>, noise: Option<Box<NoiseBank>> },
     SetLayerEnabled { part: u16, layer: u16, enabled: bool },
     SetLayerGain { part: u16, layer: u16, gain_db: f32 },
     /// Organ couplers: keys pressed on `part` also play every part in the bit mask
@@ -101,6 +119,21 @@ pub enum Command {
     SetCouplers { part: u16, targets: u32 },
     AllNotesOff { part: Option<u16> },
     AllSoundOff,
+}
+
+impl Command {
+    pub fn set_instrument(part: u16, instrument: Instrument) -> Command {
+        Command::SetInstrument { part, instrument: Box::new(instrument), noise: None }
+    }
+
+    pub fn add_layer(part: u16, layer: InstLayer) -> Command {
+        Command::AddLayer { part, layer: Box::new(layer), spare: None, noise: None }
+    }
+}
+
+/// Seed of a part's noise bank.
+fn noise_seed(part: u16) -> u64 {
+    0xB00 + part as u64
 }
 
 pub struct Event {
@@ -134,9 +167,21 @@ impl Ord for Pending {
 }
 
 /// Things the audio thread hands back for deallocation on the API thread.
+#[allow(dead_code)] // only ever dropped
 pub enum Garbage {
-    Instrument(#[allow(dead_code)] Box<Instrument>),
-    Layer(#[allow(dead_code)] Box<InstLayer>),
+    Instrument(Box<Instrument>),
+    Layer(Box<InstLayer>),
+    /// A voice's model reference: possibly the last one of a replaced or unloaded model.
+    Model(Arc<Model>),
+    Noise(Box<NoiseBank>),
+}
+
+const GARBAGE_CAPACITY: usize = 4096;
+
+/// Hand `g` to the API thread for deallocation. Only if the ring is full (nothing collected
+/// it for thousands of items) is it dropped here.
+fn trash(q: &mut rtrb::Producer<Garbage>, g: Garbage) {
+    let _ = q.push(g);
 }
 
 /// Shared, lock-free status published by the engine.
@@ -155,12 +200,47 @@ pub struct Controller {
     garbage: rtrb::Consumer<Garbage>,
     pub status: Arc<Status>,
     pub sample_rate: f32,
+    /// Parts (bit mask) a noise bank has been sent to.
+    noise_sent: u32,
 }
 
 impl Controller {
-    pub fn send(&mut self, time: u64, cmd: Command) -> Result<(), String> {
+    pub fn send(&mut self, time: u64, mut cmd: Command) -> Result<(), String> {
         self.collect_garbage();
-        self.tx.push(Event { time, cmd }).map_err(|_| "supersynth command queue is full".to_string())
+        self.prepare(&mut cmd);
+        let bank_for = match &cmd {
+            Command::SetInstrument { part, noise: Some(_), .. } | Command::AddLayer { part, noise: Some(_), .. } => Some(*part),
+            _ => None,
+        };
+        self.tx.push(Event { time, cmd }).map_err(|_| "supersynth command queue is full".to_string())?;
+        if let Some(p) = bank_for.filter(|&p| (p as usize) < MAX_PARTS) {
+            self.noise_sent |= 1 << p;
+        }
+        Ok(())
+    }
+
+    /// Build what a command needs on the audio thread (noise banks, room for layers) here, on
+    /// the calling thread: the audio thread must not allocate.
+    fn prepare(&self, cmd: &mut Command) {
+        let sr = self.sample_rate;
+        let bank = |edges: &[f32], part: u16| (edges.len() >= 2).then(|| Box::new(NoiseBank::new(sr, edges, noise_seed(part))));
+        match cmd {
+            Command::SetInstrument { part, instrument, noise } if noise.is_none() => {
+                *noise = instrument.layers.first().and_then(|l| bank(&l.model.noise_edges, *part));
+            }
+            Command::AddLayer { part, layer, spare, noise } => {
+                if spare.is_none() {
+                    *spare = Some(Box::new(Instrument { layers: Vec::with_capacity(MAX_LAYERS) }));
+                }
+                // a part keeps the noise bank it has, so only its first one is ever used
+                // (building one takes about a millisecond)
+                let has_bank = (*part as usize) < MAX_PARTS && self.noise_sent & (1 << *part) != 0;
+                if noise.is_none() && !has_bank {
+                    *noise = bank(&layer.model.noise_edges, *part);
+                }
+            }
+            _ => {}
+        }
     }
 
     pub fn collect_garbage(&mut self) {
@@ -217,7 +297,7 @@ struct Part {
     drive_on: bool,
     leslie: Leslie,
     leslie_on: bool,
-    noise: Option<NoiseBank>,
+    noise: Option<Box<NoiseBank>>,
     mono: bool,
     legato: bool,
     glide: f32,
@@ -347,7 +427,7 @@ pub struct Engine {
 impl Engine {
     pub fn new(cfg: EngineConfig) -> (Engine, Controller) {
         let (tx, rx) = rtrb::RingBuffer::new(QUEUE_CAPACITY);
-        let (gtx, grx) = rtrb::RingBuffer::new(1024);
+        let (gtx, grx) = rtrb::RingBuffer::new(GARBAGE_CAPACITY);
         let status = Arc::new(Status::default());
         let sr = cfg.sample_rate;
         let mut parts = Vec::with_capacity(MAX_PARTS);
@@ -386,7 +466,7 @@ impl Engine {
             mix_l: Box::new([0.0; BLOCK]),
             mix_r: Box::new([0.0; BLOCK]),
         };
-        let ctl = Controller { tx, garbage: grx, status, sample_rate: sr };
+        let ctl = Controller { tx, garbage: grx, status, sample_rate: sr, noise_sent: 0 };
         (engine, ctl)
     }
 
@@ -456,6 +536,7 @@ impl Engine {
             self.now += n as u64;
             i += n;
         }
+        self.reclaim_models();
         self.publish(start.elapsed().as_secs_f32(), frames);
     }
 
@@ -504,10 +585,14 @@ impl Engine {
             }
             Command::SetPartParam { part, param, value } => self.set_part_param(part as usize, param, value),
             Command::SetMasterParam { param, value } => self.set_master_param(param, value),
-            Command::SetInstrument { part, instrument } => {
+            Command::SetInstrument { part, mut instrument, noise } => {
                 let pi = part as usize;
+                let q = &mut self.garbage;
                 if pi >= self.parts.len() {
-                    let _ = self.garbage.push(Garbage::Instrument(instrument));
+                    trash(q, Garbage::Instrument(instrument));
+                    if let Some(nb) = noise {
+                        trash(q, Garbage::Noise(nb));
+                    }
                     return;
                 }
                 for v in self.voices.iter_mut() {
@@ -515,40 +600,89 @@ impl Engine {
                         v.kill();
                     }
                 }
-                let edges: Option<Vec<f32>> = instrument.layers.first().map(|l| l.model.noise_edges.clone());
-                let p = &mut self.parts[pi];
-                if let Some(old) = p.inst.replace(instrument) {
-                    let _ = self.garbage.push(Garbage::Instrument(old));
+                for l in instrument.layers.iter_mut() {
+                    l.sanitize();
                 }
-                // Noise bank: rebuild only if band layout changed. Building it allocates,
-                // which is acceptable on instrument change (rare, not per note).
-                if let Some(e) = edges {
-                    let rebuild = p.noise.as_ref().map(|nb| nb.edges() != e.as_slice()).unwrap_or(true);
-                    if rebuild && e.len() >= 2 {
-                        p.noise = Some(NoiseBank::new(self.sr, &e, 0xB00 + pi as u64));
+                let p = &mut self.parts[pi];
+                // Noise bank: keep the current one if the band layout is unchanged (its noise
+                // continues), else switch to the one built with the command.
+                if let Some(nb) = noise {
+                    let same = match (&p.noise, instrument.layers.first()) {
+                        (Some(cur), Some(l)) => cur.edges() == l.model.noise_edges.as_slice(),
+                        _ => false,
+                    };
+                    if same {
+                        trash(q, Garbage::Noise(nb));
+                    } else if let Some(old) = p.noise.replace(nb) {
+                        trash(q, Garbage::Noise(old));
                     }
                 }
+                if let Some(old) = p.inst.replace(instrument) {
+                    trash(q, Garbage::Instrument(old));
+                }
             }
-            Command::AddLayer { part, layer } => {
+            Command::AddLayer { part, layer, spare, noise } => {
                 let pi = part as usize;
-                if pi >= self.parts.len() {
-                    let _ = self.garbage.push(Garbage::Layer(layer));
+                let q = &mut self.garbage;
+                let Some(p) = self.parts.get_mut(pi) else {
+                    trash(q, Garbage::Layer(layer));
+                    if let Some(s) = spare {
+                        trash(q, Garbage::Instrument(s));
+                    }
+                    if let Some(nb) = noise {
+                        trash(q, Garbage::Noise(nb));
+                    }
                     return;
-                }
+                };
                 let enabled = layer.enabled;
-                let edges = layer.model.noise_edges.clone();
-                let p = &mut self.parts[pi];
-                let inst = p.inst.get_or_insert_with(|| Box::new(Instrument::default()));
-                // Vec growth may allocate; layers are added rarely (stop changes), and
-                // `Instrument` reserves capacity up front so this normally does not.
-                let mut l = *layer;
+                // the layer is copied in (cloning bumps the model's reference count) and its
+                // box freed on the API thread
+                let mut l = InstLayer::clone(&layer);
+                trash(q, Garbage::Layer(layer));
+                l.sanitize();
                 l.enabled = false;
-                inst.layers.push(l);
-                let li = inst.layers.len() - 1;
-                if p.noise.is_none() && edges.len() >= 2 {
-                    p.noise = Some(NoiseBank::new(self.sr, &edges, 0xB00 + pi as u64));
+                let mut spare = spare;
+                let added = match p.inst.as_mut() {
+                    Some(inst) if inst.layers.len() < inst.layers.capacity() => {
+                        inst.layers.push(l);
+                        true
+                    }
+                    // full: move the layers into the spare instrument (preallocated by the
+                    // controller), so that pushing never reallocates here
+                    Some(inst) => match spare.take() {
+                        Some(mut s) if s.layers.is_empty() && s.layers.capacity() > inst.layers.len() => {
+                            s.layers.append(&mut inst.layers);
+                            s.layers.push(l);
+                            trash(q, Garbage::Instrument(std::mem::replace(inst, s)));
+                            true
+                        }
+                        other => {
+                            spare = other;
+                            false
+                        }
+                    },
+                    None => match spare.take() {
+                        Some(mut s) if s.layers.is_empty() && s.layers.capacity() > 0 => {
+                            s.layers.push(l);
+                            p.inst = Some(s);
+                            true
+                        }
+                        other => {
+                            spare = other;
+                            false
+                        }
+                    },
+                };
+                if let Some(s) = spare {
+                    trash(q, Garbage::Instrument(s));
                 }
-                if enabled {
+                match noise {
+                    Some(nb) if added && p.noise.is_none() => p.noise = Some(nb),
+                    Some(nb) => trash(q, Garbage::Noise(nb)),
+                    None => {}
+                }
+                if added && enabled {
+                    let li = p.inst.as_ref().map(|i| i.layers.len() - 1).unwrap_or(0);
                     self.set_layer_enabled(pi, li, true);
                 }
             }
@@ -556,7 +690,9 @@ impl Engine {
             Command::SetLayerGain { part, layer, gain_db } => {
                 if let Some(inst) = self.parts.get_mut(part as usize).and_then(|p| p.inst.as_mut()) {
                     if let Some(l) = inst.layers.get_mut(layer as usize) {
-                        l.gain_db = gain_db;
+                        if gain_db.is_finite() {
+                            l.gain_db = gain_db.clamp(-120.0, 48.0);
+                        }
                     }
                 }
             }
@@ -742,6 +878,7 @@ impl Engine {
         self.age += 1;
         let age = self.age;
         let sr = self.sr;
+        self.retire_model(slot, &model);
         let v = &mut self.voices[slot];
         v.start(NoteOn { model: &model, note, velocity, pitch, pan, params: &sp, sample_rate: sr, rng: &mut self.rng });
         v.part = pi;
@@ -761,10 +898,36 @@ impl Engine {
             (Arc::clone(&layer.model), pitch, (p.pan + layer.pan).clamp(-1.0, 1.0), sp, p.glide)
         };
         let sr = self.sr;
+        self.retire_model(slot, &model);
         let v = &mut self.voices[slot];
         v.legato(NoteOn { model: &model, note, velocity, pitch, pan, params: &sp, sample_rate: sr, rng: &mut self.rng }, glide);
         v.part = pi;
         v.layer_id = li as u32;
+    }
+
+    /// Before voice `slot` starts playing `next`: hand its previous model reference (if it is
+    /// another model, possibly its last reference) to the API thread for dropping.
+    fn retire_model(&mut self, slot: usize, next: &Arc<Model>) {
+        if let Some(old) = self.voices[slot].take_model() {
+            if Arc::ptr_eq(&old, next) {
+                // `next` still holds the model: this only decrements the count
+                drop(old);
+            } else {
+                trash(&mut self.garbage, Garbage::Model(old));
+            }
+        }
+    }
+
+    /// Finished voices give up their model references (through the garbage ring, as long as
+    /// it has room; otherwise they keep them until a later block).
+    fn reclaim_models(&mut self) {
+        for v in self.voices.iter_mut() {
+            if !v.is_active() && v.has_model() && self.garbage.slots() > 0 {
+                if let Some(m) = v.take_model() {
+                    trash(&mut self.garbage, Garbage::Model(m));
+                }
+            }
+        }
     }
 
     fn alloc_voice(&mut self) -> usize {
@@ -864,12 +1027,12 @@ impl Engine {
         layer.enabled = enabled;
         if enabled {
             // start this layer for notes currently sounding (held or held by pedal)
-            let sounding: Vec<(u8, u8)> = (0..128u8)
-                .filter(|&n| p.held[n as usize] || p.pedal_hold[n as usize])
-                .map(|n| (n, p.last_velocity[n as usize].max(1)))
-                .collect();
-            for (n, vel) in sounding {
-                self.start_layer_voice(pi, li, n, vel);
+            for n in 0..128u8 {
+                let p = &self.parts[pi];
+                if p.held[n as usize] || p.pedal_hold[n as usize] {
+                    let vel = p.last_velocity[n as usize].max(1);
+                    self.start_layer_voice(pi, li, n, vel);
+                }
             }
         } else {
             for v in self.voices.iter_mut() {
@@ -1186,6 +1349,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::testing;
 
     fn model(name: &str) -> Option<Arc<Model>> {
         let path = format!("{}/../../models/{name}.ssm", env!("CARGO_MANIFEST_DIR"));
@@ -1195,7 +1359,7 @@ mod tests {
     fn engine_with(name: &str) -> Option<(Engine, Controller)> {
         let m = model(name)?;
         let (eng, mut ctl) = Engine::new(EngineConfig::default());
-        ctl.send(0, Command::SetInstrument { part: 0, instrument: Box::new(Instrument::single(m)) }).unwrap();
+        ctl.send(0, Command::set_instrument(0, Instrument::single(m))).unwrap();
         Some((eng, ctl))
     }
 
@@ -1255,11 +1419,11 @@ mod tests {
     fn layers_can_be_added_while_notes_sound() {
         let (Some(a), Some(b)) = (model("organ/great-principal-8"), model("organ/great-octave-4")) else { return };
         let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
-        ctl.send(0, Command::SetInstrument { part: 0, instrument: Box::new(Instrument::single(a)) }).unwrap();
+        ctl.send(0, Command::set_instrument(0, Instrument::single(a))).unwrap();
         ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
         render(&mut eng, 24000);
         let layer = InstLayer { model: b, transpose: 12.0, gain_db: 0.0, pan: 0.0, key_lo: 0, key_hi: 127, enabled: true, detune_cents: 0.0, on_release: false };
-        ctl.send(0, Command::AddLayer { part: 0, layer: Box::new(layer) }).unwrap();
+        ctl.send(0, Command::add_layer(0, layer)).unwrap();
         render(&mut eng, 4800);
         assert_eq!(eng.active_voices(), 2);
     }
@@ -1288,8 +1452,8 @@ mod tests {
     fn two_divisions() -> Option<(Engine, Controller)> {
         let (a, b) = (model("organ/great-principal-8")?, model("organ/swell-rohrflute-8")?);
         let (eng, mut ctl) = Engine::new(EngineConfig::default());
-        ctl.send(0, Command::SetInstrument { part: 0, instrument: Box::new(Instrument::single(a)) }).unwrap();
-        ctl.send(0, Command::SetInstrument { part: 1, instrument: Box::new(Instrument::single(b)) }).unwrap();
+        ctl.send(0, Command::set_instrument(0, Instrument::single(a))).unwrap();
+        ctl.send(0, Command::set_instrument(1, Instrument::single(b))).unwrap();
         Some((eng, ctl))
     }
 
@@ -1337,5 +1501,42 @@ mod tests {
         ctl.send(0, Command::SetCouplers { part: 0, targets: 0 }).unwrap();
         render(&mut eng, 4800);
         assert_eq!((speaking(&eng, 0), speaking(&eng, 1)), (2, 0));
+    }
+
+    fn test_layer(model: Arc<Model>) -> InstLayer {
+        InstLayer { model, transpose: 0.0, gain_db: 0.0, pan: 0.0, key_lo: 0, key_hi: 127, enabled: true, detune_cents: 0.0, on_release: false }
+    }
+
+    #[test]
+    fn replaced_models_are_freed_by_the_api_thread() {
+        let m = testing::model();
+        let weak = Arc::downgrade(&m);
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, Instrument::single(m))).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!(eng.active_voices(), 1);
+        ctl.send(0, Command::set_instrument(0, Instrument::default())).unwrap();
+        // the old instrument and, once its fade ends, the voice's reference wait in the ring
+        render(&mut eng, 4800);
+        assert_eq!(eng.active_voices(), 0);
+        assert!(weak.upgrade().is_some(), "the audio thread must not drop the last reference");
+        ctl.collect_garbage();
+        assert!(weak.upgrade().is_none(), "the model is freed once the API thread collects");
+    }
+
+    #[test]
+    fn layers_beyond_the_reserved_room_are_added() {
+        let m = testing::model();
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        for _ in 0..100 {
+            ctl.send(0, Command::add_layer(3, InstLayer { enabled: false, ..test_layer(m.clone()) })).unwrap();
+        }
+        ctl.send(0, Command::SetLayerEnabled { part: 3, layer: 99, enabled: true }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 3, note: 60, velocity: 100 }).unwrap();
+        render(&mut eng, 480);
+        assert_eq!(eng.parts[3].inst.as_ref().map(|i| i.layers.len()), Some(100));
+        assert_eq!(eng.active_voices(), 1);
+        assert!(eng.parts[3].noise.is_some());
     }
 }

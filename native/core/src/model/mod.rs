@@ -921,6 +921,10 @@ pub(crate) mod testing {
     pub fn bytes() -> Vec<u8> {
         bytes_with(|_| {})
     }
+
+    pub fn model() -> std::sync::Arc<super::Model> {
+        std::sync::Arc::new(super::Model::from_bytes(&bytes()).expect("test model parses"))
+    }
 }
 
 #[cfg(test)]

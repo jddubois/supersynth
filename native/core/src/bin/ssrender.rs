@@ -69,7 +69,7 @@ fn main() {
         .and_then(ReverbParams::preset)
         .unwrap_or_else(|| ReverbParams::preset("hall").unwrap());
     let (mut eng, mut ctl) = Engine::new(EngineConfig { sample_rate: sr, max_voices: 256, reverb: rp });
-    ctl.send(0, Command::SetInstrument { part: 0, instrument: Box::new(Instrument::single(model)) }).unwrap();
+    ctl.send(0, Command::set_instrument(0, Instrument::single(model))).unwrap();
     ctl.send(0, Command::SetMasterParam { param: MasterParam::Volume, value: 0.0 }).unwrap();
     if reverb.as_deref().map(|r| r == "off").unwrap_or(true) {
         ctl.send(0, Command::SetPartParam { part: 0, param: PartParam::ReverbSend, value: 0.0 }).unwrap();

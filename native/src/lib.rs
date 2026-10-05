@@ -219,7 +219,7 @@ impl SynthEngine {
                 on_release: l.on_release.unwrap_or(false),
             });
         }
-        self.shared.send(time, Command::SetInstrument { part: part as u16, instrument: Box::new(inst) })
+        self.shared.send(time, Command::set_instrument(part as u16, inst))
     }
 
     #[napi]
@@ -303,7 +303,7 @@ impl SynthEngine {
             detune_cents: layer.detune_cents.unwrap_or(0.0) as f32,
             on_release: layer.on_release.unwrap_or(false),
         };
-        self.shared.send(time, Command::AddLayer { part: part as u16, layer: Box::new(l) })
+        self.shared.send(time, Command::add_layer(part as u16, l))
     }
 
     #[napi]

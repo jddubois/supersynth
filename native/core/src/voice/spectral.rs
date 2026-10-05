@@ -836,7 +836,10 @@ impl SpectralVoice {
         self.im[..n].copy_from_slice(&im[..n]);
         self.gl[..n].copy_from_slice(&gl[..n]);
         self.gr[..n].copy_from_slice(&gr[..n]);
-        let m = Arc::clone(self.model.as_ref().unwrap());
+        let Some(m) = self.model.clone() else { return };
+        if self.state != State::Playing {
+            return;
+        }
         for j in 0..self.nz {
             let z = &m.zones[self.zone[j]];
             self.pos[j] = match z.loop_range {
