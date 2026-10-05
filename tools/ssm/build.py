@@ -3,6 +3,14 @@
 Usage:
   python build.py <instrument-id> [<instrument-id> ...]     # ids from instruments.py
   python build.py --all
+  options: --out DIR     write <DIR>/<name>.ssm instead of the committed location (= SSM_OUT_DIR)
+           --force       let experiment flags (below) overwrite committed models (= SSM_FORCE=1)
+
+Experiment flags (environment) change what a model contains: SSM_OVERRIDES (JSON spec
+overrides), SSM_ONLY (regex: analyse only matching recordings), SSM_NO_WEAK, SSM_MONO_NOISE,
+SSM_OLD_RELEASE (analysis.py). With any of them set, a build refuses to write into the committed
+model locations unless given an output directory or --force, and the model header records them
+under build.flags.
 """
 from __future__ import annotations
 
@@ -13,17 +21,26 @@ import math
 import os
 import re
 import struct
-import sys
 from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
 from analysis import NOISE_EDGES, Zone, analyze_zone, hz_to_midi, note_name_to_midi
-from paths import DATA_ROOT, existing_model_path, model_path
+from paths import DATA_ROOT, existing_model_path, is_committed_location, model_path
 
 DATA = os.path.join(DATA_ROOT, 'samples')
 # explicit output directory (flat <dir>/<name>.ssm); None = the committed locations (paths.model_path)
 OUT_DIR = os.environ.get('SSM_OUT_DIR') or None
+# experiment flags may overwrite committed models
+FORCE = os.environ.get('SSM_FORCE') == '1'
+
+# environment switches that change a model's content (read here and in analysis.py)
+EXPERIMENT_FLAGS = ('SSM_OVERRIDES', 'SSM_ONLY', 'SSM_NO_WEAK', 'SSM_MONO_NOISE', 'SSM_OLD_RELEASE')
+
+
+def experiment_flags() -> dict[str, str]:
+    """The experiment flags set in the environment (name → value)."""
+    return {k: os.environ[k] for k in EXPERIMENT_FLAGS if os.environ.get(k)}
 
 
 def q_db(db: np.ndarray) -> np.ndarray:
@@ -237,8 +254,15 @@ def collect(spec: dict) -> list[tuple[str, int, str]]:
     return out
 
 
-def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), out_dir: str | None = None) -> str:
+def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), out_dir: str | None = None,
+          force: bool | None = None) -> str:
     out_dir = out_dir or OUT_DIR
+    flags = experiment_flags()
+    if flags and not (FORCE if force is None else force) and (out_dir is None or is_committed_location(out_dir)):
+        # e.g. SSM_ONLY=… would replace a committed model with a partial one
+        raise SystemExit(f'{inst_id}: experiment flags set ({", ".join(sorted(flags))}): refusing to write '
+                         f'{model_path(inst_id, out_dir)}. Give an output directory (--out DIR or SSM_OUT_DIR) '
+                         f'or --force (SSM_FORCE=1).')
     if os.environ.get('SSM_OVERRIDES'):
         # experiments: e.g. SSM_OVERRIDES='{"phase_smooth_s": 0.1}'
         spec = {**spec, **json.loads(os.environ['SSM_OVERRIDES'])}
@@ -342,6 +366,8 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), 
     }
     if spec.get('stop'):
         header['stop'] = spec['stop']
+    # how this model was built: experiment flags in effect (empty for a release build)
+    header['build'] = {'flags': flags}
     path = model_path(inst_id, out_dir)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     size = write_model(path, header, zones)
@@ -354,10 +380,29 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), 
     return path
 
 
-if __name__ == '__main__':
+def main():
+    import argparse
+    global OUT_DIR, FORCE
     from instruments import INSTRUMENTS
-    ids = sys.argv[1:]
-    if ids == ['--all']:
-        ids = list(INSTRUMENTS)
+    ap = argparse.ArgumentParser(description='Build .ssm models from recordings.')
+    ap.add_argument('ids', nargs='*', help='instrument ids (instruments.py)')
+    ap.add_argument('--all', action='store_true', help='every instrument')
+    ap.add_argument('--out', default=None, help='output directory (flat <DIR>/<name>.ssm); default: committed locations')
+    ap.add_argument('--force', action='store_true', help='let experiment flags overwrite committed models')
+    a = ap.parse_args()
+    if a.out:
+        OUT_DIR = a.out
+    if a.force:
+        FORCE = True
+    ids = list(INSTRUMENTS) if a.all else a.ids
+    if not ids:
+        ap.error('no instrument ids given')
+    unknown = [i for i in ids if i not in INSTRUMENTS]
+    if unknown:
+        ap.error(f'unknown instrument ids: {", ".join(unknown)}')
     for i in ids:
         build(i, INSTRUMENTS[i])
+
+
+if __name__ == '__main__':
+    main()

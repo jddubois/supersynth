@@ -703,6 +703,8 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                 amps_c = steady_smooth(amps_c, centers / sr, wm, steady_smooth_s, 'mag')
             mono_s = amps_c
         resid = x - _resynth(len(x), centers, mono_s, psi, ratios)
+        # (SSM_NO_WEAK, SSM_MONO_NOISE, SSM_OLD_RELEASE: experiment flags, see build.EXPERIMENT_FLAGS;
+        # recorded in the model header)
         if kind == 'sustained' and not os.environ.get('SSM_NO_WEAK'):
             # Harmonics no stronger than the noise inside their own analysis bandwidth are
             # noise, not partials (a flue pipe's upper harmonics under its wind noise): played

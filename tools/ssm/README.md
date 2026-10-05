@@ -28,3 +28,11 @@ to its committed file through `paths.model_path(name)`:
 With an explicit output directory (`SSM_OUT_DIR`, or `build.py --out DIR`) models are written
 flat to `<DIR>/<name>.ssm` instead — the layout the engine's `modelsDirectory` option reads, as
 used by the `.ts` render helpers here.
+
+## Experiment flags
+
+`SSM_OVERRIDES` (JSON spec overrides), `SSM_ONLY` (regex: only matching recordings),
+`SSM_NO_WEAK`, `SSM_MONO_NOISE` and `SSM_OLD_RELEASE` change what a model contains. With any of
+them set, `build.py` refuses to write into the committed model locations unless it has an
+output directory (`--out DIR` / `SSM_OUT_DIR`) or `--force` (`SSM_FORCE=1`); the model header
+records the active flags under `build.flags`.
