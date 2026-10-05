@@ -77,11 +77,6 @@ impl ParamRamp {
     }
 
     #[inline(always)]
-    pub(crate) fn target(&self) -> f32 {
-        self.target
-    }
-
-    #[inline(always)]
     pub(crate) fn is_moving(&self) -> bool {
         self.left > 0
     }

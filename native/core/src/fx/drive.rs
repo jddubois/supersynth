@@ -19,7 +19,7 @@
 //! single centre tap, so each stage costs about (taps/2) MACs per input sample.
 
 use super::eq::{SmoothStereoBiquad, COEFF_RAMP_S};
-use super::StereoEffect;
+use super::{ParamRamp, StereoEffect, PARAM_RAMP_S};
 use crate::dsp::biquad::Coeffs;
 use std::f64::consts::PI;
 
@@ -198,12 +198,9 @@ pub struct Drive {
     tone: SmoothStereoBiquad,
     ramp: u32,
     dc_r: f32,
-    drive: f32,
-    bias: f32,
-    level: f32,
-    t_drive: f32,
-    t_bias: f32,
-    t_level: f32,
+    drive: ParamRamp,
+    bias: ParamRamp,
+    level: ParamRamp,
     tone_hz: f32,
 }
 
@@ -217,18 +214,15 @@ impl Drive {
             ramp: ((COEFF_RAMP_S * sample_rate) as u32).max(1),
             // DC blocker corner ~10 Hz.
             dc_r: (-2.0 * std::f32::consts::PI * 10.0 / sample_rate).exp(),
-            drive: 1.0,
-            bias: 0.0,
-            level: 1.0,
-            t_drive: 1.0,
-            t_bias: 0.0,
-            t_level: 1.0,
+            drive: ParamRamp::with_time(1.0, PARAM_RAMP_S, sample_rate),
+            bias: ParamRamp::with_time(0.0, PARAM_RAMP_S, sample_rate),
+            level: ParamRamp::with_time(1.0, PARAM_RAMP_S, sample_rate),
             tone_hz: 0.0,
         };
         d.set_params(3.0, 0.15, 6000.0, 0.5);
-        d.drive = d.t_drive;
-        d.bias = d.t_bias;
-        d.level = d.t_level;
+        d.drive.snap();
+        d.bias.snap();
+        d.level.snap();
         let (c, en) = d.tone_coeffs(d.tone_hz);
         d.tone.snap(c, en);
         d
@@ -244,9 +238,9 @@ impl Drive {
     /// `level` output gain (linear). All changes are smoothed.
     pub fn set_params(&mut self, drive: f32, bias: f32, tone_hz: f32, level: f32) {
         let fin = |x: f32, d: f32| if x.is_finite() { x } else { d };
-        self.t_drive = fin(drive, 1.0).clamp(1.0, 20.0);
-        self.t_bias = fin(bias, 0.0).clamp(0.0, 0.5);
-        self.t_level = fin(level, 1.0).clamp(0.0, 4.0);
+        self.drive.set(fin(drive, 1.0).clamp(1.0, 20.0));
+        self.bias.set(fin(bias, 0.0).clamp(0.0, 0.5));
+        self.level.set(fin(level, 1.0).clamp(0.0, 4.0));
         let hz = fin(tone_hz, 20000.0).max(MIN_TONE_HZ);
         if hz != self.tone_hz {
             self.tone_hz = hz;
@@ -262,15 +256,13 @@ impl StereoEffect for Drive {
         if n == 0 {
             return;
         }
-        let inv = 1.0 / n as f32;
-        let dd = (self.t_drive - self.drive) * inv;
-        let db = (self.t_bias - self.bias) * inv;
+        // Both channels run the same ramps from the same start.
+        let (drive0, bias0) = (self.drive, self.bias);
         for (ci, buf) in [&mut *left, &mut *right].into_iter().enumerate() {
             let ch = &mut self.ch[ci];
-            let (mut drive, mut bias) = (self.drive, self.bias);
+            let (mut dr, mut bi) = (drive0, bias0);
             for x in buf[..n].iter_mut() {
-                drive += dd;
-                bias += db;
+                let (drive, bias) = (dr.next(), bi.next());
                 let off = sat(bias);
                 let (a, b) = ch.s1.up(*x * drive);
                 let (a0, a1) = ch.s2.up(a);
@@ -279,20 +271,19 @@ impl StereoEffect for Drive {
                 let yb = ch.s2.down(sat(b0 + bias) - off, sat(b1 + bias) - off);
                 *x = ch.s1.down(ya, yb);
             }
+            (self.drive, self.bias) = (dr, bi);
         }
-        self.drive = self.t_drive;
-        self.bias = self.t_bias;
 
         self.tone.process(&mut left[..n], &mut right[..n]);
 
-        let dl = (self.t_level - self.level) * inv;
         let r = self.dc_r;
+        let level0 = self.level;
         for (ci, buf) in [&mut *left, &mut *right].into_iter().enumerate() {
             let ch = &mut self.ch[ci];
-            let mut level = self.level;
+            let mut lv = level0;
             let (mut x1, mut y1) = (ch.dc_x1, ch.dc_y1);
             for x in buf[..n].iter_mut() {
-                level += dl;
+                let level = lv.next();
                 let y = *x - x1 + r * y1;
                 x1 = *x;
                 y1 = y;
@@ -300,8 +291,8 @@ impl StereoEffect for Drive {
             }
             ch.dc_x1 = x1;
             ch.dc_y1 = if y1.abs() < 1e-20 { 0.0 } else { y1 };
+            self.level = lv;
         }
-        self.level = self.t_level;
     }
 
     fn reset(&mut self) {
@@ -376,6 +367,33 @@ mod tests {
             }
         }
         (harm, other)
+    }
+
+    /// A level change right before a 1-frame block (the engine splits blocks
+    /// at events) must still be ramped, not applied as a step: compare with
+    /// an identical drive that keeps the old level.
+    #[test]
+    fn level_change_in_one_frame_block_is_ramped() {
+        let sr = 48000.0;
+        let x: Vec<f32> = (0..9700).map(|i| (2.0 * std::f32::consts::PI * 200.0 * i as f32 / sr).sin() * 0.5).collect();
+        let mut out = Vec::new();
+        for change in [false, true] {
+            let mut d = Drive::new(sr);
+            d.set_params(3.0, 0.1, 20000.0, 0.25);
+            let (mut l, mut r) = (x.clone(), x.clone());
+            d.process(&mut l[..9600], &mut r[..9600]);
+            if change {
+                d.set_params(3.0, 0.1, 20000.0, 2.0);
+            }
+            d.process(&mut l[9600..9601], &mut r[9600..9601]);
+            d.process(&mut l[9601..], &mut r[9601..]);
+            out.push(l);
+        }
+        let jump = out[1][9600] / out[0][9600];
+        let after_2ms = out[1][9696] / out[0][9696];
+        println!("drive level 0.25 -> 2 in a 1-frame block: gain x{jump:.3} on that frame, x{after_2ms:.3} 2 ms later");
+        assert!((jump - 1.0).abs() < 0.02, "level jumped x{jump}");
+        assert!(after_2ms > 1.5 && after_2ms < 3.0);
     }
 
     #[test]
