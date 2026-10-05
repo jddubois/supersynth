@@ -292,6 +292,17 @@ def retune(x: np.ndarray, cents: float) -> np.ndarray:
     return y[:n] if len(y) >= n else np.pad(y, ((0, n - len(y)), (0, 0)))
 
 
+def extend_loop(att: np.ndarray, a: int, b: int, need: int) -> np.ndarray:
+    """`att` played through its sustain loop until at least `need` frames long. A WAV smpl loop's
+    start and end frames are both part of the loop (the end is inclusive): the loop is
+    att[a:b + 1], and after frame b playback continues at frame a."""
+    if len(att) >= need:
+        return att
+    period = b + 1 - a
+    reps = int(math.ceil((need - (b + 1)) / period)) + 1
+    return np.concatenate([att[:b + 1]] + [att[a:b + 1]] * reps)
+
+
 def render_pipe(p: Pipe, hold_s: float = 3.4) -> tuple[np.ndarray, int, int]:
     """One pipe: (stereo signal, sample rate, key-up frame)."""
     att, sr = _read(p.attack)
@@ -311,9 +322,7 @@ def render_pipe(p: Pipe, hold_s: float = 3.4) -> tuple[np.ndarray, int, int]:
             # a short recording: play its loop, as the sampler does, until the key-up is reached
             a, b = loops[0]
             need = int(max(hold_s * sr, min(a, 2.5 * sr) + 1.8 * sr) + 0.1 * sr)
-            if len(att) < need:
-                reps = int(math.ceil((need - b) / (b - a))) + 1
-                att = np.concatenate([att[:b]] + [att[a:b]] * reps)
+            att = extend_loop(att, a, b, need)
         # key-up well into the sustain: at least `hold_s`, 1.8 s past the loop start (a loop
         # starting later than 2.5 s counts as 2.5 s: the model loops within the first ~2 s of
         # steady sound and drops the rest of the sustain before the release)
@@ -331,17 +340,26 @@ def render_pipe(p: Pipe, hold_s: float = 3.4) -> tuple[np.ndarray, int, int]:
 
 def render_key(pipes: list[Pipe]) -> tuple[np.ndarray, int, int]:
     """All pipes of one key of a stop, summed, released together (the first pipe's key-up)."""
-    parts = [render_pipe(p) for p in pipes]
+    return mix_key([render_pipe(p) for p in pipes])
+
+
+def mix_key(parts: list[tuple[np.ndarray, int, int]]) -> tuple[np.ndarray, int, int]:
+    """Sum rendered pipes (signal, rate, key-up frame) with their key-ups at the same instant,
+    at the first pipe's sample rate. Pipes recorded at another rate are resampled first, and
+    their key-up frame converted, so offsets and lengths are all in the output rate."""
     sr = parts[0][1]
     if len(parts) == 1:
         return parts[0]
-    # align every pipe's key-up to the same instant
-    up = max(u for _, _, u in parts)
-    n = max(up - u + len(y) for y, _, u in parts)
-    acc = np.zeros((n, 2))
+    conv = []
     for y, s, u in parts:
         if s != sr:
             y = signal.resample_poly(y, sr, s, axis=0)
+            u = int(round(u * sr / s))
+        conv.append((y, u))
+    up = max(u for _, u in conv)
+    n = max(up - u + len(y) for y, u in conv)
+    acc = np.zeros((n, 2))
+    for y, u in conv:
         o = up - u
         acc[o:o + len(y)] += y
     return acc, sr, up
