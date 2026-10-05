@@ -9,6 +9,7 @@
 //! audio thread never frees memory.
 
 pub mod params;
+pub mod pool;
 
 use std::collections::BinaryHeap;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -26,8 +27,9 @@ use crate::fx::reverb::{Reverb, ReverbParams};
 use crate::fx::StereoEffect;
 use crate::model::Model;
 use crate::voice::noisebank::NoiseBank;
-use crate::voice::spectral::{BlockMod, NoteOn, SpectralParams, SpectralVoice, MAX_BANDS};
+use crate::voice::spectral::{BlockMod, NoteOn, SpectralParams, SpectralVoice, VoiceScratch, MAX_BANDS};
 use params::{MasterParam, PartParam};
+use pool::Pool;
 
 pub const MAX_PARTS: usize = 32;
 /// Most events waiting to be applied at once.
@@ -503,16 +505,30 @@ pub struct EngineConfig {
     pub sample_rate: f32,
     pub max_voices: usize,
     pub reverb: ReverbParams,
+    /// Threads rendering (the rendering thread included): 1 renders on the calling thread
+    /// alone. The output is identical for any number.
+    pub threads: usize,
 }
+
+/// Default for [`EngineConfig::max_voices`].
+pub const DEFAULT_MAX_VOICES: usize = 192;
 
 impl Default for EngineConfig {
     fn default() -> Self {
         Self {
             sample_rate: 48000.0,
-            max_voices: 192,
+            max_voices: DEFAULT_MAX_VOICES,
             reverb: ReverbParams::preset("hall").expect("hall preset"),
+            threads: 1,
         }
     }
+}
+
+/// Threads to render with by default: one per core but one (left to the system and the
+/// application), at least 1 and at most 8.
+pub fn default_threads() -> usize {
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    cores.saturating_sub(1).clamp(1, 8)
 }
 
 pub struct Engine {
@@ -545,12 +561,37 @@ pub struct Engine {
     return_smoothed: f32,
     peak: f32,
     // scratch
-    part_l: Box<[f32; BLOCK]>,
-    part_r: Box<[f32; BLOCK]>,
     send_l: Box<[f32; BLOCK]>,
     send_r: Box<[f32; BLOCK]>,
     mix_l: Box<[f32; BLOCK]>,
     mix_r: Box<[f32; BLOCK]>,
+    /// the rendering threads, and each one's voice scratch memory
+    pool: Pool,
+    scratch: Vec<Box<VoiceScratch>>,
+    /// per voice slot: its output in the current block, and where in the block it starts
+    /// (a pipe whose speech delay ends inside the block)
+    vbuf: Vec<[[f32; BLOCK]; 2]>,
+    voff: Vec<u8>,
+    /// per voice slot: its recorded attack transient in the current block, if it played (kept
+    /// apart so that the part adds transient and partials in the same order as one voice
+    /// rendering into the part directly)
+    vtr: Vec<[[f32; BLOCK]; 2]>,
+    vtr_on: Vec<bool>,
+    /// offset given to voices started now (see `render_planar`)
+    start_offset: usize,
+    /// split blocks at engine-scheduled starts too, as earlier versions did (for comparisons:
+    /// `SUPERSYNTH_SPLIT_STARTS=1`)
+    split_starts: bool,
+    /// active voices grouped by part, and each part's range of them (see `collect_voices`)
+    order: Vec<u32>,
+    part_range: [(u32, u32); MAX_PARTS],
+    /// parts rendering this block, their block parameters, output (left, right, send left,
+    /// send right) and non-finite flag
+    active_parts: Vec<u8>,
+    part_sp: [SpectralParams; MAX_PARTS],
+    part_md: [BlockMod; MAX_PARTS],
+    pout: Vec<[[f32; BLOCK]; 4]>,
+    recover: Vec<bool>,
 }
 
 impl Engine {
@@ -563,10 +604,14 @@ impl Engine {
         for _ in 0..MAX_PARTS {
             parts.push(Part::new(sr));
         }
-        let mut voices = Vec::with_capacity(cfg.max_voices + 32);
-        for _ in 0..cfg.max_voices + 32 {
+        crate::dsp::simd::init();
+        let slots = cfg.max_voices + 32;
+        let mut voices = Vec::with_capacity(slots);
+        for _ in 0..slots {
             voices.push(SpectralVoice::default());
         }
+        let pool = Pool::new(cfg.threads);
+        let scratch = (0..pool.threads()).map(|_| VoiceScratch::boxed()).collect();
         let mut limiter = Limiter::new(sr);
         limiter.set_ceiling_db(-0.3);
         let engine = Engine {
@@ -593,12 +638,25 @@ impl Engine {
             master_gain_smoothed: db_to_amp(-6.0),
             return_smoothed: 1.0,
             peak: 0.0,
-            part_l: Box::new([0.0; BLOCK]),
-            part_r: Box::new([0.0; BLOCK]),
             send_l: Box::new([0.0; BLOCK]),
             send_r: Box::new([0.0; BLOCK]),
             mix_l: Box::new([0.0; BLOCK]),
             mix_r: Box::new([0.0; BLOCK]),
+            pool,
+            scratch,
+            vbuf: vec![[[0.0; BLOCK]; 2]; slots],
+            voff: vec![0; slots],
+            vtr: vec![[[0.0; BLOCK]; 2]; slots],
+            vtr_on: vec![false; slots],
+            start_offset: 0,
+            split_starts: std::env::var_os("SUPERSYNTH_SPLIT_STARTS").is_some_and(|v| v == "1"),
+            order: Vec::with_capacity(slots),
+            part_range: [(0, 0); MAX_PARTS],
+            active_parts: Vec::with_capacity(MAX_PARTS),
+            part_sp: [SpectralParams::default(); MAX_PARTS],
+            part_md: [BlockMod::default(); MAX_PARTS],
+            pout: vec![[[0.0; BLOCK]; 4]; MAX_PARTS],
+            recover: vec![false; MAX_PARTS],
         };
         let ctl = Controller { tx, garbage: grx, status, sample_rate: sr, noise_sent: 0 };
         (engine, ctl)
@@ -606,6 +664,17 @@ impl Engine {
 
     pub fn sample_rate(&self) -> f32 {
         self.sr
+    }
+
+    /// Threads rendering (the rendering thread included).
+    pub fn threads(&self) -> usize {
+        self.pool.threads()
+    }
+
+    /// Real-time scheduling for the worker threads (while playing to an audio device), if the
+    /// system allows it.
+    pub fn set_realtime(&self, on: bool) {
+        self.pool.set_realtime(on);
     }
 
     pub fn now(&self) -> u64 {
@@ -675,9 +744,24 @@ impl Engine {
                 }
             }
             let mut n = (frames - i).min(BLOCK);
-            if let Some(top) = self.heap.peek() {
+            // The block ends at the next event, except for pipes the engine itself scheduled
+            // (speech delays): those start inside the block, at their exact sample, and the
+            // block goes on for every other voice. (Ending the block there would split it for
+            // every sounding voice: one organ chord starts hundreds of pipes within ~10 ms.)
+            while let Some(top) = self.heap.peek() {
                 let until = (top.time - self.now) as usize;
-                n = n.min(until.max(1));
+                if until >= n {
+                    break;
+                }
+                if !top.internal || self.split_starts {
+                    n = until.max(1);
+                    break;
+                }
+                let ev = self.heap.pop().unwrap();
+                self.internal_pending -= 1;
+                self.start_offset = until;
+                self.apply(ev.cmd);
+                self.start_offset = 0;
             }
             self.render_block(&mut left[i..i + n], &mut right[i..i + n]);
             self.now += n as u64;
@@ -1148,11 +1232,13 @@ impl Engine {
         let sr = self.sr;
         self.retire_model(slot, &model);
         let v = &mut self.voices[slot];
-        v.start(NoteOn { model: &model, note, velocity, pitch, pan, params: &sp, sample_rate: sr, rng: &mut self.rng });
+        // (set up by the thread that renders the voice first)
+        v.start_deferred(NoteOn { model: &model, note, velocity, pitch, pan, params: &sp, sample_rate: sr, rng: &mut self.rng });
         v.part = pi;
         v.layer_id = li as u32;
         v.age = age;
         v.one_shot = one_shot;
+        self.voff[slot] = self.start_offset.min(BLOCK - 1) as u8;
     }
 
     fn retarget_layer_voice(&mut self, slot: usize, pi: usize, li: usize, note: u8, velocity: u8) {
@@ -1452,28 +1538,52 @@ impl Engine {
 
     // ── rendering ───────────────────────────────────────────────────────────
 
+    /// Active voices grouped by part (`order`, slot order within a part; part `p` owns
+    /// `order[range[p].0..range[p].1]`).
+    fn collect_voices(&mut self) {
+        let mut count = [0u32; MAX_PARTS];
+        for v in self.voices.iter() {
+            if v.is_active() {
+                count[v.part] += 1;
+            }
+        }
+        let mut at = [0u32; MAX_PARTS];
+        let mut sum = 0u32;
+        for p in 0..MAX_PARTS {
+            self.part_range[p] = (sum, sum + count[p]);
+            at[p] = sum;
+            sum += count[p];
+        }
+        self.order.clear();
+        self.order.resize(sum as usize, 0);
+        for (i, v) in self.voices.iter().enumerate() {
+            if v.is_active() {
+                self.order[at[v.part] as usize] = i as u32;
+                at[v.part] += 1;
+            }
+        }
+    }
+
     fn render_block(&mut self, out_l: &mut [f32], out_r: &mut [f32]) {
         let n = out_l.len();
-        self.mix_l[..n].fill(0.0);
-        self.mix_r[..n].fill(0.0);
-        self.send_l[..n].fill(0.0);
-        self.send_r[..n].fill(0.0);
+        self.collect_voices();
 
+        // ── parts at control rate: expression, tremulant, wind ──────────────
+        self.active_parts.clear();
         for pi in 0..self.parts.len() {
-            let any = self.voices.iter().any(|v| v.is_active() && v.part == pi);
+            let (a, b) = self.part_range[pi];
             let p = &mut self.parts[pi];
-            if !any && !p.leslie_on && !p.chorus_on {
+            if a == b && !p.leslie_on && !p.chorus_on {
                 if let Some(nb) = p.noise.as_mut() {
                     nb.clear_powers();
                 }
                 continue;
             }
-            self.part_l[..n].fill(0.0);
-            self.part_r[..n].fill(0.0);
+            self.active_parts.push(pi as u8);
 
             // smoothed expression (CC11)
-            let a = 1.0 - (-(n as f32) / (0.02 * self.sr)).exp();
-            p.expression_smoothed += (p.expression - p.expression_smoothed) * a;
+            let a_exp = 1.0 - (-(n as f32) / (0.02 * self.sr)).exp();
+            p.expression_smoothed += (p.expression - p.expression_smoothed) * a_exp;
             if (p.expression - p.expression_smoothed).abs() < 1e-6 {
                 // settle exactly (CC11 = 0 would otherwise decay into denormals)
                 p.expression_smoothed = p.expression;
@@ -1491,13 +1601,7 @@ impl Engine {
             // little in pitch and loudness together
             let (mut wind_c, mut wind_g) = (0.0f32, 1.0f32);
             if p.wind > 0.0 {
-                let demand: f32 = self
-                    .voices
-                    .iter()
-                    .filter(|v| v.is_active() && v.part == pi)
-                    .map(|v| v.level())
-                    .sum::<f32>()
-                    / 0.1;
+                let demand: f32 = self.order[a as usize..b as usize].iter().map(|&vi| self.voices[vi as usize].level()).sum::<f32>() / 0.1;
                 let dt = n as f32 / self.sr;
                 p.wind_avg += (demand - p.wind_avg) * (1.0 - (-dt / 0.25).exp());
                 let drive = -(demand - p.wind_avg) * 0.004 * p.wind;
@@ -1509,7 +1613,7 @@ impl Engine {
                 wind_c = 30.0 * p.wind_p;
                 wind_g = db_to_amp(8.0 * p.wind_p);
             }
-            let md = BlockMod {
+            self.part_md[pi] = BlockMod {
                 cents: p.bend * p.bend_range * 100.0 + trem_c + wind_c,
                 mod_vibrato: p.mod_wheel * p.mod_depth_cents,
                 expression_gain: if p.swell_box {
@@ -1519,118 +1623,106 @@ impl Engine {
                     p.expression_smoothed * trem_g * wind_g
                 },
             };
-            let sp = p.sp;
-            if let Some(nb) = p.noise.as_mut() {
-                nb.clear_powers();
-            }
-            // pitch-synchronous noise: Σ p_v·g_v(t) over voices with an envelope (p_v = the
-            // voice's noise power), applied to the part's pooled noise as G = (Σ p_v g_v + rest) / Σ p
-            let mut pulse_acc = [0.0f32; BLOCK];
-            let (mut p_pulse, mut p_all) = (0.0f32, 0.0f32);
-            for v in self.voices.iter_mut() {
-                if !v.is_active() || v.part != pi {
-                    continue;
-                }
-                v.render(&mut self.part_l[..n], &mut self.part_r[..n], &sp, &md);
-                if let Some(nb) = p.noise.as_mut() {
-                    let (gl, gr) = v.noise_pan();
-                    let (gl2, gr2) = (gl * gl, gr * gr);
-                    let bands = v.noise_bands().min(MAX_BANDS);
-                    let mut pv = 0.0;
-                    for b in 0..bands {
-                        let pw = v.noise_pow[b];
-                        if pw > 0.0 {
-                            nb.pow_l[b] += pw * gl2;
-                            nb.pow_r[b] += pw * gr2;
-                            pv += pw;
-                        }
-                    }
-                    p_all += pv;
-                    if v.pulse_on && pv > 0.0 {
-                        p_pulse += pv;
-                        for (a, &g) in pulse_acc[..n].iter_mut().zip(v.pulse_buf[..n].iter()) {
-                            *a += pv * g;
-                        }
-                    }
-                }
-            }
-            if let Some(nb) = p.noise.as_mut() {
-                if p_pulse > 0.0 && p_all > 0.0 {
-                    let mut nl = [0.0f32; BLOCK];
-                    let mut nr = [0.0f32; BLOCK];
-                    nb.render(&mut nl[..n], &mut nr[..n]);
-                    let rest = p_all - p_pulse;
-                    let inv = 1.0 / p_all;
-                    for s in 0..n {
-                        let g = (pulse_acc[s] + rest) * inv;
-                        self.part_l[s] += nl[s] * g;
-                        self.part_r[s] += nr[s] * g;
-                    }
-                } else {
-                    nb.render(&mut self.part_l[..n], &mut self.part_r[..n]);
-                }
-            }
+            self.part_sp[pi] = p.sp;
+        }
 
-            // insert effects
-            if p.drive_on {
-                p.drive.process(&mut self.part_l[..n], &mut self.part_r[..n]);
-            }
-            if !p.eq.is_flat() {
-                p.eq.process(&mut self.part_l[..n], &mut self.part_r[..n]);
-            }
-            if p.chorus_on {
-                p.chorus.process(&mut self.part_l[..n], &mut self.part_r[..n]);
-            }
-            if p.leslie_on {
-                p.leslie.process(&mut self.part_l[..n], &mut self.part_r[..n]);
-            }
-            if p.swell_box {
-                // shutters absorb treble far more than bass: up to −14 dB above ~700 Hz
-                let target = p.swell_shelf_max_db * (1.0 - p.expression_smoothed);
-                if (target - p.swell_shelf_db).abs() > 0.05 {
-                    p.swell_shelf_db = target;
-                    let c = crate::dsp::biquad::Coeffs::high_shelf(700.0, target, self.sr);
-                    for f in p.swell_shelf.iter_mut() {
-                        f.c = c;
-                    }
+        // ── voices: each into its own buffer, on every rendering thread ─────
+        {
+            let order = &self.order[..];
+            let voices = Raw(self.voices.as_mut_ptr());
+            let vbuf = Raw(self.vbuf.as_mut_ptr());
+            let voff = Raw(self.voff.as_mut_ptr());
+            let vtr = Raw(self.vtr.as_mut_ptr());
+            let vtr_on = Raw(self.vtr_on.as_mut_ptr());
+            let scratch = Raw(self.scratch.as_mut_ptr());
+            let (sp, md) = (&self.part_sp, &self.part_md);
+            let nv = order.len();
+            let threads = if nv >= PARALLEL_VOICES { self.pool.threads() } else { 1 };
+            // a few items per thread: whoever is free takes the next (voice starts and voices
+            // with many partials cost far more than others)
+            let items = if threads > 1 { (threads * 8).min(nv) } else { 1 };
+            let job = |item: usize, t: usize| {
+                let (a, b) = (item * nv / items, (item + 1) * nv / items);
+                // SAFETY: each voice index appears once in `order` and each item covers its own
+                // range of it, so no two threads touch the same voice, buffer or offset; each
+                // thread has its own scratch
+                let s = unsafe { &mut **scratch.at(t) };
+                for &vi in &order[a..b] {
+                    let vi = vi as usize;
+                    let (v, buf, off, tb, ton) = unsafe { (&mut *voices.at(vi), &mut *vbuf.at(vi), &mut *voff.at(vi), &mut *vtr.at(vi), &mut *vtr_on.at(vi)) };
+                    let o = (*off as usize).min(n);
+                    *off = 0;
+                    let [bl, br] = buf;
+                    bl[..n].fill(0.0);
+                    br[..n].fill(0.0);
+                    let tr = if v.plays_transient() {
+                        let [tl, tr] = tb;
+                        tl[..n].fill(0.0);
+                        tr[..n].fill(0.0);
+                        Some((&mut tl[o..n], &mut tr[o..n]))
+                    } else {
+                        None
+                    };
+                    *ton = v.render_split(s, &mut bl[o..n], &mut br[o..n], tr, &sp[v.part], &md[v.part]);
                 }
-                if p.swell_shelf_db < -0.05 {
-                    p.swell_shelf[0].process_block(&mut self.part_l[..n]);
-                    p.swell_shelf[1].process_block(&mut self.part_r[..n]);
-                }
+            };
+            if threads > 1 {
+                self.pool.run(items, &job);
+            } else {
+                job(0, 0);
             }
+        }
 
-            // A non-finite sample (an extreme model or state) would poison the mix, the reverb
-            // and the limiter for good: silence this part and restart it from a clean state.
-            if !all_finite(&self.part_l[..n]) || !all_finite(&self.part_r[..n]) {
-                self.part_l[..n].fill(0.0);
-                self.part_r[..n].fill(0.0);
+        // ── parts: their voices summed, pooled noise, insert effects, level ──
+        {
+            let list = &self.active_parts[..];
+            let parts = Raw(self.parts.as_mut_ptr());
+            let pout = Raw(self.pout.as_mut_ptr());
+            let recover = Raw(self.recover.as_mut_ptr());
+            let (order, range, voices) = (&self.order[..], &self.part_range, &self.voices[..]);
+            let vb = VoiceOut { buf: &self.vbuf, tr: &self.vtr, tr_on: &self.vtr_on };
+            let sr = self.sr;
+            let job = |item: usize, _t: usize| {
+                let pi = list[item] as usize;
+                let (a, b) = range[pi];
+                // SAFETY: each item is one part: its state, output and flag are its own
+                let (p, out, rec) = unsafe { (&mut *parts.at(pi), &mut *pout.at(pi), &mut *recover.at(pi)) };
+                *rec = part_block(p, &order[a as usize..b as usize], voices, &vb, out, n, sr);
+            };
+            let threads = if list.len() > 1 && order.len() >= PARALLEL_VOICES { self.pool.threads() } else { 1 };
+            if threads > 1 {
+                self.pool.run(list.len(), &job);
+            } else {
+                for i in 0..list.len() {
+                    job(i, 0);
+                }
+            }
+        }
+
+        // ── mix, in part order ───────────────────────────────────────────────
+        self.mix_l[..n].fill(0.0);
+        self.mix_r[..n].fill(0.0);
+        self.send_l[..n].fill(0.0);
+        self.send_r[..n].fill(0.0);
+        for k in 0..self.active_parts.len() {
+            let pi = self.active_parts[k] as usize;
+            let [pl, pr, sl, sr] = &self.pout[pi];
+            for i in 0..n {
+                self.mix_l[i] += pl[i];
+                self.mix_r[i] += pr[i];
+                self.send_l[i] += sl[i];
+                self.send_r[i] += sr[i];
+            }
+            if self.recover[pi] {
+                // A non-finite sample (an extreme model or state) would have poisoned the mix,
+                // the reverb and the limiter for good: the part was silenced, and its voices
+                // restart from a clean state.
+                self.recover[pi] = false;
                 for v in self.voices.iter_mut().filter(|v| v.part == pi) {
                     v.reset();
                 }
-                p.reset_state();
                 self.recoveries += 1;
             }
-
-            // volume (smoothed) and sends
-            let target = db_to_amp(p.volume_db);
-            let g0 = p.gain_smoothed;
-            let dg = (target - g0) / n as f32;
-            let send_target = p.reverb_send();
-            let ds = (send_target - p.send_smoothed) / n as f32;
-            let (mut g, mut send) = (g0, p.send_smoothed);
-            for i in 0..n {
-                g += dg;
-                send += ds;
-                let l = self.part_l[i] * g;
-                let r = self.part_r[i] * g;
-                self.mix_l[i] += l;
-                self.mix_r[i] += r;
-                self.send_l[i] += l * send;
-                self.send_r[i] += r * send;
-            }
-            p.gain_smoothed = target;
-            p.send_smoothed = send_target;
         }
 
         // reverb send/return
@@ -1673,6 +1765,173 @@ impl Engine {
         }
         self.peak = pk;
     }
+}
+
+/// Fewest sounding voices worth rendering on several threads (below, waking the workers costs
+/// more than it saves).
+const PARALLEL_VOICES: usize = 12;
+
+/// A pointer into engine-owned memory handed to the rendering threads: every job item works
+/// on elements no other item touches.
+struct Raw<T>(*mut T);
+impl<T> Clone for Raw<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Copy for Raw<T> {}
+// SAFETY: see the jobs in `render_block`: items never share an element
+unsafe impl<T> Send for Raw<T> {}
+unsafe impl<T> Sync for Raw<T> {}
+
+impl<T> Raw<T> {
+    /// Element `i` (callers guarantee exclusive use).
+    #[inline]
+    fn at(self, i: usize) -> *mut T {
+        // SAFETY: callers index within the array the pointer was taken from
+        unsafe { self.0.add(i) }
+    }
+}
+
+/// The voices' outputs of the current block (see `Engine::vbuf`, `Engine::vtr`).
+struct VoiceOut<'a> {
+    buf: &'a [[[f32; BLOCK]; 2]],
+    tr: &'a [[[f32; BLOCK]; 2]],
+    tr_on: &'a [bool],
+}
+
+/// One part's block after its voices rendered: their sum (in slot order), the part's pooled
+/// noise, its insert effects and level. Writes the part's output and reverb send, already
+/// scaled (`out` = [left, right, send left, send right]). Returns true when the part produced a
+/// non-finite signal: it is then silenced and its state cleared (its voices are reset by the
+/// caller).
+#[allow(clippy::needless_range_loop)]
+fn part_block(p: &mut Part, ids: &[u32], voices: &[SpectralVoice], vo: &VoiceOut, out: &mut [[f32; BLOCK]; 4], n: usize, sr: f32) -> bool {
+    let [part_l, part_r, send_l, send_r] = out;
+    part_l[..n].fill(0.0);
+    part_r[..n].fill(0.0);
+    for &vi in ids {
+        let vi = vi as usize;
+        if vo.tr_on[vi] {
+            let [tl, tr] = &vo.tr[vi];
+            for s in 0..n {
+                part_l[s] += tl[s];
+                part_r[s] += tr[s];
+            }
+        }
+        let [bl, br] = &vo.buf[vi];
+        for s in 0..n {
+            part_l[s] += bl[s];
+            part_r[s] += br[s];
+        }
+    }
+    if let Some(nb) = p.noise.as_mut() {
+        nb.clear_powers();
+        // pitch-synchronous noise: Σ p_v·g_v(t) over voices with an envelope (p_v = the
+        // voice's noise power), applied to the part's pooled noise as G = (Σ p_v g_v + rest) / Σ p
+        let mut pulse_acc = [0.0f32; BLOCK];
+        let (mut p_pulse, mut p_all) = (0.0f32, 0.0f32);
+        for &vi in ids {
+            let v = &voices[vi as usize];
+            let (gl, gr) = v.noise_pan();
+            let (gl2, gr2) = (gl * gl, gr * gr);
+            let bands = v.noise_bands().min(MAX_BANDS);
+            let mut pv = 0.0;
+            for b in 0..bands {
+                let pw = v.noise_pow[b];
+                if pw > 0.0 {
+                    nb.pow_l[b] += pw * gl2;
+                    nb.pow_r[b] += pw * gr2;
+                    pv += pw;
+                }
+            }
+            p_all += pv;
+            if v.pulse_on && pv > 0.0 {
+                p_pulse += pv;
+                // (a voice that started inside this block filled the end of its buffer)
+                let len = v.pulse_len().min(n);
+                let o = n - len;
+                for s in 0..n {
+                    let g = v.pulse_buf[s.saturating_sub(o)];
+                    pulse_acc[s] += pv * g;
+                }
+            }
+        }
+        if p_pulse > 0.0 && p_all > 0.0 {
+            let mut nl = [0.0f32; BLOCK];
+            let mut nr = [0.0f32; BLOCK];
+            nb.render(&mut nl[..n], &mut nr[..n]);
+            let rest = p_all - p_pulse;
+            let inv = 1.0 / p_all;
+            for s in 0..n {
+                let g = (pulse_acc[s] + rest) * inv;
+                part_l[s] += nl[s] * g;
+                part_r[s] += nr[s] * g;
+            }
+        } else {
+            nb.render(&mut part_l[..n], &mut part_r[..n]);
+        }
+    }
+
+    // insert effects
+    if p.drive_on {
+        p.drive.process(&mut part_l[..n], &mut part_r[..n]);
+    }
+    if !p.eq.is_flat() {
+        p.eq.process(&mut part_l[..n], &mut part_r[..n]);
+    }
+    if p.chorus_on {
+        p.chorus.process(&mut part_l[..n], &mut part_r[..n]);
+    }
+    if p.leslie_on {
+        p.leslie.process(&mut part_l[..n], &mut part_r[..n]);
+    }
+    if p.swell_box {
+        // shutters absorb treble far more than bass: up to −14 dB above ~700 Hz
+        let target = p.swell_shelf_max_db * (1.0 - p.expression_smoothed);
+        if (target - p.swell_shelf_db).abs() > 0.05 {
+            p.swell_shelf_db = target;
+            let c = crate::dsp::biquad::Coeffs::high_shelf(700.0, target, sr);
+            for f in p.swell_shelf.iter_mut() {
+                f.c = c;
+            }
+        }
+        if p.swell_shelf_db < -0.05 {
+            p.swell_shelf[0].process_block(&mut part_l[..n]);
+            p.swell_shelf[1].process_block(&mut part_r[..n]);
+        }
+    }
+
+    // A non-finite sample (an extreme model or state) would poison the mix, the reverb and
+    // the limiter for good: silence this part and restart it from a clean state.
+    let mut recover = false;
+    if !all_finite(&part_l[..n]) || !all_finite(&part_r[..n]) {
+        part_l[..n].fill(0.0);
+        part_r[..n].fill(0.0);
+        p.reset_state();
+        recover = true;
+    }
+
+    // volume (smoothed) and sends
+    let target = db_to_amp(p.volume_db);
+    let g0 = p.gain_smoothed;
+    let dg = (target - g0) / n as f32;
+    let send_target = p.reverb_send();
+    let ds = (send_target - p.send_smoothed) / n as f32;
+    let (mut g, mut send) = (g0, p.send_smoothed);
+    for i in 0..n {
+        g += dg;
+        send += ds;
+        let l = part_l[i] * g;
+        let r = part_r[i] * g;
+        part_l[i] = l;
+        part_r[i] = r;
+        send_l[i] = l * send;
+        send_r[i] = r * send;
+    }
+    p.gain_smoothed = target;
+    p.send_smoothed = send_target;
+    recover
 }
 
 #[cfg(test)]
@@ -2127,6 +2386,73 @@ mod tests {
         render(&mut eng, 480);
         let noise_on = eng.voices.iter().filter(|v| v.is_active() && v.part == 1 && v.layer_id == 1 && !v.is_released()).count();
         assert_eq!(noise_on, 1, "the key noise plays on after the key is up");
+    }
+
+    /// A two-division organ (great with 8 stops, swell with 4, coupled), a piano and
+    /// strings-like violin, played for `seconds` with `threads` rendering threads.
+    fn ensemble(threads: usize, seconds: f32) -> Option<(Vec<f32>, Vec<f32>, usize)> {
+        let great = ["great-principal-8", "great-octave-4", "great-octave-2", "great-mixture", "great-gedackt-8", "great-trumpet-8", "great-sesquialtera", "great-rohrflute-4"];
+        let swell = ["swell-rohrflute-8", "swell-principal-4", "swell-scharf", "swell-schalmei-8"];
+        let mut g = Instrument::default();
+        for (i, name) in great.iter().enumerate() {
+            let m = model(&format!("organ/{name}"))?;
+            g.layers.push(InstLayer { speech_ms: 10.0, detune_cents: i as f32 * 0.3 - 1.0, ..InstLayer::new(m) });
+        }
+        let mut sw = Instrument::default();
+        for name in swell {
+            sw.layers.push(InstLayer { speech_ms: 10.0, ..InstLayer::new(model(&format!("organ/{name}"))?) });
+        }
+        let (piano, violin) = (model("grand-piano")?, model("violin")?);
+        let (mut eng, mut ctl) = Engine::new(EngineConfig { threads, max_voices: 160, ..EngineConfig::default() });
+        ctl.send(0, Command::set_instrument(0, g)).unwrap();
+        ctl.send(0, Command::set_instrument(1, sw)).unwrap();
+        ctl.send(0, Command::set_instrument(2, Instrument::single(piano))).unwrap();
+        ctl.send(0, Command::set_instrument(3, Instrument::single(violin))).unwrap();
+        ctl.send(0, Command::SetCouplers { part: 0, couplers: Couplers::to_parts(1 << 1) }).unwrap();
+        ctl.send(0, Command::SetPartParam { part: 0, param: PartParam::Wind, value: 0.5 }).unwrap();
+        ctl.send(0, Command::SetPartParam { part: 1, param: PartParam::TremDepth, value: 1.0 }).unwrap();
+        ctl.send(0, Command::SetPartParam { part: 3, param: PartParam::ChorusMix, value: 0.3 }).unwrap();
+        let sr = 48000.0;
+        let mut t = 0.05f32;
+        let mut k = 0u8;
+        while t < seconds - 0.5 {
+            let at = (t * sr) as u64;
+            for n in [48u8, 55, 60, 64, 67].iter().map(|n| n + k % 5) {
+                ctl.send(at, Command::NoteOn { part: 0, note: n, velocity: 100 }).unwrap();
+                ctl.send(at + 9000, Command::NoteOff { part: 0, note: n }).unwrap();
+            }
+            ctl.send(at + 1000, Command::NoteOn { part: 2, note: 40 + k, velocity: 90 }).unwrap();
+            ctl.send(at + 1000, Command::NoteOn { part: 3, note: 62 + k % 7, velocity: 90 }).unwrap();
+            ctl.send(at + 15000, Command::NoteOff { part: 3, note: 62 + k % 7 }).unwrap();
+            t += 0.23;
+            k = k.wrapping_add(1);
+        }
+        let n = (seconds * sr) as usize;
+        let (mut l, mut r) = (vec![0.0; n], vec![0.0; n]);
+        let mut most = 0;
+        // buffers of varying size, as audio callbacks deliver them
+        let mut i = 0;
+        let mut b = 0;
+        while i < n {
+            let len = [128usize, 64, 441, 37, 256][b % 5].min(n - i);
+            eng.process_planar(&mut l[i..i + len], &mut r[i..i + len]);
+            most = most.max(eng.active_voices());
+            i += len;
+            b += 1;
+        }
+        Some((l, r, most))
+    }
+
+    #[test]
+    fn the_output_is_the_same_for_any_number_of_threads() {
+        let Some((l1, r1, voices)) = ensemble(1, 4.0) else { return };
+        assert!(voices > PARALLEL_VOICES * 3, "a load worth sharing out: {voices} voices");
+        assert!(rms(&l1) > 1e-3);
+        for threads in [2, 3, 4] {
+            let (l, r, _) = ensemble(threads, 4.0).unwrap();
+            let same = l.iter().zip(&l1).chain(r.iter().zip(&r1)).all(|(a, b)| a.to_bits() == b.to_bits());
+            assert!(same, "{threads} threads render differently from one");
+        }
     }
 
     #[test]

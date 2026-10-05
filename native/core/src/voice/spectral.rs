@@ -114,6 +114,8 @@ enum State {
 
 pub struct SpectralVoice {
     model: Option<Arc<Model>>,
+    /// a start waiting for the first block
+    pending: Option<Deferred>,
     pub note: u8,
     pub velocity: u8,
     pub part: usize,
@@ -245,6 +247,7 @@ impl Default for SpectralVoice {
     fn default() -> Self {
         Self {
             model: None,
+            pending: None,
             note: 0,
             velocity: 0,
             part: 0,
@@ -342,6 +345,180 @@ impl Default for SpectralVoice {
     }
 }
 
+/// The zones a note plays (up to four: two neighbouring pitches × two dynamic layers), their
+/// weights and the voice's level from its velocity.
+#[derive(Clone, Copy)]
+struct Zones {
+    nz: usize,
+    zone: [usize; MAX_ZONES],
+    w: [f32; MAX_ZONES],
+    dominant: usize,
+    gain: f32,
+}
+
+impl Zones {
+    fn select(m: &Model, p: &SpectralParams, pitch: f32, velocity: u8) -> Zones {
+        let vel = velocity as f32;
+        let nl = m.layers.len();
+        // velocity sensitivity: compress towards the loudest layer
+        let top_v = m.layers.last().map(|l| l.velocity).unwrap_or(127.0);
+        let v_eff = top_v + (vel - top_v) * p.velocity_sens;
+        let (la, lb, lw) = bracket(nl, |i| m.layers[i].velocity, v_eff);
+        let mut gain = m.params.gain_db + p.gain_db;
+        // Loudness follows a fixed velocity curve anchored at the loudest layer; the
+        // layers' own recorded level differences are compensated so they only carry timbre.
+        if let (Some(top), Some(a), Some(b)) = (m.layers.last(), m.layers.get(la), m.layers.get(lb)) {
+            let top_level = top.level_db;
+            let rec = a.level_db * (1.0 - lw) + b.level_db * lw;
+            let v_rel = v_eff.clamp(1.0, 127.0) / top_v.max(1.0);
+            gain += m.params.velocity_db * 40.0 * v_rel.log10() - (rec - top_level);
+        }
+        let mut z = Zones { nz: 0, zone: [0; MAX_ZONES], w: [0.0; MAX_ZONES], dominant: 0, gain };
+        let add = |zi: usize, w: f32, this: &mut Zones| {
+            if w <= 1e-4 {
+                return;
+            }
+            for j in 0..this.nz {
+                if this.zone[j] == zi {
+                    this.w[j] += w;
+                    return;
+                }
+            }
+            if this.nz < MAX_ZONES {
+                this.zone[this.nz] = zi;
+                this.w[this.nz] = w;
+                this.nz += 1;
+            }
+        };
+        for (layer, lwt) in [(la, 1.0 - lw), (lb, lw)] {
+            if lwt <= 1e-4 {
+                continue;
+            }
+            let Some(zs) = m.by_layer.get(layer).or(m.by_layer.last()) else { continue };
+            if zs.is_empty() {
+                continue;
+            }
+            let (za, zb, mut zw) = bracket(zs.len(), |i| m.zones[zs[i]].note, pitch);
+            if !m.params.pitch_morph {
+                zw = if zw < 0.5 { 0.0 } else { 1.0 };
+            }
+            add(zs[za], lwt * (1.0 - zw), &mut z);
+            add(zs[zb], lwt * zw, &mut z);
+        }
+        if z.nz == 0 {
+            // layer without zones: fall back to nearest zone in the model
+            let zi = (0..m.zones.len())
+                .min_by(|&a, &b| (m.zones[a].note - pitch).abs().total_cmp(&(m.zones[b].note - pitch).abs()))
+                .unwrap_or(0);
+            z.zone[0] = zi;
+            z.w[0] = 1.0;
+            z.nz = 1;
+        }
+        let wsum: f32 = z.w[..z.nz].iter().sum();
+        for w in &mut z.w[..z.nz] {
+            *w /= wsum;
+        }
+        z.dominant = (0..z.nz).max_by(|&a, &b| z.w[a].total_cmp(&z.w[b])).unwrap_or(0);
+        z
+    }
+
+    /// Fundamental (Hz) of a note at `pitch`; with recorded tuning, the zones' deviation from
+    /// their nominal note is kept.
+    fn target_hz(&self, m: &Model, pitch: f32) -> f32 {
+        let tuning_dev = if m.params.recorded_tuning {
+            (0..self.nz)
+                .map(|j| {
+                    let zn = m.zones[self.zone[j]].note;
+                    self.w[j] * (zn - zn.round())
+                })
+                .sum::<f32>()
+        } else {
+            0.0
+        };
+        crate::dsp::midi_to_hz(pitch + tuning_dev)
+    }
+
+    /// Most harmonic slots.
+    fn kmax(&self, m: &Model, p: &SpectralParams) -> usize {
+        let kmax = (0..self.nz).map(|j| m.zones[self.zone[j]].harmonic).max().unwrap_or(0);
+        kmax.min(p.max_partials.max(1)).min(MAX_PARTIALS)
+    }
+
+    /// Frequency ratio of harmonic slot `i`: weighted over zones, extrapolated with each zone's
+    /// stretch.
+    fn ratio(&self, m: &Model, p: &SpectralParams, i: usize) -> f32 {
+        let h = (i + 1) as f32;
+        let mut ratio = 0.0;
+        for j in 0..self.nz {
+            let z = &m.zones[self.zone[j]];
+            let r = if i < z.harmonic {
+                z.ratios[i]
+            } else if z.harmonic > 0 {
+                let last = z.harmonic - 1;
+                h * z.ratios[last] / (last + 1) as f32
+            } else {
+                h
+            };
+            ratio += self.w[j] * r;
+        }
+        h + (ratio - h) * p.inharmonicity
+    }
+}
+
+/// Random numbers [`SpectralVoice::start`] draws from the caller's generator for this note.
+fn start_draws(m: &Model, p: &SpectralParams, pitch: f32, velocity: u8, sr: f32) -> usize {
+    if m.zones.is_empty() || m.layers.is_empty() {
+        return 0;
+    }
+    let zs = Zones::select(m, p, pitch, velocity);
+    // vibrato phase, detunes
+    let mut draws = 1 + (p.humanize_cents > 0.0) as usize + (m.params.pitch_jitter_cents > 0.0) as usize;
+    let f_target = zs.target_hz(m, pitch);
+    let nyq = 0.47 * sr;
+    let dz = &m.zones[zs.zone[zs.dominant]];
+    let mut k = 0;
+    for i in 0..zs.kmax(m, p) {
+        if f_target * zs.ratio(m, p, i) >= nyq {
+            break;
+        }
+        // a random phase for harmonics the dominant zone does not have
+        draws += (i >= dz.harmonic) as usize;
+        k = i + 1;
+    }
+    for j in 0..zs.nz {
+        let z = &m.zones[zs.zone[j]];
+        if zs.w[j] < 0.02 || z.harmonic >= z.partials {
+            continue;
+        }
+        for i in z.harmonic..z.partials {
+            if k >= MAX_PARTIALS {
+                break;
+            }
+            let f = f_target * z.ratios[i];
+            if f >= nyq || f <= 0.0 {
+                continue;
+            }
+            k += 1;
+        }
+    }
+    // the voice's own generator's seed, and a pan per partial
+    draws + 2 + k
+}
+
+/// A note-on whose set-up waits for the voice's first block (see
+/// [`SpectralVoice::start_deferred`]).
+#[derive(Clone)]
+struct Deferred {
+    note: u8,
+    velocity: u8,
+    pitch: f32,
+    pan: f32,
+    params: SpectralParams,
+    sample_rate: f32,
+    /// the caller's generator as it was at the note-on
+    rng: Rng,
+}
+
 /// Note-on description passed from the part.
 pub struct NoteOn<'a> {
     pub model: &'a Arc<Model>,
@@ -369,7 +546,53 @@ impl SpectralVoice {
         self.peak_db.max(self.noise_peak_db)
     }
 
+    /// Start a note now, up to its first block: the set-up (zones, partials, stereo image: tens
+    /// of microseconds) is done by [`render_with`](Self::render_with) on whichever thread
+    /// renders the voice first, so that the many notes of a big chord are set up in parallel.
+    /// The caller's generator is advanced exactly as [`start`](Self::start) would advance it.
+    /// The voice counts as playing at once.
+    pub fn start_deferred(&mut self, on: NoteOn) {
+        let m: &Model = on.model;
+        if m.zones.is_empty() || m.layers.is_empty() {
+            self.start(on);
+            return;
+        }
+        if !self.model.as_ref().is_some_and(|old| Arc::ptr_eq(old, on.model)) {
+            self.model = Some(Arc::clone(on.model));
+        }
+        let draws = start_draws(m, on.params, on.pitch, on.velocity, on.sample_rate);
+        self.pending = Some(Deferred {
+            note: on.note,
+            velocity: on.velocity,
+            pitch: on.pitch,
+            pan: on.pan,
+            params: *on.params,
+            sample_rate: on.sample_rate,
+            rng: on.rng.clone(),
+        });
+        for _ in 0..draws {
+            on.rng.next_u32();
+        }
+        // what the engine reads before the first block
+        self.note = on.note;
+        self.velocity = on.velocity;
+        self.state = State::Playing;
+        self.kill_gain = 1.0;
+        self.peak_db = 0.0;
+    }
+
+    /// Complete a deferred start (before the voice is rendered, released or stolen).
+    fn finish_start(&mut self) {
+        let Some(mut d) = self.pending.take() else { return };
+        let Some(model) = self.model.clone() else {
+            self.state = State::Done;
+            return;
+        };
+        self.start(NoteOn { model: &model, note: d.note, velocity: d.velocity, pitch: d.pitch, pan: d.pan, params: &d.params, sample_rate: d.sample_rate, rng: &mut d.rng });
+    }
+
     pub fn start(&mut self, on: NoteOn) {
+        self.pending = None;
         let m: &Model = on.model;
         let p = on.params;
         if m.zones.is_empty() || m.layers.is_empty() {
@@ -400,67 +623,9 @@ impl SpectralVoice {
 
         // ── zone selection: pitch × velocity ──────────────────────────────
         let pitch = on.pitch;
-        let vel = on.velocity as f32;
-        let nl = m.layers.len();
-        // velocity sensitivity: compress towards the loudest layer
-        let top_v = m.layers.last().map(|l| l.velocity).unwrap_or(127.0);
-        let v_eff = top_v + (vel - top_v) * p.velocity_sens;
-        let (la, lb, lw) = bracket(nl, |i| m.layers[i].velocity, v_eff);
-        let mut gain = m.params.gain_db + p.gain_db;
-        // Loudness follows a fixed velocity curve anchored at the loudest layer; the
-        // layers' own recorded level differences are compensated so they only carry timbre.
-        if let (Some(top), Some(a), Some(b)) = (m.layers.last(), m.layers.get(la), m.layers.get(lb)) {
-            let top_level = top.level_db;
-            let rec = a.level_db * (1.0 - lw) + b.level_db * lw;
-            let v_rel = v_eff.clamp(1.0, 127.0) / top_v.max(1.0);
-            gain += m.params.velocity_db * 40.0 * v_rel.log10() - (rec - top_level);
-        }
-        self.nz = 0;
-        let add = |zi: usize, w: f32, this: &mut Self| {
-            if w <= 1e-4 {
-                return;
-            }
-            for j in 0..this.nz {
-                if this.zone[j] == zi {
-                    this.w[j] += w;
-                    return;
-                }
-            }
-            if this.nz < MAX_ZONES {
-                this.zone[this.nz] = zi;
-                this.w[this.nz] = w;
-                this.nz += 1;
-            }
-        };
-        for (layer, lwt) in [(la, 1.0 - lw), (lb, lw)] {
-            if lwt <= 1e-4 {
-                continue;
-            }
-            let Some(zs) = m.by_layer.get(layer).or(m.by_layer.last()) else { continue };
-            if zs.is_empty() {
-                continue;
-            }
-            let (za, zb, mut zw) = bracket(zs.len(), |i| m.zones[zs[i]].note, pitch);
-            if !m.params.pitch_morph {
-                zw = if zw < 0.5 { 0.0 } else { 1.0 };
-            }
-            add(zs[za], lwt * (1.0 - zw), self);
-            add(zs[zb], lwt * zw, self);
-        }
-        if self.nz == 0 {
-            // layer without zones: fall back to nearest zone in the model
-            let zi = (0..m.zones.len())
-                .min_by(|&a, &b| (m.zones[a].note - pitch).abs().total_cmp(&(m.zones[b].note - pitch).abs()))
-                .unwrap_or(0);
-            self.zone[0] = zi;
-            self.w[0] = 1.0;
-            self.nz = 1;
-        }
-        let wsum: f32 = self.w[..self.nz].iter().sum();
-        for w in &mut self.w[..self.nz] {
-            *w /= wsum;
-        }
-        self.dominant = (0..self.nz).max_by(|&a, &b| self.w[a].total_cmp(&self.w[b])).unwrap_or(0);
+        let zs = Zones::select(m, p, pitch, on.velocity);
+        let gain = zs.gain;
+        (self.nz, self.zone, self.w, self.dominant) = (zs.nz, zs.zone, zs.w, zs.dominant);
         for j in 0..self.nz {
             self.pos[j] = 0.0;
             self.last[j] = m.zones[self.zone[j]].main_end - 1;
@@ -474,42 +639,15 @@ impl SpectralVoice {
         // ── partials ───────────────────────────────────────────────────────
         self.detune_cents = if p.humanize_cents > 0.0 { on.rng.bipolar() * p.humanize_cents } else { 0.0 }
             + if m.params.pitch_jitter_cents > 0.0 { on.rng.bipolar() * m.params.pitch_jitter_cents } else { 0.0 };
-        // recorded tuning: keep the deviation of the zones from their nominal note
-        let tuning_dev = if m.params.recorded_tuning {
-            (0..self.nz)
-                .map(|j| {
-                    let zn = m.zones[self.zone[j]].note;
-                    self.w[j] * (zn - zn.round())
-                })
-                .sum::<f32>()
-        } else {
-            0.0
-        };
-        let f_target = crate::dsp::midi_to_hz(pitch + tuning_dev);
+        let f_target = zs.target_hz(m, pitch);
         let nyq = 0.47 * self.sr;
         let formant = if p.formant >= 0.0 { p.formant } else { m.params.formant };
-        let kmax = (0..self.nz).map(|j| m.zones[self.zone[j]].harmonic).max().unwrap_or(0);
-        let kmax = kmax.min(p.max_partials.max(1)).min(MAX_PARTIALS);
+        let kmax = zs.kmax(m, p);
         let dz = &m.zones[self.zone[self.dominant]];
         let mut k = 0;
         for i in 0..kmax {
             let h = (i + 1) as f32;
-            // frequency ratio: weighted over zones, extrapolated with each zone's stretch
-            let mut ratio = 0.0;
-            for j in 0..self.nz {
-                let z = &m.zones[self.zone[j]];
-                let r = if i < z.harmonic {
-                    z.ratios[i]
-                } else if z.harmonic > 0 {
-                    let last = z.harmonic - 1;
-                    h * z.ratios[last] / (last + 1) as f32
-                } else {
-                    h
-                };
-                ratio += self.w[j] * r;
-            }
-            ratio = h + (ratio - h) * p.inharmonicity;
-            let f = f_target * ratio;
+            let f = f_target * zs.ratio(m, p, i);
             if f >= nyq {
                 break;
             }
@@ -845,6 +983,7 @@ impl SpectralVoice {
     /// phases and current amplitudes carry over (no click, no re-articulation), the new
     /// note's zones start in their sustain, and the pitch glides over `glide_s`.
     pub fn legato(&mut self, on: NoteOn, glide_s: f32) {
+        self.finish_start();
         if self.state != State::Playing {
             self.start(on);
             return;
@@ -965,6 +1104,7 @@ impl SpectralVoice {
     }
 
     /// Zone `j`'s own envelope (dB, cubic between frames) for harmonic slots 0..kh.
+    #[allow(clippy::needless_range_loop)]
     #[inline(always)]
     fn zone_envelope(&self, j: usize, r: &ZoneRows, out: &mut [f32; MAX_PARTIALS], g: &mut Gather, kh: usize) {
         let (khj, t, look) = (r.kh[j], r.ft[j], &self.look_i[j]);
@@ -991,7 +1131,7 @@ impl SpectralVoice {
     }
 
     /// Zone `j`'s smoothed envelope (dB, linear between frames) for harmonic slots 0..kh.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
     #[inline(always)]
     fn zone_smooth(&self, j: usize, s0: &[u16], s1: &[u16], khj: usize, ft: f32, out: &mut [f32; MAX_PARTIALS], g: &mut Gather, kh: usize) {
         let (look, ident) = (&self.look_i[j], self.look_ident[j]);
@@ -1100,6 +1240,7 @@ impl SpectralVoice {
     }
 
     pub fn release(&mut self) {
+        self.finish_start();
         if self.state == State::Playing {
             let ring = self
                 .model
@@ -1147,6 +1288,7 @@ impl SpectralVoice {
 
     /// Fast fade-out (voice stealing / all-sound-off).
     pub fn kill(&mut self) {
+        self.finish_start();
         if self.state != State::Done {
             self.state = State::Killing;
         }
@@ -1175,6 +1317,7 @@ impl SpectralVoice {
 
     /// Stop at once and clear the oscillator state (recovery after a non-finite output).
     pub fn reset(&mut self) {
+        self.pending = None;
         self.state = State::Done;
         self.re = [0.0; MAX_PARTIALS];
         self.im = [0.0; MAX_PARTIALS];
@@ -1203,7 +1346,11 @@ impl SpectralVoice {
     /// Whether the next block plays part of the recorded attack transient (which
     /// [`render_split`](Self::render_split) can write to its own buffers).
     pub fn plays_transient(&self) -> bool {
-        self.state != State::Done && self.has_tr && self.t < self.tr_fade.1
+        match &self.pending {
+            // (a fresh start: whether its zones have a transient)
+            Some(_) => self.state != State::Done && self.model.as_ref().is_some_and(|m| m.zones.iter().any(|z| z.transient.is_some())),
+            None => self.state != State::Done && self.has_tr && self.t < self.tr_fade.1,
+        }
     }
 
     /// [`render_with`](Self::render_with), adding the recorded attack transient (if it plays)
@@ -1214,6 +1361,7 @@ impl SpectralVoice {
         if self.state == State::Done || out_l.is_empty() {
             return false;
         }
+        self.finish_start();
         // (moved out and back: cloning the Arc would bump a reference count shared with every
         // other voice of the model, on every rendering thread, every block)
         let Some(model) = self.model.take() else {
@@ -2191,6 +2339,42 @@ mod tests {
             out.extend_from_slice(&r);
         }
         out
+    }
+
+    #[test]
+    fn a_deferred_start_sounds_and_draws_exactly_like_a_start() {
+        let names = ["models/grand-piano", "models/violin", "models/marimba", "packages/organ-burea/models/organ/great-mixture", "packages/organ-friesach/models/organ/friesach/pedal-posaune-32"];
+        let mut models: Vec<Arc<Model>> = names.iter().filter_map(|n| repo_model(n)).collect();
+        models.push(Arc::new(Model::from_bytes(&testing::bytes()).unwrap()));
+        let params = [
+            SpectralParams::default(),
+            SpectralParams { humanize_cents: 3.0, inharmonicity: 1.7, max_partials: 40, formant: 0.6, ..SpectralParams::default() },
+        ];
+        for m in &models {
+            for p in &params {
+                for note in [21u8, 40, 60, 79, 100, 108] {
+                    for sr in [22050.0, 48000.0] {
+                        let md = BlockMod::default();
+                        let (mut a, mut b) = (SpectralVoice::default(), SpectralVoice::default());
+                        let (mut ra, mut rb) = (Rng::new(note as u64), Rng::new(note as u64));
+                        a.start(NoteOn { model: m, note, velocity: 90, pitch: note as f32 + 0.3, pan: -0.2, params: p, sample_rate: sr, rng: &mut ra });
+                        b.start_deferred(NoteOn { model: m, note, velocity: 90, pitch: note as f32 + 0.3, pan: -0.2, params: p, sample_rate: sr, rng: &mut rb });
+                        assert_eq!(ra.next_u32(), rb.next_u32(), "{} note {note}: the caller's generator advanced differently", m.name);
+                        for blk in 0..40 {
+                            if blk == 30 {
+                                a.release();
+                                b.release();
+                            }
+                            let (mut la, mut lb) = ([0.0f32; BLOCK], [0.0f32; BLOCK]);
+                            let (mut xa, mut xb) = ([0.0f32; BLOCK], [0.0f32; BLOCK]);
+                            a.render(&mut la, &mut xa, p, &md);
+                            b.render(&mut lb, &mut xb, p, &md);
+                            assert!(la == lb && xa == xb, "{} note {note}: block {blk} differs", m.name);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

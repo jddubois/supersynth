@@ -1,28 +1,34 @@
 //! The audio thread must never allocate or free memory: rendering and applying the usual
 //! commands are checked with a counting global allocator (armed only around the engine's
-//! render calls, on the rendering thread).
+//! render calls) on the rendering thread and on the engine's rendering workers. The tests
+//! run one at a time.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use supersynth_core::engine::params::{MasterParam, PartParam};
+use supersynth_core::engine::pool;
 use supersynth_core::engine::{Command, Controller, Couplers, Engine, EngineConfig, InstLayer, Instrument, Route};
 use supersynth_core::model::Model;
 
 struct Counting;
 
+static ARMED: AtomicBool = AtomicBool::new(false);
+static COUNT: AtomicUsize = AtomicUsize::new(0);
+/// (one test at a time: the workers' count is global)
+static SERIAL: Mutex<()> = Mutex::new(());
+
 thread_local! {
-    static ARMED: Cell<bool> = const { Cell::new(false) };
-    static COUNT: Cell<usize> = const { Cell::new(0) };
+    /// the thread rendering (other threads, e.g. the test harness's, may allocate meanwhile)
+    static RENDERING: Cell<bool> = const { Cell::new(false) };
 }
 
 fn note_alloc() {
-    let _ = ARMED.try_with(|a| {
-        if a.get() {
-            COUNT.with(|c| c.set(c.get() + 1));
-        }
-    });
+    if ARMED.load(Ordering::SeqCst) && (RENDERING.try_with(|r| r.get()).unwrap_or(false) || pool::is_worker()) {
+        COUNT.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 unsafe impl GlobalAlloc for Counting {
@@ -60,13 +66,15 @@ fn model(name: &str) -> Option<Arc<Model>> {
 fn render(eng: &mut Engine, frames: usize) -> usize {
     let mut l = vec![0.0f32; frames];
     let mut r = vec![0.0f32; frames];
-    COUNT.with(|c| c.set(0));
-    ARMED.with(|a| a.set(true));
+    COUNT.store(0, Ordering::SeqCst);
+    RENDERING.with(|r| r.set(true));
+    ARMED.store(true, Ordering::SeqCst);
     for (cl, cr) in l.chunks_mut(256).zip(r.chunks_mut(256)) {
         eng.process_planar(cl, cr);
     }
-    ARMED.with(|a| a.set(false));
-    COUNT.with(|c| c.get())
+    ARMED.store(false, Ordering::SeqCst);
+    RENDERING.with(|r| r.set(false));
+    COUNT.load(Ordering::SeqCst)
 }
 
 fn layer(model: Arc<Model>, transpose: f32, enabled: bool) -> InstLayer {
@@ -93,7 +101,9 @@ fn rendering_and_commands_do_not_allocate() {
     ) else {
         return;
     };
-    let (mut eng, mut ctl) = Engine::new(EngineConfig { max_voices: 24, ..EngineConfig::default() });
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    // three rendering threads: the workers must not allocate either
+    let (mut eng, mut ctl) = Engine::new(EngineConfig { max_voices: 24, threads: 3, ..EngineConfig::default() });
     let (e, c) = (&mut eng, &mut ctl);
     check(e, c, "instrument change", vec![Command::set_instrument(0, Instrument::single(piano.clone()))], 4800);
     check(e, c, "idle", vec![], 4800);
@@ -191,6 +201,7 @@ fn rendering_and_commands_do_not_allocate() {
 
 #[test]
 fn reverb_parameter_changes_do_not_allocate() {
+    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
     render(&mut eng, 4800);
     check(&mut eng, &mut ctl, "reverb", vec![Command::SetMasterParam { param: MasterParam::ReverbDecay, value: 3.5 }], 4800);

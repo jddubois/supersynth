@@ -15,6 +15,7 @@
  *   npm run live-test -- --seconds 30          length of each performance
  *   npm run live-test -- --quality balanced    the Synth `quality` option
  *   npm run live-test -- --json out.json       machine-readable results
+ *   npm run live-test -- --threads 1           the Synth `threads` option (default: 'auto')
  *
  * Run it on the target machine (e.g. a Raspberry Pi 5) with nothing else busy; exit code 1
  * when any scenario drops out.
@@ -38,6 +39,7 @@ const ONLY = opt('only', '');
 const QUALITY = opt('quality', 'high') as 'high' | 'balanced' | 'eco';
 const JSON_OUT = opt('json', '');
 const MAX_VOICES = args.includes('--max-voices') ? Number(opt('max-voices', '192')) : undefined;
+const THREADS = args.includes('--threads') ? opt('threads', 'auto') : undefined;
 const budgetMs = (BUFFER / SR) * 1000;
 
 /** A timed key event, delivered live. */
@@ -149,6 +151,24 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    name: 'organ: Bach on the Friesach plenum',
+    what: 'Friesach (44 stops), plenum, BWV 532 at its own tempo: hundreds of pipes in their release',
+    setup: (s) => {
+      const o = s.add('friesach', { preset: 'plenum' });
+      const kb = [o.great, o.swell, o.pedal];
+      return bachEvents(SECONDS, (ch) => kb[ch - 1] ?? o.great);
+    },
+  },
+  {
+    name: 'organ: Bach on the Cracow plein-jeu',
+    what: 'Cracow (40 stops), plein-jeu, BWV 532',
+    setup: (s) => {
+      const o = s.add('cracow', { preset: 'plein-jeu' });
+      const kb = [o.great, o.swell, o.pedal];
+      return bachEvents(SECONDS, (ch) => kb[ch - 1] ?? o.great);
+    },
+  },
+  {
     name: 'strings: sustained section',
     what: 'string section, BWV 532 played legato as an orchestral texture',
     setup: (s) => {
@@ -162,6 +182,8 @@ interface Result {
   name: string;
   buffers: number;
   meanLoad: number;
+  /** Process CPU time (all threads) / real time, averaged over the run. */
+  cpuLoad: number;
   p99Load: number;
   p999Load: number;
   maxLoad: number;
@@ -178,7 +200,12 @@ function quantile(sorted: Float64Array, q: number): number {
 }
 
 function runScenario(sc: Scenario): Result {
-  const synth = new Synth({ sampleRate: SR, quality: QUALITY, ...(MAX_VOICES ? { maxVoices: MAX_VOICES } : {}) });
+  const synth = new Synth({
+    sampleRate: SR,
+    quality: QUALITY,
+    ...(MAX_VOICES ? { maxVoices: MAX_VOICES } : {}),
+    ...(THREADS ? { threads: THREADS === 'auto' ? 'auto' : Number(THREADS) } : {}),
+  });
   const native = synth._native();
   const events = sc.setup(synth).sort((a, b) => a.time - b.time);
   native.render(SR / 2); // settle: setup commands, reverb buffers
@@ -187,15 +214,19 @@ function runScenario(sc: Scenario): Result {
   let next = 0;
   let maxVoices = 0;
   let maxEventMs = 0;
+  let cpuUs = 0;
   for (let b = 0; b < n; b++) {
     const bufferEnd = ((b + 1) * BUFFER) / SR;
     // keys pressed during the previous buffer reach the engine at the start of this one
     // key handling runs on the JavaScript thread, rendering on the audio thread: time both
     const t0 = process.hrtime.bigint();
     while (next < events.length && events[next]!.time < bufferEnd) events[next++]!.run();
+    const c0 = process.cpuUsage();
     const t1 = process.hrtime.bigint();
     native.render(BUFFER);
     const t2 = process.hrtime.bigint();
+    const c1 = process.cpuUsage(c0);
+    cpuUs += c1.user + c1.system;
     loads[b] = Number(t2 - t1) / 1e6 / budgetMs;
     maxEventMs = Math.max(maxEventMs, Number(t1 - t0) / 1e6);
     if ((b & 63) === 0) maxVoices = Math.max(maxVoices, native.activeVoices);
@@ -216,6 +247,7 @@ function runScenario(sc: Scenario): Result {
     name: sc.name,
     buffers: n,
     meanLoad: sum / n,
+    cpuLoad: cpuUs / 1000 / (n * budgetMs),
     p99Load: quantile(sorted, 0.99),
     p999Load: quantile(sorted, 0.999),
     maxLoad: sorted[n - 1]!,
@@ -246,10 +278,11 @@ const pct = (x: number) => `${(x * 100).toFixed(0).padStart(4)}%`;
 console.log(
   `live test: ${BUFFER}-frame buffers @ ${SR} Hz (deadline ${budgetMs.toFixed(2)} ms), ${SECONDS} s each, quality ${QUALITY}` +
     (SLOWDOWN !== 1 ? `, dropouts also counted for a CPU ${SLOWDOWN}× slower` : '') +
-    '\nload = render time / buffer duration on one core; > 100% is a dropout\n',
+    '\nload = wall-clock render time / buffer duration (all render threads at work); > 100% is a dropout' +
+    '\ncpu = CPU time of all threads / real time (100% = one core busy)\n',
 );
 console.log(
-  'scenario'.padEnd(42) + 'mean   p99  p99.9   max  (at)    voices  dropouts' + (SLOWDOWN !== 1 ? `  @${SLOWDOWN}×` : '') + '  slowest key event',
+  'scenario'.padEnd(42) + 'mean   p99  p99.9   max  (at)     cpu  voices  dropouts' + (SLOWDOWN !== 1 ? `  @${SLOWDOWN}×` : '') + '  slowest key event',
 );
 const results: Result[] = [];
 for (const sc of scenarios) {
@@ -258,7 +291,7 @@ for (const sc of scenarios) {
   results.push(r);
   console.log(
     r.name.padEnd(40) +
-      `${pct(r.meanLoad)} ${pct(r.p99Load)} ${pct(r.p999Load)} ${pct(r.maxLoad)} ${r.maxAt.toFixed(1).padStart(5)}s` +
+      `${pct(r.meanLoad)} ${pct(r.p99Load)} ${pct(r.p999Load)} ${pct(r.maxLoad)} ${r.maxAt.toFixed(1).padStart(5)}s ${pct(r.cpuLoad)}` +
       `${String(r.maxVoices).padStart(8)}${String(r.over).padStart(10)}` +
       (SLOWDOWN !== 1 ? `${String(r.overSlow).padStart(7)}` : '') +
       `${r.maxEventMs.toFixed(1).padStart(10)} ms`,
@@ -276,7 +309,7 @@ for (const [k, v] of Object.entries(latencies)) console.log(`  ${k.padEnd(22)} $
 
 const rss = process.memoryUsage().rss / 1048576;
 console.log(`\npeak resident memory of this process: ${rss.toFixed(0)} MB`);
-if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ sampleRate: SR, buffer: BUFFER, seconds: SECONDS, slowdown: SLOWDOWN, quality: QUALITY, results, latencies, rssMb: rss }, null, 2));
+if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ sampleRate: SR, buffer: BUFFER, seconds: SECONDS, slowdown: SLOWDOWN, quality: QUALITY, threads: THREADS ?? 'auto', results, latencies, rssMb: rss }, null, 2));
 const failed = results.filter((r) => (SLOWDOWN !== 1 ? r.overSlow : r.over) > 0);
 if (failed.length) {
   console.log(`\nFAIL: dropouts in ${failed.map((r) => r.name).join(', ')}`);

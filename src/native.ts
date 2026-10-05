@@ -32,6 +32,8 @@ export interface NativeEngine {
   readonly currentTime: number;
   readonly activeVoices: number;
   readonly cpuLoad: number;
+  /** Threads rendering audio, the audio thread included. */
+  readonly threads: number;
   readonly isRunning: boolean;
   readonly queueFree: number;
   /** The audio thread hit an internal error and now outputs silence. */
@@ -72,6 +74,8 @@ export interface NativeModule {
     maxVoices?: number;
     reverb?: string;
     bufferSize?: number;
+    /** Rendering threads, the audio thread included; 0 or absent: one per core but one. */
+    threads?: number;
   }) => NativeEngine;
   reverbPresets(): string[];
   partParamNames(): string[];

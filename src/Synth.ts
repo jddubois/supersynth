@@ -41,6 +41,10 @@ export interface SynthOptions extends Omit<SynthSettings, 'reverb'> {
   maxVoices?: number;
   /** Audio buffer size in frames (smaller = lower latency, more CPU risk). Default: device default. */
   bufferSize?: number;
+  /** CPU cores rendering audio, the audio thread included (1–16), or `'auto'`: one per core
+   *  but one, at most 8 (3 on a Raspberry Pi 5). Voices are spread over the cores; the sound is
+   *  exactly the same for any number. Offline rendering uses them too. @default 'auto' */
+  threads?: number | 'auto';
   /** Directory searched first for `.ssm` models, laid out like the package's `models/`
    *  (`organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`). Default: the models shipped
    *  with supersynth and the installed organ packages (`@supersynth/organ-<id>`). */
@@ -126,6 +130,7 @@ export class Synth extends EventEmitter {
         ...(options.backend ? { backend: options.backend } : {}),
         ...(options.maxVoices !== undefined ? { maxVoices: integer(options.maxVoices, 1, 1e6, 'maxVoices') } : {}),
         ...(options.bufferSize !== undefined ? { bufferSize: integer(options.bufferSize, 1, 1e7, 'bufferSize') } : {}),
+        ...(options.threads !== undefined && options.threads !== 'auto' ? { threads: integer(options.threads, 1, 16, 'threads') } : {}),
         reverb: reverbPreset,
       }));
     } catch (e) {
@@ -159,6 +164,11 @@ export class Synth extends EventEmitter {
   /** Fraction of real time the last audio buffer took to render (0.1 = 10 % of a core). */
   get cpuLoad(): number {
     return this.engine.cpuLoad;
+  }
+
+  /** Threads rendering audio, the audio thread included (see {@link SynthOptions.threads}). */
+  get threads(): number {
+    return this.engine.threads;
   }
 
   get isRunning(): boolean {
