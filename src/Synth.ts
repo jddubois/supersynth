@@ -119,6 +119,8 @@ export class Synth extends EventEmitter {
   private reverbOn = true;
   private maxPartials: number;
   private closed = false;
+  /** Behave as with real-time output running (benchmarks that drive the engine themselves). */
+  private emulateRealtime = false;
 
   constructor(options: SynthOptions = {}) {
     super();
@@ -321,6 +323,9 @@ export class Synth extends EventEmitter {
     for (const item of this.instruments()) this.remove(item);
     for (const m of this.models.values()) this.unload(m.id);
     this.models.clear();
+    // the engine's instruments still hold the models: freed now (off this thread), not when
+    // this object is garbage-collected, which a busy program may not let happen for long
+    this.engine.releaseResources();
   }
 
   /**
@@ -331,6 +336,7 @@ export class Synth extends EventEmitter {
     this.checkOpen();
     if (this.engine.isRunning) throw new SupersynthError('render() is unavailable while real-time output is running');
     const total = Math.round(Math.max(0, finite(seconds, 'seconds')) * this.sampleRate);
+    this.loadDrawn();
     const left = new Float32Array(total);
     const right = new Float32Array(total);
     const chunk = 8192;
@@ -363,6 +369,7 @@ export class Synth extends EventEmitter {
     this.checkOpen();
     if (this.engine.isRunning) throw new SupersynthError('renderMidi() is unavailable while real-time output is running');
     const { midi, route, tail, release } = this.prepareMidi(file, options);
+    this.loadDrawn();
     try {
       const sr = this.sampleRate;
       const events = midi.events;
@@ -571,6 +578,12 @@ export class Synth extends EventEmitter {
 
   // ── internals ─────────────────────────────────────────────────────────────
 
+  /** Offline, sound the organ stops drawn while their models were loading (real-time output
+   *  was running then), waiting for those models. */
+  private loadDrawn(): void {
+    for (const i of this.instruments()) if (i instanceof Organ) i._loadDrawn();
+  }
+
   private checkOpen(): void {
     if (this.closed) throw new SupersynthError('This synth is closed');
   }
@@ -653,6 +666,16 @@ export class Synth extends EventEmitter {
     if (this.reverbMode !== 'auto' || (this.roomOwner !== undefined && this.roomOwner !== owner)) return;
     this.roomOwner = owner;
     this.engine.setReverbPreset(room, time);
+  }
+
+  /** @internal Real-time output is running (or emulated): calls should not wait for models. */
+  get _realtime(): boolean {
+    return this.emulateRealtime || this.engine.isRunning;
+  }
+
+  /** @internal The native id of a model registered for some owner (0 if none). */
+  _modelId(name: string): number {
+    return this.models.get(name)?.id ?? 0;
   }
 
   /** @internal Partial cap implied by the `quality` option. */

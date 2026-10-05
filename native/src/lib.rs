@@ -245,6 +245,20 @@ impl SynthEngine {
         Ok(())
     }
 
+    /// Load these models next, before the other models queued (those not started yet).
+    #[napi]
+    pub fn hurry_models(&self, ids: Vec<u32>) {
+        for id in ids {
+            self.models.hurry(id);
+        }
+    }
+
+    /// Whether a model is still loading in the background (a use would wait for it).
+    #[napi]
+    pub fn model_loading(&self, id: u32) -> bool {
+        self.models.loading(id)
+    }
+
     /// Decoded size of a model in bytes, or null while it is still loading.
     #[napi]
     pub fn model_bytes(&self, id: u32) -> Option<f64> {
@@ -532,6 +546,22 @@ impl SynthEngine {
     #[napi]
     pub fn disable_midi(&mut self) {
         self.midi = None;
+    }
+
+    /// Stop output and MIDI and let go of everything the engine holds: its instruments and their
+    /// models (freed on the loader's reclaim thread), voices and buffers, now rather than when
+    /// the JavaScript object is garbage-collected. The engine stays usable but empty.
+    #[napi]
+    pub fn release_resources(&mut self) {
+        self.shared.running.store(false, Ordering::Release);
+        self.output = None;
+        self.midi = None;
+        let (engine, ctl) = Engine::new(EngineConfig { sample_rate: self.sample_rate as f32, max_voices: 8, ..EngineConfig::default() });
+        let old = self.engine.lock().map(|mut e| std::mem::replace(&mut *e, engine));
+        if let Ok(mut c) = self.shared.ctl.lock() {
+            *c = ctl;
+        }
+        drop(old);
     }
 }
 

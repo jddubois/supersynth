@@ -179,6 +179,7 @@ function quantile(sorted: Float64Array, q: number): number {
 
 function runScenario(sc: Scenario): Result {
   const synth = new Synth({ sampleRate: SR, quality: QUALITY, ...(MAX_VOICES ? { maxVoices: MAX_VOICES } : {}) });
+  synth['emulateRealtime'] = true; // the engine is driven here as by real-time output
   const native = synth._native();
   const events = sc.setup(synth).sort((a, b) => a.time - b.time);
   native.render(SR / 2); // settle: setup commands, reverb buffers

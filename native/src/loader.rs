@@ -7,6 +7,12 @@
 //! its loading, and loads it itself on the calling thread when no worker has started it yet.
 //! [`ModelStore::when_loaded`] calls back (to settle a JavaScript promise) once a set of models
 //! has loaded.
+//!
+//! Models are freed on a reclaim thread, never where the engine lets go of them: a model that
+//! is unloaded goes to the reclaimer, which holds it until every other reference (the engine's
+//! instruments and voices, the garbage that `render()` collects, an engine waiting for garbage
+//! collection) is gone, and only then frees it. Freeing a large organ's models takes a
+//! noticeable time, which must not land in a render call or between key events.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -139,6 +145,74 @@ impl Job {
             _ => None,
         }
     }
+
+    fn loading(&self) -> bool {
+        matches!(lock(&self.inner).state, State::Queued | State::Running)
+    }
+
+    /// Unloaded: never load it, and give up the model if it is loaded (to the reclaimer). A job
+    /// still loading is left to finish; its worker then frees it.
+    fn unload(&self) {
+        self.cancel();
+        let mut g = lock(&self.inner);
+        if matches!(g.state, State::Done(Ok(_))) {
+            if let State::Done(Ok(m)) = std::mem::replace(&mut g.state, State::Cancelled) {
+                drop(g);
+                reclaim(m);
+            }
+        }
+    }
+}
+
+// ── reclaimer ─────────────────────────────────────────────────────────────────
+
+struct Reclaimer {
+    held: Mutex<Vec<Arc<Model>>>,
+    more: Condvar,
+}
+
+fn reclaimer() -> &'static Reclaimer {
+    static R: OnceLock<Reclaimer> = OnceLock::new();
+    static STARTED: OnceLock<()> = OnceLock::new();
+    let r = R.get_or_init(|| Reclaimer { held: Mutex::new(Vec::new()), more: Condvar::new() });
+    STARTED.get_or_init(|| {
+        // (without the thread, unloaded models are only kept: never freed on a render path)
+        let _ = std::thread::Builder::new().name("supersynth-reclaim".into()).spawn(move || {
+            lower_priority();
+            let mut free = Vec::new();
+            loop {
+                {
+                    let mut held = lock(&r.held);
+                    while held.is_empty() {
+                        held = r.more.wait(held).unwrap_or_else(|e| e.into_inner());
+                    }
+                    // only the reclaimer holds these: nobody can take another reference
+                    let mut i = 0;
+                    while i < held.len() {
+                        if Arc::strong_count(&held[i]) == 1 {
+                            free.push(held.swap_remove(i));
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    if free.is_empty() {
+                        // still used (an engine's instruments, voices or garbage): look again soon
+                        held = r.more.wait_timeout(held, std::time::Duration::from_millis(100)).map_or_else(|e| e.into_inner().0, |w| w.0);
+                        drop(held);
+                    }
+                }
+                free.clear();
+            }
+        });
+    });
+    r
+}
+
+/// Free `m` on the reclaim thread once nothing else uses it.
+fn reclaim(m: Arc<Model>) {
+    let r = reclaimer();
+    lock(&r.held).push(m);
+    r.more.notify_one();
 }
 
 /// Waits for several models: settled when all are loaded (or unloaded), with the first error.
@@ -277,9 +351,28 @@ impl ModelStore {
 
     /// Release a model (a background load not started yet is dropped).
     pub fn remove(&mut self, id: u32) {
-        if let Some(Slot::Pending(j)) = self.slots.remove(&id) {
-            j.cancel();
+        match self.slots.remove(&id) {
+            Some(Slot::Ready(m)) => reclaim(m),
+            Some(Slot::Pending(j)) => j.unload(),
+            None => {}
         }
+    }
+
+    /// Load model `id` next, before the other queued models (when no thread has started it).
+    pub fn hurry(&self, id: u32) {
+        if let Some(Slot::Pending(j)) = self.slots.get(&id) {
+            if matches!(lock(&j.inner).state, State::Queued) {
+                // (its other queue entry is skipped once it has been claimed)
+                let p = pool();
+                lock(&p.queue).push_front(Arc::clone(j));
+                p.work.notify_one();
+            }
+        }
+    }
+
+    /// Whether model `id` is still loading in the background.
+    pub fn loading(&self, id: u32) -> bool {
+        matches!(self.slots.get(&id), Some(Slot::Pending(j)) if j.loading())
     }
 
     /// Call `settle` once all of `ids` are loaded (or unloaded), with the first loading error.
@@ -307,10 +400,12 @@ impl ModelStore {
 
 impl Drop for ModelStore {
     fn drop(&mut self) {
-        // an engine that is gone does not need its queued models
-        for slot in self.slots.values() {
-            if let Slot::Pending(j) = slot {
-                j.cancel();
+        // an engine that is gone does not need its queued models; the others are freed on the
+        // reclaim thread (the engine's own references go with it, possibly right after this)
+        for (_, slot) in self.slots.drain() {
+            match slot {
+                Slot::Ready(m) => reclaim(m),
+                Slot::Pending(j) => j.unload(),
             }
         }
     }
@@ -389,6 +484,38 @@ mod tests {
         }
         assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(30)).unwrap(), None);
         std::fs::remove_file(bad).ok();
+    }
+
+    /// Whoever lets go of a model after it was unloaded (the engine, in `render()` or the audio
+    /// callback) never frees it: the reclaim thread does, once nothing else holds it.
+    #[test]
+    fn unloaded_models_are_freed_on_the_reclaim_thread() {
+        let mut s = ModelStore::default();
+        let bytes = std::fs::read(model_file()).unwrap();
+        let ready = s.insert(Model::from_bytes(&bytes).unwrap());
+        let queued = s.queue(model_file());
+        let mut engine = Vec::new();
+        for id in [ready, queued] {
+            engine.push(s.get(id).unwrap()); // the engine's reference
+        }
+        let weak: Vec<_> = engine.iter().map(Arc::downgrade).collect();
+        s.remove(ready);
+        s.remove(queued);
+        for m in &engine {
+            assert!(Arc::strong_count(m) >= 2, "the engine's reference is not the last");
+        }
+        drop(engine); // only decrements
+        let t = std::time::Instant::now();
+        while weak.iter().any(|w| w.upgrade().is_some()) {
+            assert!(t.elapsed().as_secs() < 10, "the reclaimer frees them");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        // a dropped store hands its models over too
+        let mut s = ModelStore::default();
+        let id = s.insert(Model::from_bytes(&bytes).unwrap());
+        let m = s.get(id).unwrap();
+        drop(s);
+        assert!(Arc::strong_count(&m) >= 2);
     }
 
     #[test]
