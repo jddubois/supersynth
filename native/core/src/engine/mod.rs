@@ -4,9 +4,16 @@
 //! [`Command`]s through a lock-free SPSC ring buffer. The [`Engine`] (owned by
 //! the audio callback, or driven directly for offline rendering) drains the
 //! queue at the start of every buffer, orders events by time, and renders in
-//! sub-blocks split exactly at event times. Objects that need deallocation
-//! (replaced instruments) are sent back through a second ring buffer so the
+//! sub-blocks split exactly at event times (pipes the engine itself schedules, after
+//! their speech delay, start at their sample inside a block instead). Objects that need
+//! deallocation (replaced instruments) are sent back through a second ring buffer so the
 //! audio thread never frees memory.
+//!
+//! Each block is rendered by a [`pool`] of threads: first the voices (each into its own
+//! buffer, set-up of new notes included), then the parts (their voices summed in slot
+//! order, pooled noise, insert effects); the rendering thread then mixes the parts in order
+//! and runs the reverb and limiter. Nothing depends on which thread did what, so the
+//! output is the same for any number of threads.
 
 pub mod params;
 pub mod pool;
