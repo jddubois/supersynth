@@ -265,15 +265,26 @@ with dropouts even on this VM).
 The decisive load for a large organ is a fast piece on a plenum: every pipe plays its recorded
 release (the pipe and several seconds of the church), so BWV 532 on the Friesach plenum keeps up to
 1007 pipes sounding at once (mean 671) and needs about 3.8 cores of this VM — more than a Pi 5 has.
-`maxVoices` defaults to 1024 so that none of them is cut. On a small machine, `releaseCulling` ends
-quiet tails early (opt-in, it changes the sound): with `{ floorDb: -80 }` BWV 532 on the Friesach
-plenum needs half the voices (mean 334, peak 529) and the band levels change by at most 1.8 dB
-under the church reverb; on smaller organs it saves less and changes the room tail more.
+`maxVoices` defaults to 1024 so that none of them is cut.
+
+**The defaults never trade sound for speed**, so the largest organs (Friesach, Cracow, Szczecinek,
+Bureå) at full registration need a faster machine than a Pi 5. `releaseCulling` (opt-in, it
+changes the sound) ends quiet release tails early. Its gentlest useful setting,
+`{ belowMixDb: 80, hold: 'smooth' }`, ends a tail only when it is 80 dB below both its keyboard and
+the whole organ, so tails still ring out when the music stops. Measured on BWV 532 (third-octave
+band levels per 100 ms, against the full tails):
+
+| `releaseCulling` | Friesach plenum voices (mean / peak) | largest band change while playing / in pauses and the final decay |
+|---|---|---|
+| off (default) | 551 / 1007 | — |
+| `{ belowMixDb: 80, hold: 'smooth' }` | 402 / 710 | Friesach 0.78 / 0.53 dB; Cracow 0.12 / 0.42 dB; Bureå 0.12 / 0.08 dB (2.8 dB in the pauses of full-organ chords) |
+| `{ floorDb: -80 }` | 334 / 529 | up to 1.8 dB, and the end of the room tail is cut in pauses |
+
+Neither saves enough for fast pieces on the Friesach and Cracow plena to fit a Pi 5
+(about 4× its budget); on the Pi, play the large organs with lighter registrations, which fit.
 
 Recommended on a Raspberry Pi 5: 64-bit OS, `threads: 'auto'` (or 4 if nothing else runs),
-`bufferSize: 256` (5.3 ms) for organs, the default `quality: 'high'` for the piano, strings,
-winds and the smaller organs; for the large organs (Friesach, Cracow, Szczecinek, Bureå) at full
-registration, `releaseCulling: { floorDb: -80 }` and if needed `quality: 'balanced'`. Check with
+`bufferSize: 256` (5.3 ms) for organs, and the defaults otherwise. Check with
 `npm run live-test -- --repeat 3` and `npm run bench:organs` on the Pi itself; real-time output
 asks for real-time scheduling for the render threads (granted where the user's real-time
 priority limit allows it, as for JACK).
