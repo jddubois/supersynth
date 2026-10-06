@@ -139,8 +139,8 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # npm 11.5.1 or later publishes as a trusted publisher (OIDC, no token) once the packages
-      # trust this workflow (npm-setup.yml); NPM_TOKEN is the fallback
+      # npm 11.5.1 or later publishes as a trusted publisher (OIDC, no token) once a package
+      # trusts this workflow (set on npmjs.com, which asks for 2FA); NPM_TOKEN is the fallback
       - name: npm 11
         run: npm install -g npm@11
 
