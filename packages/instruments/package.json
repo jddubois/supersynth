@@ -1,6 +1,6 @@
 {
   "name": "@supersynth/instruments",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The core instrument models for supersynth: piano, harpsichord, strings, winds, brass, mallets and the VCSL organs, analysed from CC0 recordings (installed with supersynth)",
   "license": "CC0-1.0",
   "repository": {

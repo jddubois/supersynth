@@ -1,6 +1,6 @@
 {
   "name": "@supersynth/core",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Acoustic instrument sounds for Node.js and browsers: spectral models analysed from freely licensed recordings (piano, 16 pipe organs and a harmonium, strings, winds, brass, mallets), played by a Rust engine, native or WebAssembly",
   "type": "module",
   "main": "./dist/index.js",
@@ -113,7 +113,7 @@
     "url": "https://github.com/jddubois/supersynth/issues"
   },
   "dependencies": {
-    "@supersynth/instruments": "^0.3.0"
+    "@supersynth/instruments": "^0.4.0"
   },
   "peerDependencies": {
     "@supersynth/organ-azzio": "*",
@@ -184,12 +184,12 @@
     }
   },
   "optionalDependencies": {
-    "@supersynth/darwin-arm64": "0.3.0",
-    "@supersynth/darwin-x64": "0.3.0",
-    "@supersynth/linux-arm64-gnu": "0.3.0",
-    "@supersynth/linux-x64-gnu": "0.3.0",
-    "@supersynth/linux-x64-musl": "0.3.0",
-    "@supersynth/win32-x64-msvc": "0.3.0"
+    "@supersynth/darwin-arm64": "0.4.0",
+    "@supersynth/darwin-x64": "0.4.0",
+    "@supersynth/linux-arm64-gnu": "0.4.0",
+    "@supersynth/linux-x64-gnu": "0.4.0",
+    "@supersynth/linux-x64-musl": "0.4.0",
+    "@supersynth/win32-x64-msvc": "0.4.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
