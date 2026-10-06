@@ -580,6 +580,26 @@ def build_organ(organ: str, only: list[str] | None = None, keep: bool = False):
             print(f"FAIL {organ}/{st['id']}: {ex}", flush=True)
 
 
+# Harmonics of 32' that organ stops sound (32' ... 1/2'): a stop's footage is 32/h.
+HARMONICS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64]
+
+
+def stop_feet(st: dict) -> str | None:
+    """A stop's pitch in feet as TypeScript (`8`, `2 + 2 / 3`), from its transposition from 8'
+    (the organ's own pitch left out); None for a mixture. The nearest footage organs have: an
+    equal-tempered transposition is a little off a just interval (a septime by 0.3 semitone)."""
+    if st['family'] == 'mixture':
+        return None
+    want = 32 / (8 / 2 ** (st['transpose'] / 12))
+    h = min(HARMONICS, key=lambda x: abs(math.log(x / want)))
+    whole, rem = divmod(32, h)
+    g = math.gcd(rem, h)
+    if rem == 0:
+        return str(whole)
+    frac = f'{rem // g} / {h // g}'
+    return f'{whole} + {frac}' if whole else frac
+
+
 def ts_stops(organ: str) -> str:
     """The stop list of an organ as TypeScript (`StopDef[]` entries)."""
     cat = load_catalog(organ)
@@ -589,8 +609,10 @@ def ts_stops(organ: str) -> str:
         if div is not None and st['division'] != div:
             lines.append('')
         div = st['division']
+        feet = stop_feet(st)
         lines.append(f"  {{ id: '{st['id']}', model: 'organ/{organ}/{st['id']}', name: {json.dumps(st['name'], ensure_ascii=False)}, "
-                     f"division: '{st['division']}', family: '{st['family']}', transpose: {st['transpose'] + shift} }},")
+                     f"division: '{st['division']}', family: '{st['family']}', transpose: {st['transpose'] + shift}"
+                     + (f', feet: {feet}' if feet else '') + ' },')
     return '\n'.join(lines)
 
 

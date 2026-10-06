@@ -18,6 +18,11 @@ export interface StopDefinition {
   family: StopFamily;
   /** Semitones between the key pressed and the sounding pitch of the stop's model zones. */
   transpose: number;
+  /** The stop's pitch in feet, as organists name it: 8 sounds at the key's pitch, 4 an octave
+   *  higher, 16 an octave lower, 2 2/3 (`2 + 2 / 3`) a twelfth higher. It is the pitch the
+   *  pipes sound, which the knob does not always say (Azzio's "Nazardo 3'" is 2 2/3).
+   *  Left out for mixtures, which sound several pitches. See {@link findStops}. */
+  feet?: number;
   /** Level of the stop (dB) when its recordings were normalised separately. @default 0 */
   gain?: number;
   /** Keys (MIDI notes) the stop has pipes for, e.g. a treble-only Cornet `[60, 96]`; other

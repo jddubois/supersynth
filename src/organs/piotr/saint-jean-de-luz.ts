@@ -5,24 +5,24 @@ import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 // microphone perspectives of the set (front, rear, dry) as the definition mixes them. Both the
 // Grand Orgue and the Récit stand in swell boxes.
 const STOPS: StopDefinition[] = [
-  { id: 'great-bourdon-16', model: 'organ/saint-jean-de-luz/great-bourdon-16', name: "Bourdon 16'", division: 'great', family: 'flute', transpose: -12 },
-  { id: 'great-flute-harmonique-8', model: 'organ/saint-jean-de-luz/great-flute-harmonique-8', name: "Flûte harmonique 8'", division: 'great', family: 'flute', transpose: 0 },
-  { id: 'great-bourdon-8', model: 'organ/saint-jean-de-luz/great-bourdon-8', name: "Bourdon 8'", division: 'great', family: 'flute', transpose: 0 },
-  { id: 'great-prestant-4', model: 'organ/saint-jean-de-luz/great-prestant-4', name: "Prestant 4'", division: 'great', family: 'principal', transpose: 12 },
-  { id: 'great-quinte-2-2-3', model: 'organ/saint-jean-de-luz/great-quinte-2-2-3', name: "Quinte 2 2/3'", division: 'great', family: 'mutation', transpose: 19 },
-  { id: 'great-doublette-2', model: 'organ/saint-jean-de-luz/great-doublette-2', name: "Doublette 2'", division: 'great', family: 'principal', transpose: 24 },
-  { id: 'great-tierce-1-3-5', model: 'organ/saint-jean-de-luz/great-tierce-1-3-5', name: "Tierce 1 3/5'", division: 'great', family: 'mutation', transpose: 28 },
+  { id: 'great-bourdon-16', model: 'organ/saint-jean-de-luz/great-bourdon-16', name: "Bourdon 16'", division: 'great', family: 'flute', transpose: -12, feet: 16 },
+  { id: 'great-flute-harmonique-8', model: 'organ/saint-jean-de-luz/great-flute-harmonique-8', name: "Flûte harmonique 8'", division: 'great', family: 'flute', transpose: 0, feet: 8 },
+  { id: 'great-bourdon-8', model: 'organ/saint-jean-de-luz/great-bourdon-8', name: "Bourdon 8'", division: 'great', family: 'flute', transpose: 0, feet: 8 },
+  { id: 'great-prestant-4', model: 'organ/saint-jean-de-luz/great-prestant-4', name: "Prestant 4'", division: 'great', family: 'principal', transpose: 12, feet: 4 },
+  { id: 'great-quinte-2-2-3', model: 'organ/saint-jean-de-luz/great-quinte-2-2-3', name: "Quinte 2 2/3'", division: 'great', family: 'mutation', transpose: 19, feet: 2 + 2 / 3 },
+  { id: 'great-doublette-2', model: 'organ/saint-jean-de-luz/great-doublette-2', name: "Doublette 2'", division: 'great', family: 'principal', transpose: 24, feet: 2 },
+  { id: 'great-tierce-1-3-5', model: 'organ/saint-jean-de-luz/great-tierce-1-3-5', name: "Tierce 1 3/5'", division: 'great', family: 'mutation', transpose: 28, feet: 1 + 3 / 5 },
 
-  { id: 'swell-flute-8', model: 'organ/saint-jean-de-luz/swell-flute-8', name: "Flûte 8'", division: 'swell', family: 'flute', transpose: 0 },
-  { id: 'swell-flute-4', model: 'organ/saint-jean-de-luz/swell-flute-4', name: "Flûte 4'", division: 'swell', family: 'flute', transpose: 12 },
+  { id: 'swell-flute-8', model: 'organ/saint-jean-de-luz/swell-flute-8', name: "Flûte 8'", division: 'swell', family: 'flute', transpose: 0, feet: 8 },
+  { id: 'swell-flute-4', model: 'organ/saint-jean-de-luz/swell-flute-4', name: "Flûte 4'", division: 'swell', family: 'flute', transpose: 12, feet: 4 },
   { id: 'swell-plein-jeu-iii', model: 'organ/saint-jean-de-luz/swell-plein-jeu-iii', name: "Plein-jeu III", division: 'swell', family: 'mixture', transpose: 0, keys: [36, 91] },
-  { id: 'swell-trompette-8', model: 'organ/saint-jean-de-luz/swell-trompette-8', name: "Trompette 8'", division: 'swell', family: 'reed', transpose: 0 },
+  { id: 'swell-trompette-8', model: 'organ/saint-jean-de-luz/swell-trompette-8', name: "Trompette 8'", division: 'swell', family: 'reed', transpose: 0, feet: 8 },
 
-  { id: 'pedal-soubasse-16', model: 'organ/saint-jean-de-luz/pedal-soubasse-16', name: "Soubasse 16'", division: 'pedal', family: 'flute', transpose: -12 },
-  { id: 'pedal-bourdon-8', model: 'organ/saint-jean-de-luz/pedal-bourdon-8', name: "Bourdon 8'", division: 'pedal', family: 'flute', transpose: 0 },
-  { id: 'pedal-flute-8', model: 'organ/saint-jean-de-luz/pedal-flute-8', name: "Flûte 8'", division: 'pedal', family: 'flute', transpose: 0 },
-  { id: 'pedal-flute-4', model: 'organ/saint-jean-de-luz/pedal-flute-4', name: "Flûte 4'", division: 'pedal', family: 'flute', transpose: 12 },
-  { id: 'pedal-flute-2', model: 'organ/saint-jean-de-luz/pedal-flute-2', name: "Flûte 2'", division: 'pedal', family: 'flute', transpose: 24 },
+  { id: 'pedal-soubasse-16', model: 'organ/saint-jean-de-luz/pedal-soubasse-16', name: "Soubasse 16'", division: 'pedal', family: 'flute', transpose: -12, feet: 16 },
+  { id: 'pedal-bourdon-8', model: 'organ/saint-jean-de-luz/pedal-bourdon-8', name: "Bourdon 8'", division: 'pedal', family: 'flute', transpose: 0, feet: 8 },
+  { id: 'pedal-flute-8', model: 'organ/saint-jean-de-luz/pedal-flute-8', name: "Flûte 8'", division: 'pedal', family: 'flute', transpose: 0, feet: 8 },
+  { id: 'pedal-flute-4', model: 'organ/saint-jean-de-luz/pedal-flute-4', name: "Flûte 4'", division: 'pedal', family: 'flute', transpose: 12, feet: 4 },
+  { id: 'pedal-flute-2', model: 'organ/saint-jean-de-luz/pedal-flute-2', name: "Flûte 2'", division: 'pedal', family: 'flute', transpose: 24, feet: 2 },
 ];
 
 const PRESETS: Record<string, OrganPreset> = {
