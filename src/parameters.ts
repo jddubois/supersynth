@@ -31,6 +31,10 @@ export interface InstrumentParameters {
   inharmonicity?: number;
   /** Maximum number of partials per note (lower = cheaper, darker; see also `SynthOptions.quality`). @default 512 */
   maxPartials?: number;
+  /** Sympathetic string resonance, 0–4 (pianos and harpsichords): the strings whose dampers
+   *  are off (keys held, sustain pedal down) ring along with what is played. 0 = off.
+   *  Default per instrument (1 where the instrument has dampers). */
+  resonance?: number;
 
   // ── envelope ───────────────────────────────────────────────────────────
   /** Attack time scale: 2 = twice as slow to speak, 0.5 = snappier. @default 1 */
@@ -125,6 +129,7 @@ export function toNativeParameter(name: keyof InstrumentParameters, value: unkno
 export const PARAMETER_RANGES: Readonly<Record<Exclude<keyof InstrumentParameters, 'mono' | 'legato' | 'leslie'>, readonly [number, number]>> = {
   volume: [-120, 24], pan: [-1, 1], reverbSend: [0, 1], spread: [0, 1],
   brightness: [-24, 24], evenHarmonics: [-60, 24], noise: [-120, 40], formant: [0, 1], inharmonicity: [0, 10], maxPartials: [1, 512],
+  resonance: [0, 4],
   attack: [0.05, 20], decay: [0.05, 20], release: [0.01, 20],
   vibrato: [0, 1200], vibratoRate: [0, 40], vibratoDelay: [0, 60], naturalVibrato: [0, 2], humanize: [0, 100],
   transpose: [-96, 96], tune: [-1200, 1200], bendRange: [-48, 48], modDepth: [-1200, 1200], velocitySensitivity: [0, 1],
@@ -147,10 +152,10 @@ export function checkParameter(name: keyof InstrumentParameters, value: unknown)
 }
 
 /** Parameters whose default is the instrument's own value. */
-type PerInstrument = 'reverbSend' | 'spread' | 'formant';
+type PerInstrument = 'reverbSend' | 'spread' | 'formant' | 'resonance';
 
-/** Default of every parameter: the model unchanged. (`reverbSend`, `spread` and `formant`
- *  default to each instrument's own value, so they are not listed.) */
+/** Default of every parameter: the model unchanged. (`reverbSend`, `spread`, `formant` and
+ *  `resonance` default to each instrument's own value, so they are not listed.) */
 export const PARAMETER_DEFAULTS: Readonly<Required<Omit<InstrumentParameters, PerInstrument>>> = {
   volume: 0, pan: 0, brightness: 0, evenHarmonics: 0, noise: 0,
   inharmonicity: 1, maxPartials: 512, attack: 1, decay: 1, release: 1, vibrato: 0, vibratoRate: 5.5,
@@ -162,7 +167,7 @@ export const PARAMETER_DEFAULTS: Readonly<Required<Omit<InstrumentParameters, Pe
 };
 
 /** @internal Every parameter name. */
-export const PARAMETER_NAMES: ReadonlySet<string> = new Set([...Object.keys(PARAMETER_DEFAULTS), 'reverbSend', 'spread', 'formant']);
+export const PARAMETER_NAMES: ReadonlySet<string> = new Set([...Object.keys(PARAMETER_DEFAULTS), 'reverbSend', 'spread', 'formant', 'resonance']);
 
 /** @internal The value that restores a parameter's default (the engine reads -1 as "the
  *  instrument's own value"). */

@@ -675,6 +675,8 @@ export class Synth extends EventEmitter {
         try {
           this.engine.allNotesOff(ch);
           this.engine.controlChange(ch, 64, 0);
+          this.engine.controlChange(ch, 66, 0);
+          this.engine.controlChange(ch, 67, 0);
           this.engine.controlChange(ch, 1, 0);
           this.engine.controlChange(ch, 11, 127);
           this.engine.pitchBend(ch, 0);
@@ -728,7 +730,7 @@ export class Synth extends EventEmitter {
           break;
         }
         case 'cc':
-          if ([1, 7, 10, 11, 64, 91].includes(e.controller)) n.controlChange(ch, e.controller, e.value, at);
+          if ([1, 7, 10, 11, 64, 66, 67, 91].includes(e.controller)) n.controlChange(ch, e.controller, e.value, at);
           break;
         case 'pitchBend':
           n.pitchBend(ch, e.value, at);
@@ -831,6 +833,8 @@ export class Synth extends EventEmitter {
     n.setCouplers(ch, []);
     n.pitchBend(ch, 0);
     n.controlChange(ch, 64, 0);
+    n.controlChange(ch, 66, 0);
+    n.controlChange(ch, 67, 0);
     n.controlChange(ch, 1, 0);
     n.controlChange(ch, 11, 127);
     for (const name of PARAMETER_NAMES) {

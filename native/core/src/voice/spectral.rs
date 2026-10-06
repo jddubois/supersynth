@@ -22,6 +22,11 @@ const NYQ_FADE_HI: f32 = 0.95 * std::f32::consts::PI;
 /// Fade of a voice shed by the overload guard: −12 dB every 2 ms, ended at −60 dB (10 ms; a
 /// stolen voice fades half as fast, to −80 dB).
 const SHED_FADE_S: f32 = 0.002;
+/// Time a piano damper takes to settle fully onto the strings after key-up.
+const DAMPER_ENGAGE_S: f32 = 0.012;
+/// Octave bands (from 31.25 Hz) of the equaliser that matches a recorded attack to the
+/// morphed tone it hands over to.
+const TR_EQ_BANDS: usize = 10;
 
 /// Live, part-level parameters shared by all voices of a part (cheap to copy).
 #[derive(Clone, Copy, Debug)]
@@ -211,6 +216,13 @@ pub struct SpectralVoice {
     glide_cents: f32,
     glide_tau: f32,
     pub one_shot: bool,
+    /// Una corda (soft pedal) when the note was struck: spectral tilt (dB per octave above
+    /// the fundamental) of a hammer hitting fewer strings with softer felt.
+    pub soft_tilt: f32,
+    /// How firmly the damper rests on the strings once the voice is released, 0..1 (pedal:
+    /// 0 when lifted, between for half-pedalling), and its rate per partial.
+    damp: f32,
+    damp_w: [f32; MAX_PARTIALS],
 
     base_w: [f32; MAX_PARTIALS],
     re: [f32; MAX_PARTIALS],
@@ -244,6 +256,13 @@ pub struct SpectralVoice {
     tr_step: [f64; MAX_ZONES],
     has_tr: bool,
     tr_fade: (f32, f32),
+    /// Attack equaliser (left, right): the dominant zone's recorded onset reshaped to the
+    /// spectrum of the zones' blend (between dynamic layers and pitches), so the attack
+    /// changes with velocity as smoothly as the tone does. A broadband gain, then one shelf
+    /// per octave-band boundary; `tr_eq_n` stages are active.
+    tr_eq: [[crate::dsp::biquad::Biquad; TR_EQ_BANDS]; 2],
+    tr_eq_n: usize,
+    tr_eq_gain: f32,
     /// fading out faster than a steal (shed by the overload guard)
     shed_fade: bool,
     /// Overload guard's partial cap: partials from `cap` up fade out (soft edge, see
@@ -344,6 +363,9 @@ impl Default for SpectralVoice {
             vib_phase: 0.0,
             detune_cents: 0.0,
             damper_rate: 0.0,
+            soft_tilt: 0.0,
+            damp: 1.0,
+            damp_w: [1.0; MAX_PARTIALS],
             first_block: true,
             peak_db: -200.0,
             noise_peak_db: -200.0,
@@ -351,6 +373,9 @@ impl Default for SpectralVoice {
             tr_step: [0.0; MAX_ZONES],
             has_tr: false,
             tr_fade: (0.0, 0.0),
+            tr_eq: [[crate::dsp::biquad::Biquad::default(); TR_EQ_BANDS]; 2],
+            tr_eq_n: 0,
+            tr_eq_gain: 1.0,
             shed_fade: false,
             cap: f32::INFINITY,
             cap_target: f32::INFINITY,
@@ -724,7 +749,7 @@ impl SpectralVoice {
                 let rf = z.loop_range.map(|(a, _)| a).unwrap_or_else(|| z.grid.iter().position(|&g| g >= 0.5).unwrap_or(0)).min(z.frames - 1);
                 let ii = self.look_i[j][i] as usize;
                 let fr = self.look_f[j][i];
-                let q = |idx: usize| z.harm_db(rf, idx);
+                let q = |idx: usize| if z.morph_ref.is_empty() { z.harm_db(rf, idx) } else { z.morph_ref.get(idx).copied().unwrap_or(-200.0) };
                 let mut v = q(ii);
                 if fr > 0.0 {
                     v = lerp(v, q(ii + 2), fr);
@@ -899,6 +924,7 @@ impl SpectralVoice {
             }
             self.tr_fade = (a, b);
         }
+        self.transient_eq(m, f_target);
         // pad to a multiple of LANES with silent partials
         let kp = k.div_ceil(LANES) * LANES;
         for i in k..kp.min(MAX_PARTIALS) {
@@ -993,6 +1019,11 @@ impl SpectralVoice {
             ReleaseMode::Damper => m.damper_rate(pitch),
             _ => 0.0,
         };
+        self.damp = 1.0;
+        for i in 0..k {
+            // felt stops the upper partials faster: the rate doubles by the 31st harmonic
+            self.damp_w[i] = 0.75 + 0.25 * (1.0 + self.harm[i]).log2().min(6.0);
+        }
         for b in 0..MAX_BANDS {
             self.noise_pow[b] = 0.0;
         }
@@ -1291,9 +1322,21 @@ impl SpectralVoice {
     fn update_static_db(&mut self, p: &SpectralParams) {
         for i in 0..self.k {
             let even = if i < self.k_h && (i & 1) == 1 { p.even_db } else { 0.0 };
-            self.stat_db[i] = p.brightness * self.harm[i].log2() + even;
+            self.stat_db[i] = (p.brightness + self.soft_tilt) * self.harm[i].log2() + even;
         }
         self.stat_key = (p.brightness, p.even_db);
+    }
+
+    /// Whether a damper stops this voice on release (piano-like instruments).
+    pub fn has_damper(&self) -> bool {
+        self.model.as_ref().is_some_and(|m| m.params.release_mode == ReleaseMode::Damper)
+    }
+
+    /// Damper contact once released: 1 = resting on the strings, 0 = lifted (sustain pedal),
+    /// between = half-pedal. A lifted damper lets a released note ring on as if held.
+    pub fn set_damp(&mut self, d: f32) {
+        self.finish_start();
+        self.damp = d.clamp(0.0, 1.0);
     }
 
     /// Release-triggered one-shots (damper noises) are not released by their own key.
@@ -1573,12 +1616,16 @@ impl SpectralVoice {
                     }
                 }
                 ReleaseMode::Natural => {}
-                ReleaseMode::Damper => release_extra = self.damper_rate * rs * dt,
+                ReleaseMode::Damper => {
+                    // the felt settles onto the strings over the first ~12 ms
+                    let engage = (self.t_rel / DAMPER_ENGAGE_S).min(1.0);
+                    release_extra = self.damper_rate * self.damp * engage * rs * dt;
+                }
                 ReleaseMode::RingOut => {}
             }
             if release_extra > 0.0 {
                 for i in 0..k {
-                    self.rel_db[i] += release_extra;
+                    self.rel_db[i] += release_extra * self.damp_w[i];
                 }
             }
         }
@@ -2072,6 +2119,104 @@ impl SpectralVoice {
         }
     }
 
+    /// Fit the attack equaliser (see `tr_eq`): per octave band, the power of the tone the
+    /// partials and noise will play (the zones' blend) over the power the dominant zone alone
+    /// has there, over the frames its recorded onset covers.
+    fn transient_eq(&mut self, m: &Model, f_target: f32) {
+        use crate::dsp::biquad::{Biquad, Coeffs};
+        self.tr_eq_n = 0;
+        self.tr_eq_gain = 1.0;
+        // (decaying instruments only: struck and plucked onsets that vary with velocity)
+        if !self.has_tr || self.nz < 2 || m.kind != Kind::Decaying {
+            return;
+        }
+        let dzi = self.dominant;
+        let z = &m.zones[self.zone[dzi]];
+        if z.onset_db.is_empty() {
+            return;
+        }
+        let speed = f_target / z.f0;
+        let mut pd = [0.0f64; TR_EQ_BANDS];
+        let mut pb = [0.0f64; TR_EQ_BANDS];
+        let band = |f: f32| ((f / 31.25).max(1.0).log2().round() as usize).min(TR_EQ_BANDS - 1);
+        for i in 0..self.k_h {
+            let f = self.base_w[i] * self.sr / std::f32::consts::TAU;
+            let ii = self.look_i[dzi][i] as usize;
+            let d = z.onset_db.get(ii).copied().unwrap_or(-200.0) + self.look_db[dzi][i] + z.gain_db;
+            if d < -150.0 {
+                continue;
+            }
+            let off = if self.morph_ok[i] { self.morph_off[i] } else { 0.0 };
+            let b = band(f);
+            let p = 10f64.powf(d as f64 / 10.0);
+            pd[b] += p;
+            pb[b] += p * 10f64.powf(off as f64 / 10.0);
+        }
+        // the noise bands (hammer, action): each zone's own, weighted like the noise is played
+        let nb = m.noise_bands().min(MAX_BANDS);
+        let edges = &m.noise_edges;
+        for b in 0..nb {
+            let lo = if edges[b] > 0.0 { edges[b] } else { edges[b + 1] * 0.5 };
+            let fc = (lo * edges[b + 1]).sqrt() * speed;
+            let mut blend = 0.0f32;
+            let mut dom = -200.0f32;
+            for j in 0..self.nz {
+                let zj = &m.zones[self.zone[j]];
+                // (a zone without a stored onset: its noise over the same span, at load)
+                let Some(&nd) = zj.onset_noise.get(b) else { return };
+                let db = nd + zj.gain_db;
+                blend += self.w[j] * db;
+                if j == dzi {
+                    dom = db;
+                }
+            }
+            if dom < -150.0 {
+                continue;
+            }
+            let k = band(fc);
+            pd[k] += 10f64.powf(dom as f64 / 10.0);
+            pb[k] += 10f64.powf(blend as f64 / 10.0);
+        }
+        // gains per band; bands the onset has (almost) nothing in follow their neighbours
+        let top = pd.iter().cloned().fold(0.0f64, f64::max);
+        if top <= 0.0 {
+            return;
+        }
+        let mut g = [f32::NAN; TR_EQ_BANDS];
+        for b in 0..TR_EQ_BANDS {
+            if pd[b] > top * 1e-6 {
+                g[b] = (10.0 * (pb[b] / pd[b]).log10()).clamp(-18.0, 18.0) as f32;
+            }
+        }
+        for b in 1..TR_EQ_BANDS {
+            if g[b].is_nan() {
+                g[b] = g[b - 1];
+            }
+        }
+        for b in (0..TR_EQ_BANDS - 1).rev() {
+            if g[b].is_nan() {
+                g[b] = g[b + 1];
+            }
+        }
+        if g[0].is_nan() {
+            return;
+        }
+        self.tr_eq_gain = db_to_amp(g[0]);
+        let mut n = 0;
+        for b in 0..TR_EQ_BANDS - 1 {
+            let edge = 31.25 * 2f32.powf(b as f32 + 0.5);
+            let delta = g[b + 1] - g[b];
+            if delta.abs() < 0.05 || edge > 0.45 * self.sr {
+                continue;
+            }
+            let c = Coeffs::high_shelf(edge, delta, self.sr);
+            self.tr_eq[0][n] = Biquad::new(c);
+            self.tr_eq[1][n] = Biquad::new(c);
+            n += 1;
+        }
+        self.tr_eq_n = n;
+    }
+
     fn render_transient(&mut self, m: &Model, out_l: &mut [f32], out_r: &mut [f32], n: usize, common: f32) {
         let g = db_to_amp(common);
         let (pl, pr) = self.voice_pan;
@@ -2084,6 +2229,8 @@ impl SpectralVoice {
                 continue;
             }
             let gz = g * db_to_amp(z.gain_db);
+            // (only the dominant zone's onset plays; the equaliser is fitted to it)
+            let neq = if j == self.dominant { self.tr_eq_n } else { 0 };
             let last = tr.len() as f64 - 1.0;
             let mut pos = self.tr_pos[j];
             for s in 0..n {
@@ -2098,19 +2245,37 @@ impl SpectralVoice {
                 let i = pos as usize;
                 let fr = (pos - i as f64) as f32;
                 let (a, b) = (tr.left(i), tr.left(i + 1));
-                let v = a + (b - a) * fr;
-                out_l[s] += v * gz * gt * pl;
-                let vr = match &tr.data_r {
+                let mut v = a + (b - a) * fr;
+                let mut vr = match &tr.data_r {
                     Some(_) => {
                         let (a, b) = (tr.right(i), tr.right(i + 1));
                         a + (b - a) * fr
                     }
                     None => v,
                 };
+                if neq > 0 {
+                    v *= self.tr_eq_gain;
+                    vr *= self.tr_eq_gain;
+                    let stereo = tr.data_r.is_some();
+                    for q in self.tr_eq[0][..neq].iter_mut() {
+                        v = q.process(v);
+                    }
+                    if stereo {
+                        for q in self.tr_eq[1][..neq].iter_mut() {
+                            vr = q.process(vr);
+                        }
+                    } else {
+                        vr = v;
+                    }
+                }
+                out_l[s] += v * gz * gt * pl;
                 out_r[s] += vr * gz * gt * pr;
                 pos += self.tr_step[j];
             }
             self.tr_pos[j] = pos;
+            for q in self.tr_eq.iter_mut().flatten() {
+                q.flush_denormals();
+            }
         }
     }
 

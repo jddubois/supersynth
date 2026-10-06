@@ -9,6 +9,7 @@
 //!   --mono                write a mono file
 //!   --bench               report real-time factor
 //!   --threads N           rendering threads (default: one per core but one)
+//!   cc:<controller>:<value>:<time>   a control change (e.g. cc:64:127:0 sustain pedal down)
 //! ```
 
 use std::sync::Arc;
@@ -31,6 +32,7 @@ fn main() {
     let mut reverb: Option<String> = None;
     let mut sets: Vec<(String, f32)> = vec![];
     let mut notes: Vec<(u8, u8, f32, f32)> = vec![];
+    let mut ccs: Vec<(u8, u8, f32)> = vec![];
     let mut mono = false;
     let mut bench = false;
     let mut threads = supersynth_core::engine::default_threads();
@@ -60,6 +62,10 @@ fn main() {
             }
             "--mono" => mono = true,
             "--bench" => bench = true,
+            s if s.starts_with("cc:") => {
+                let p: Vec<&str> = s.split(':').collect();
+                ccs.push((p[1].parse().unwrap(), p[2].parse().unwrap(), p[3].parse().unwrap()));
+            }
             s => {
                 let p: Vec<&str> = s.split(':').collect();
                 notes.push((p[0].parse().unwrap(), p[1].parse().unwrap(), p[2].parse().unwrap(), p[3].parse().unwrap()));
@@ -85,6 +91,10 @@ fn main() {
         ctl.send(0, Command::SetPartParam { part: 0, param: p, value: *v }).unwrap();
     }
     let mut end = 0.0f32;
+    for &(c, v, t) in &ccs {
+        ctl.send((t * sr) as u64 + 1, Command::ControlChange { part: 0, controller: c, value: v }).unwrap();
+        end = end.max(t);
+    }
     for &(n, v, s, d) in &notes {
         let t0 = (s * sr) as u64 + 1;
         let t1 = ((s + d) * sr) as u64 + 1;

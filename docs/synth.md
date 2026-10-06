@@ -108,7 +108,7 @@ Returned by `synth.add`: one instrument on one channel.
 | `play(notes, { velocity, duration, at, delay })` | notes: `'C4'`, `60`, or arrays (chords); velocity 90 and 1 s by default |
 | `sequence(steps, { tempo, velocity, legato, at, delay })` | `[note, beats]` or `{ note, beats, velocity }`; `null` is a rest; returns seconds. Defaults: 120 bpm, velocity 90, each key held 0.95 of its step |
 | `noteOn(note, velocity = 90, { at })`, `noteOff(note, { at })`, `allNotesOff()` | |
-| `sustain(down)`, `pitchBend(-1…1)`, `modulation(0…1)`, `expression(0…1)`, `controlChange(n, v)` | controllers |
+| `sustain(down \| 0…1)`, `sostenuto(down)`, `softPedal(down)`, `pitchBend(-1…1)`, `modulation(0…1)`, `expression(0…1)`, `controlChange(n, v)` | controllers. On pianos `sustain` takes a depth for half-pedalling (other instruments switch at 0.5); `sostenuto` (CC 66) keeps ringing only the notes held when it goes down; `softPedal` (una corda, CC 67) makes new notes softer and darker |
 | `set(parameters, { at })`, `get(name)`, `parameters()` | sound parameters, see [parameters.md](parameters.md) |
 | `preset(name \| preset, { at })`, `presets()`, `savePreset(name, preset?)`, `current()`, `activePreset()` | presets |
 | `midi(channel?)` | play it from a MIDI keyboard on channel 1–16 (every channel if left out) |

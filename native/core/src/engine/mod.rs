@@ -32,7 +32,8 @@ use crate::fx::leslie::{Leslie, LeslieSpeed};
 use crate::fx::limiter::{safety_clip, Limiter};
 use crate::fx::reverb::{Reverb, ReverbParams};
 use crate::fx::StereoEffect;
-use crate::model::Model;
+use crate::fx::resonance::{StringBank, LOW_NOTE, STRINGS};
+use crate::model::{Model, ReleaseMode};
 use crate::voice::noisebank::NoiseBank;
 use crate::voice::spectral::{BlockMod, NoteOn, SpectralParams, SpectralVoice, VoiceScratch, MAX_BANDS};
 use params::{MasterParam, PartParam};
@@ -179,7 +180,7 @@ pub enum Command {
     SetMasterParam { param: MasterParam, value: f32 },
     /// Replace a part's instrument. `noise` is the part's noise bank for the instrument's band
     /// layout, built by [`Controller::send`] off the audio thread (use [`Command::set_instrument`]).
-    SetInstrument { part: u16, instrument: Box<Instrument>, noise: Option<Box<NoiseBank>> },
+    SetInstrument { part: u16, instrument: Box<Instrument>, noise: Option<Box<NoiseBank>>, strings: Option<Box<StringBank>> },
     /// Append a layer to a part's instrument without interrupting sounding notes. `spare` (an
     /// empty instrument with room for [`MAX_LAYERS`] layers) and `noise` are built by
     /// [`Controller::send`] so that the audio thread never allocates (use [`Command::add_layer`]).
@@ -199,7 +200,7 @@ pub enum Command {
 
 impl Command {
     pub fn set_instrument(part: u16, instrument: Instrument) -> Command {
-        Command::SetInstrument { part, instrument: Box::new(instrument), noise: None }
+        Command::SetInstrument { part, instrument: Box::new(instrument), noise: None, strings: None }
     }
 
     pub fn add_layer(part: u16, layer: InstLayer) -> Command {
@@ -235,6 +236,34 @@ struct Pending {
 /// Room in the event heap for the engine's own scheduled events, beyond the controller's.
 const INTERNAL_CAPACITY: usize = 4096;
 
+/// Re-striking a piano key whose string still rings (key held, or the pedal down) lets the
+/// earlier strikes ring on; more than this many and the oldest is damped.
+const RESTRIKE_KEEP: usize = 2;
+/// Sympathetic resonance: coupling of the part's sound into its strings (and back out) at
+/// `resonance` 1.
+const RESONANCE_GAIN: f32 = 0.0007;
+/// Strings whose own notes are kept out of what they hear: all of them.
+const OWN_STRINGS: usize = STRINGS;
+
+/// Whether a model's instrument has strings with dampers that resonate sympathetically
+/// (pianos, harpsichords: keyboards whose notes are damped at key-up).
+fn has_strings(m: &Model) -> bool {
+    m.params.release_mode == ReleaseMode::Damper && m.family == "keyboard"
+}
+
+/// Soft pedal (una corda): velocity scale and spectral tilt (dB per octave) of new notes.
+const SOFT_VELOCITY: f32 = 0.82;
+const SOFT_TILT_DB: f32 = -0.8;
+
+/// How far the dampers are lifted (0..1) at sustain-pedal position `value` (CC 64): a
+/// switch pedal (0 / 127) is fully off or on; a continuous pedal half-pedals between about a
+/// quarter and three quarters of its travel.
+fn pedal_lift(value: u8) -> f32 {
+    let x = (value as f32 / 127.0 - 0.25) / 0.5;
+    let x = x.clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
 impl PartialEq for Pending {
     fn eq(&self, o: &Self) -> bool {
         self.time == o.time && self.seq == o.seq
@@ -261,6 +290,7 @@ pub enum Garbage {
     /// A voice's model reference: possibly the last one of a replaced or unloaded model.
     Model(Arc<Model>),
     Noise(Box<NoiseBank>),
+    Strings(Box<StringBank>),
 }
 
 const GARBAGE_CAPACITY: usize = 4096;
@@ -347,8 +377,17 @@ impl Controller {
         let sr = self.sample_rate;
         let bank = |edges: &[f32], part: u16| (edges.len() >= 2).then(|| Box::new(NoiseBank::new(sr, edges, noise_seed(part))));
         match cmd {
-            Command::SetInstrument { part, instrument, noise } if noise.is_none() => {
-                *noise = instrument.layers.first().and_then(|l| bank(&l.model.noise_edges, *part));
+            Command::SetInstrument { part, instrument, noise, strings } => {
+                if noise.is_none() {
+                    *noise = instrument.layers.first().and_then(|l| bank(&l.model.noise_edges, *part));
+                }
+                // a piano's strings, for sympathetic resonance
+                if strings.is_none() {
+                    if let Some(l) = instrument.layers.iter().find(|l| !l.on_release && has_strings(&l.model)) {
+                        let m = Arc::clone(&l.model);
+                        *strings = Some(Box::new(StringBank::new(sr, |note| m.damper_rate(note))));
+                    }
+                }
             }
             Command::AddLayer { part, layer, spare, noise } => {
                 if spare.is_none() {
@@ -402,7 +441,15 @@ struct Part {
     swell_box: bool,
     swell_shelf: [crate::dsp::biquad::Biquad; 2],
     swell_shelf_db: f32,
+    /// Sustain pedal fully down (every damper lifted), and how far the dampers are lifted,
+    /// 0..1 (CC 64; values between 0 and 1 are half-pedalling).
     sustain: bool,
+    lift: f32,
+    /// Sostenuto pedal (CC 66) down, and the keys whose dampers it holds up.
+    sostenuto: bool,
+    sost_hold: [bool; 128],
+    /// Soft pedal (una corda, CC 67) down.
+    soft: bool,
     held: [bool; 128],
     /// Organ couplers: what this part's keys play, and the keys held down on this part as a
     /// keyboard (velocity, 0 = up).
@@ -426,6 +473,10 @@ struct Part {
     leslie: Leslie,
     leslie_on: bool,
     noise: Option<Box<NoiseBank>>,
+    /// Sympathetic string resonance (instruments with dampers) and its amount (−1: the
+    /// default, 1).
+    strings: Option<Box<StringBank>>,
+    resonance: f32,
     mono: bool,
     legato: bool,
     glide: f32,
@@ -465,6 +516,10 @@ impl Part {
             swell_shelf: [crate::dsp::biquad::Biquad::new(crate::dsp::biquad::Coeffs::high_shelf(700.0, 0.0, 48000.0)); 2],
             swell_shelf_db: 0.0,
             sustain: false,
+            lift: 0.0,
+            sostenuto: false,
+            sost_hold: [false; 128],
+            soft: false,
             held: [false; 128],
             couplers: Couplers::default(),
             keys: [0; 128],
@@ -484,6 +539,8 @@ impl Part {
             leslie: Leslie::new(sr),
             leslie_on: false,
             noise: None,
+            strings: None,
+            resonance: -1.0,
             mono: false,
             legato: false,
             glide: 0.06,
@@ -512,6 +569,9 @@ impl Part {
         }
         if let Some(nb) = self.noise.as_mut() {
             nb.reset();
+        }
+        if let Some(sb) = self.strings.as_mut() {
+            sb.reset();
         }
         self.expression_smoothed = self.expression;
         self.gain_smoothed = db_to_amp(self.volume_db);
@@ -1165,13 +1225,16 @@ impl Engine {
             }
             Command::SetPartParam { part, param, value } => self.set_part_param(part as usize, param, value),
             Command::SetMasterParam { param, value } => self.set_master_param(param, value),
-            Command::SetInstrument { part, mut instrument, noise } => {
+            Command::SetInstrument { part, mut instrument, noise, strings } => {
                 let pi = part as usize;
                 let q = &mut self.garbage;
                 if pi >= self.parts.len() {
                     trash(q, Garbage::Instrument(instrument));
                     if let Some(nb) = noise {
                         trash(q, Garbage::Noise(nb));
+                    }
+                    if let Some(sb) = strings {
+                        trash(q, Garbage::Strings(sb));
                     }
                     return;
                 }
@@ -1199,6 +1262,11 @@ impl Engine {
                 }
                 if let Some(old) = p.inst.replace(instrument) {
                     trash(q, Garbage::Instrument(old));
+                }
+                // the strings of the new instrument (none: it has no dampers)
+                let old = std::mem::replace(&mut p.strings, strings);
+                if let Some(old) = old {
+                    trash(q, Garbage::Strings(old));
                 }
             }
             Command::AddLayer { part, layer, spare, noise } => {
@@ -1285,11 +1353,17 @@ impl Engine {
                         p.keys = [0; 128];
                         p.pedal_hold = [false; 128];
                         p.sustain = false;
+                        p.lift = 0.0;
+                        p.sostenuto = false;
+                        p.sost_hold = [false; 128];
                     }
                 }
                 for v in self.voices.iter_mut() {
                     if v.is_active() && part.map(|x| x as usize == v.part).unwrap_or(true) {
                         v.release();
+                        if v.has_damper() {
+                            v.set_damp(1.0);
+                        }
                     }
                 }
             }
@@ -1301,6 +1375,7 @@ impl Engine {
                     p.held = [false; 128];
                     p.keys = [0; 128];
                     p.pedal_hold = [false; 128];
+                    p.sost_hold = [false; 128];
                 }
             }
         }
@@ -1492,11 +1567,27 @@ impl Engine {
                 return;
             }
         }
-        // re-striking a key: release the previous sounding instance of this note
-        for v in self.voices.iter_mut() {
+        // re-striking a key: release the previous sounding instance of this note. A piano
+        // string struck again while its damper is up (key held, or pedal) rings on under the
+        // new strike; only the oldest of more than `RESTRIKE_KEEP` instances is let go.
+        let mut ringing = 0;
+        let mut oldest = (u64::MAX, usize::MAX);
+        for (i, v) in self.voices.iter_mut().enumerate() {
             if v.is_active() && v.part == pi && (v.note == note || mono) && !v.is_released() {
-                v.release();
+                if !mono && v.has_damper() && v.layer_released_by_key() {
+                    ringing += 1;
+                    if v.age < oldest.0 {
+                        oldest = (v.age, i);
+                    }
+                } else {
+                    v.release();
+                }
             }
+        }
+        if ringing > RESTRIKE_KEEP {
+            let v = &mut self.voices[oldest.1];
+            v.release();
+            v.set_damp(1.0);
         }
         {
             let p = &mut self.parts[pi];
@@ -1553,7 +1644,7 @@ impl Engine {
 
     /// Start a voice for layer `li` now. `one_shot` voices are not released by their key.
     fn start_voice_now(&mut self, pi: usize, li: usize, note: u8, velocity: u8, one_shot: bool) {
-        let (model, pitch, pan, sp) = {
+        let (model, pitch, pan, sp, soft) = {
             let p = &self.parts[pi];
             let Some(inst) = p.inst.as_ref() else { return };
             let Some(layer) = inst.layers.get(li) else { return };
@@ -1563,8 +1654,12 @@ impl Engine {
             let pitch = note as f32 + p.transpose + layer.transpose + (p.tune_cents + layer.detune_cents) / 100.0;
             let mut sp = p.sp;
             sp.gain_db += layer.gain_db;
-            (Arc::clone(&layer.model), pitch, (p.pan + layer.pan).clamp(-1.0, 1.0), sp)
+            let soft = p.soft && has_strings(&layer.model);
+            (Arc::clone(&layer.model), pitch, (p.pan + layer.pan).clamp(-1.0, 1.0), sp, soft)
         };
+        // una corda: the hammer shifts onto fewer strings, with softer felt: a gentler
+        // dynamic layer, a little quieter and darker
+        let (velocity, tilt) = if soft { (((velocity as f32) * SOFT_VELOCITY).round().max(1.0) as u8, SOFT_TILT_DB) } else { (velocity, 0.0) };
         let slot = self.alloc_voice();
         self.age += 1;
         let age = self.age;
@@ -1581,6 +1676,7 @@ impl Engine {
         v.layer_id = li as u32;
         v.age = age;
         v.one_shot = one_shot;
+        v.soft_tilt = tilt;
         self.voff[slot] = self.start_offset.min(BLOCK - 1) as u8;
     }
 
@@ -1690,18 +1786,33 @@ impl Engine {
         }
         let p = &mut self.parts[pi];
         p.held[note as usize] = false;
+        if p.sost_hold[note as usize] {
+            // the sostenuto pedal holds this key's damper up
+            return;
+        }
         if p.sustain {
             p.pedal_hold[note as usize] = true;
             return;
         }
+        self.damp_note(pi, note);
+    }
+
+    /// The key is up and no pedal holds its damper fully off: release the note's voices, the
+    /// damper resting on the strings as firmly as the sustain pedal lets it.
+    fn damp_note(&mut self, pi: usize, note: u8) {
+        let lift = self.parts[pi].lift;
         let mut damped = false;
         for v in self.voices.iter_mut() {
             if v.is_active() && v.part == pi && v.note == note && !v.is_released() && v.layer_released_by_key() {
                 v.release();
+                if v.has_damper() {
+                    v.set_damp(1.0 - lift);
+                }
                 damped = true;
             }
         }
-        if damped {
+        // (half-pedalling: the felt only brushes the strings, without its thud)
+        if damped && lift < 0.5 {
             self.trigger_release_layers(pi, note);
         }
     }
@@ -1717,17 +1828,30 @@ impl Engine {
             10 => self.parts[pi].pan = x * 2.0 - 1.0,
             11 => self.parts[pi].expression = x,
             64 => {
-                let on = value >= 64;
+                // half-pedalling for instruments with dampers; any other part's sustain pedal
+                // is a switch (on from 64)
+                let lift = if self.part_has_dampers(pi) { pedal_lift(value) } else if value >= 64 { 1.0 } else { 0.0 };
                 let p = &mut self.parts[pi];
-                p.sustain = on;
-                if !on {
+                p.lift = lift;
+                p.sustain = lift >= 1.0;
+                let (held, sost) = (p.held, p.sost_hold);
+                if lift < 1.0 {
+                    // dampers come down (fully, or partly when half-pedalling) on every string
+                    // whose key is up
                     let hold = p.pedal_hold;
                     p.pedal_hold = [false; 128];
                     let mut damped = [false; 128];
                     for v in self.voices.iter_mut() {
-                        if v.is_active() && v.part == pi && hold[v.note as usize] && !v.is_released() && v.layer_released_by_key() {
+                        let n = v.note as usize;
+                        if !v.is_active() || v.part != pi || held[n] || sost[n] || !v.layer_released_by_key() {
+                            continue;
+                        }
+                        if !v.is_released() {
                             v.release();
-                            damped[v.note as usize] = true;
+                            damped[n] = hold[n] && lift < 0.5;
+                        }
+                        if v.has_damper() {
+                            v.set_damp(1.0 - lift);
                         }
                     }
                     for n in 0..128u8 {
@@ -1735,13 +1859,51 @@ impl Engine {
                             self.trigger_release_layers(pi, n);
                         }
                     }
+                } else {
+                    // every damper lifted: released strings that still sound ring on
+                    for v in self.voices.iter_mut() {
+                        let n = v.note as usize;
+                        if v.is_active() && v.part == pi && !held[n] && v.layer_released_by_key() && v.has_damper() && !v.is_killing() {
+                            v.set_damp(0.0);
+                            p.pedal_hold[n] = true;
+                        }
+                    }
                 }
             }
+            66 if self.part_has_dampers(pi) => {
+                // sostenuto: keeps up the dampers of the keys held when it goes down
+                let on = value >= 64;
+                let p = &mut self.parts[pi];
+                if on && !p.sostenuto {
+                    p.sost_hold = p.held;
+                } else if !on && p.sostenuto {
+                    let hold = p.sost_hold;
+                    p.sost_hold = [false; 128];
+                    let (held, sustain) = (p.held, p.sustain);
+                    for n in 0..128u8 {
+                        if hold[n as usize] && !held[n as usize] {
+                            if sustain {
+                                self.parts[pi].pedal_hold[n as usize] = true;
+                            } else {
+                                self.damp_note(pi, n);
+                            }
+                        }
+                    }
+                }
+                self.parts[pi].sostenuto = on;
+            }
+            67 => self.parts[pi].soft = value >= 64,
             91 => self.parts[pi].reverb_send = x,
             120 => self.apply(Command::AllSoundOff),
             123 => self.apply(Command::AllNotesOff { part: Some(pi as u16) }),
             _ => {}
         }
+    }
+
+    /// Whether a part plays an instrument whose strings have dampers (piano-like): only these
+    /// take half-pedalling, sostenuto and the soft pedal.
+    fn part_has_dampers(&self, pi: usize) -> bool {
+        self.parts[pi].inst.as_ref().is_some_and(|i| i.layers.iter().any(|l| !l.on_release && l.model.params.release_mode == ReleaseMode::Damper))
     }
 
     fn set_layer_enabled(&mut self, pi: usize, li: usize, enabled: bool) {
@@ -1777,6 +1939,7 @@ impl Engine {
         use PartParam::*;
         match param {
             Volume => p.volume_db = v,
+            Resonance => p.resonance = v,
             Pan => p.pan = v,
             ReverbSend => p.reverb_send = v,
             Brightness => p.sp.brightness = v,
@@ -2310,6 +2473,59 @@ fn part_block(p: &mut Part, ids: &[u32], voices: &[SpectralVoice], vo: &VoiceOut
         }
     }
 
+    // sympathetic resonance: the strings whose dampers are off pick up what is played
+    let amount = if p.resonance >= 0.0 { p.resonance } else { 1.0 };
+    if let (Some(sb), true) = (p.strings.as_mut(), amount > 0.0) {
+        // (a transposed part's key lifts the damper of the string it sounds)
+        let shift = p.transpose.round() as i32;
+        let key = |i: usize| usize::try_from(LOW_NOTE as i32 + i as i32 - shift).ok().filter(|&k| k < 128);
+        let (held, sost, lift) = (&p.held, &p.sost_hold, p.lift);
+        sb.set_state(|i| match key(i) {
+            Some(k) if held[k] || sost[k] => 0.0,
+            _ => 1.0 - lift,
+        });
+        let mut mono = [0.0f32; BLOCK];
+        for s in 0..n {
+            mono[s] = 0.5 * (part_l[s] + part_r[s]);
+        }
+        // a string whose own note sounds hears everything but that note
+        let mut own = [[0.0f32; BLOCK]; OWN_STRINGS];
+        let mut own_idx = [usize::MAX; OWN_STRINGS];
+        let mut n_own = 0;
+        for &vi in ids {
+            let vi = vi as usize;
+            let i = voices[vi].note as i32 + shift - LOW_NOTE as i32;
+            let Ok(i) = usize::try_from(i) else { continue };
+            if i >= STRINGS || !sb.listening(i) {
+                continue;
+            }
+            let slot = match own_idx[..n_own].iter().position(|&x| x == i) {
+                Some(j) => j,
+                None => {
+                    // (each string at most once: never more than OWN_STRINGS)
+                    own_idx[n_own] = i;
+                    n_own += 1;
+                    n_own - 1
+                }
+            };
+            let [bl, br] = &vo.buf[vi];
+            for s in 0..n {
+                own[slot][s] += 0.5 * (bl[s] + br[s]);
+            }
+            if vo.tr_on[vi] {
+                let [tl, tr] = &vo.tr[vi];
+                for s in 0..n {
+                    own[slot][s] += 0.5 * (tl[s] + tr[s]);
+                }
+            }
+        }
+        let mut owns: [(usize, &[f32]); OWN_STRINGS] = [(usize::MAX, &[]); OWN_STRINGS];
+        for j in 0..n_own {
+            owns[j] = (own_idx[j], &own[j][..n]);
+        }
+        sb.process(&mono[..n], &owns[..n_own], &mut part_l[..n], &mut part_r[..n], RESONANCE_GAIN * amount);
+    }
+
     // insert effects
     if p.drive_on {
         p.drive.process(&mut part_l[..n], &mut part_r[..n]);
@@ -2420,6 +2636,131 @@ mod tests {
         ctl.send(0, Command::NoteOff { part: 0, note: 60 }).unwrap();
         render(&mut eng, 48000 * 4);
         assert_eq!(eng.active_voices(), 0, "damper should end the note");
+    }
+
+    /// Level (dB) of a part's output over `frames`.
+    fn level_db(eng: &mut Engine, frames: usize) -> f32 {
+        let (l, r) = render(eng, frames);
+        20.0 * (rms(&l) + rms(&r)).max(1e-12).log10()
+    }
+
+    /// A struck note with every damper in a given state: its level over 0.3–0.5 s after
+    /// key-up, relative to just before (dB).
+    fn after_key_up(cc64: Option<u8>) -> Option<f32> {
+        let (mut eng, mut ctl) = engine_with("grand-piano")?;
+        // (dry: the hall's tail would hide the damping)
+        ctl.send(0, Command::SetPartParam { part: 0, param: PartParam::ReverbSend, value: 0.0 }).unwrap();
+        if let Some(v) = cc64 {
+            ctl.send(0, Command::ControlChange { part: 0, controller: 64, value: v }).unwrap();
+        }
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 90 }).unwrap();
+        render(&mut eng, 24000);
+        let before = level_db(&mut eng, 4800);
+        ctl.send(0, Command::NoteOff { part: 0, note: 60 }).unwrap();
+        render(&mut eng, 14400);
+        Some(level_db(&mut eng, 9600) - before)
+    }
+
+    #[test]
+    fn damper_stops_a_note_at_least_at_its_rate() {
+        let (Some(down), Some(m)) = (after_key_up(None), model("grand-piano")) else { return };
+        // (the upper partials die faster than the model's rate, the noise floor slower)
+        let want = m.damper_rate(60.0) * 0.3;
+        assert!(down < -want, "0.3–0.5 s after key-up: {down:.1} dB, want below -{want:.1}");
+    }
+
+    #[test]
+    fn half_pedal_damps_partly() {
+        let (Some(none), Some(half), Some(full)) = (after_key_up(Some(0)), after_key_up(Some(64)), after_key_up(Some(127))) else { return };
+        assert!(full > -6.0, "pedal down: {full:.1} dB");
+        assert!(half < full - 6.0 && half > none + 3.0, "half pedal {half:.1} dB (off {none:.1}, down {full:.1})");
+    }
+
+    #[test]
+    fn pedal_caught_again_lets_a_released_note_ring() {
+        let Some((mut eng, mut ctl)) = engine_with("grand-piano") else { return };
+        ctl.send(0, Command::NoteOn { part: 0, note: 48, velocity: 100 }).unwrap();
+        render(&mut eng, 24000);
+        ctl.send(0, Command::NoteOff { part: 0, note: 48 }).unwrap();
+        // dampers fall for 20 ms, then the pedal lifts them again
+        render(&mut eng, 960);
+        ctl.send(0, Command::ControlChange { part: 0, controller: 64, value: 127 }).unwrap();
+        let a = level_db(&mut eng, 4800);
+        render(&mut eng, 19200);
+        let b = level_db(&mut eng, 4800);
+        assert!(b > a - 12.0, "caught note died away: {a:.1} → {b:.1} dB");
+        ctl.send(0, Command::ControlChange { part: 0, controller: 64, value: 0 }).unwrap();
+        render(&mut eng, 48000 * 3);
+        assert_eq!(eng.active_voices(), 0, "pedal up damps it");
+    }
+
+    #[test]
+    fn sostenuto_holds_only_the_keys_down_when_pressed() {
+        let Some((mut eng, mut ctl)) = engine_with("grand-piano") else { return };
+        ctl.send(0, Command::NoteOn { part: 0, note: 48, velocity: 100 }).unwrap();
+        ctl.send(0, Command::ControlChange { part: 0, controller: 66, value: 127 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 64, velocity: 100 }).unwrap();
+        render(&mut eng, 4800);
+        ctl.send(0, Command::NoteOff { part: 0, note: 48 }).unwrap();
+        ctl.send(0, Command::NoteOff { part: 0, note: 64 }).unwrap();
+        render(&mut eng, 48000);
+        let rung: Vec<u8> = eng.voices.iter().filter(|v| v.is_active() && !v.is_released() && !v.one_shot).map(|v| v.note).collect();
+        assert_eq!(rung, vec![48], "only the key held at sostenuto ring on");
+        ctl.send(0, Command::ControlChange { part: 0, controller: 66, value: 0 }).unwrap();
+        render(&mut eng, 48000 * 3);
+        assert_eq!(eng.active_voices(), 0);
+    }
+
+    #[test]
+    fn restriking_a_pedalled_note_lets_the_old_strike_ring() {
+        let Some((mut eng, mut ctl)) = engine_with("grand-piano") else { return };
+        ctl.send(0, Command::ControlChange { part: 0, controller: 64, value: 127 }).unwrap();
+        for i in 0..5u64 {
+            ctl.send(i * 9600, Command::NoteOn { part: 0, note: 60, velocity: 80 }).unwrap();
+            ctl.send(i * 9600 + 4800, Command::NoteOff { part: 0, note: 60 }).unwrap();
+        }
+        render(&mut eng, 9600 * 5);
+        let ringing = eng.voices.iter().filter(|v| v.is_active() && v.note == 60 && !v.one_shot && !v.is_released()).count();
+        assert_eq!(ringing, RESTRIKE_KEEP + 1, "strikes ringing under the pedal");
+    }
+
+    #[test]
+    fn soft_pedal_plays_quieter_and_darker() {
+        let play = |soft: bool| -> Option<(f32, f32)> {
+            let (mut eng, mut ctl) = engine_with("grand-piano")?;
+            ctl.send(0, Command::ControlChange { part: 0, controller: 67, value: if soft { 127 } else { 0 } }).unwrap();
+            ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+            let (l, _) = render(&mut eng, 24000);
+            let hi: f32 = l.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum::<f32>().sqrt();
+            Some((rms(&l), hi / (rms(&l) * (l.len() as f32).sqrt())))
+        };
+        let (Some((ln, bn)), Some((ls, bs))) = (play(false), play(true)) else { return };
+        assert!(ls < ln * 0.9, "level {ls} vs {ln}");
+        assert!(bs < bn, "brightness {bs} vs {bn}");
+    }
+
+    #[test]
+    fn an_organ_sustain_pedal_is_a_switch_and_ignores_sostenuto() {
+        // (half-pedalling and sostenuto are for instruments with dampers only)
+        let Some((mut eng, mut ctl)) = engine_with("organ/great-principal-8") else { return };
+        ctl.send(0, Command::ControlChange { part: 0, controller: 66, value: 127 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 60, velocity: 100 }).unwrap();
+        ctl.send(0, Command::ControlChange { part: 0, controller: 64, value: 70 }).unwrap();
+        render(&mut eng, 4800);
+        ctl.send(0, Command::NoteOff { part: 0, note: 60 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!(speaking(&eng, 0), 1, "CC 64 = 70 holds the pipe");
+        ctl.send(0, Command::ControlChange { part: 0, controller: 64, value: 63 }).unwrap();
+        render(&mut eng, 4800);
+        assert_eq!(speaking(&eng, 0), 0, "pedal up releases it, sostenuto or not");
+    }
+
+    #[test]
+    fn pedal_lift_curve() {
+        assert_eq!(pedal_lift(0), 0.0);
+        assert_eq!(pedal_lift(127), 1.0);
+        assert!(pedal_lift(64) > 0.2 && pedal_lift(64) < 0.8);
+        assert!((1..128).all(|v| pedal_lift(v) >= pedal_lift(v - 1)));
     }
 
     #[test]

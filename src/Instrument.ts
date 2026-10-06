@@ -108,9 +108,25 @@ export class Instrument implements Playable {
 
   // ── controllers ───────────────────────────────────────────────────────────
 
-  /** Sustain (damper) pedal. */
-  sustain(down: boolean, options: TimeOptions = {}): this {
-    return this.controlChange(64, down ? 127 : 0, options);
+  /**
+   * Sustain (damper) pedal (CC 64): `true`/`false`, or how far it is pressed, 0–1. On a piano
+   * the dampers lift gradually: between about a quarter and three quarters of the travel they
+   * only brush the strings (half-pedalling), and pressing the pedal again while a note dies
+   * away lets it ring on. Other instruments treat it as a switch (on from 0.5).
+   */
+  sustain(down: boolean | number, options: TimeOptions = {}): this {
+    const depth = typeof down === 'number' ? clamp(down, 0, 1, 'sustain depth') : down ? 1 : 0;
+    return this.controlChange(64, Math.round(depth * 127), options);
+  }
+
+  /** Sostenuto pedal (CC 66, pianos): keeps ringing only the notes held when it goes down. */
+  sostenuto(down: boolean, options: TimeOptions = {}): this {
+    return this.controlChange(66, down ? 127 : 0, options);
+  }
+
+  /** Soft pedal (una corda, CC 67, pianos): notes struck while it is down are softer and darker. */
+  softPedal(down: boolean, options: TimeOptions = {}): this {
+    return this.controlChange(67, down ? 127 : 0, options);
   }
 
   /** Pitch bend in -1 … 1 (scaled by `bendRange`). */

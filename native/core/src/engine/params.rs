@@ -54,6 +54,7 @@ pub enum PartParam {
     SwellClosed,
     SwellShelf,
     Wind,
+    Resonance,
 }
 
 impl PartParam {
@@ -110,6 +111,7 @@ impl PartParam {
         ("swellClosed", PartParam::SwellClosed),
         ("swellShelf", PartParam::SwellShelf),
         ("wind", PartParam::Wind),
+        ("resonance", PartParam::Resonance),
     ];
 
     pub fn parse(name: &str) -> Option<PartParam> {
@@ -163,6 +165,8 @@ impl PartParam {
             SwellClosed => (-60.0, 0.0),
             SwellShelf => (-40.0, 0.0),
             Wind => (0.0, 4.0),
+            // (−1: the instrument's own amount)
+            Resonance => (-1.0, 4.0),
         }
     }
 

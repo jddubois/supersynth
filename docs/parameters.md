@@ -21,6 +21,7 @@ defaults. A value outside its range (`PARAMETER_RANGES`, listed below) throws a
 | `formant` | per instrument | 0 … 1 | keep body resonances fixed when interpolating pitches |
 | `inharmonicity` | 1 | 0 … 10 × | string stiffness; 0 = harmonic |
 | `maxPartials` | 512 | 1 … 512 | CPU/quality trade-off |
+| `resonance` | per instrument (1 for pianos and harpsichords, else off) | 0 … 4 | sympathetic string resonance: strings whose dampers are off (keys held, sustain pedal down) ring along with what is played |
 | `attack` | 1 | 0.05 … 20 × | onset speed (2 = slower) |
 | `decay` | 1 | 0.05 … 20 × | free-decay time of piano, harp, mallets |
 | `release` | 1 | 0.01 … 20 × | after note-off |

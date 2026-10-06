@@ -66,9 +66,11 @@ nearest recording, resampled to the new pitch.
 - Between recorded notes, the attack and envelope come from one of the two neighbouring
   recordings and switch over halfway between them, much like sampler zones. The attack is
   resampled with linear interpolation, which can alias when it's transposed a long way up.
-- Piano: there's no sympathetic or pedal resonance between notes (resonances inside each
-  recording are kept). Re-striking a note that is still sounding, including one held by the
-  pedal, releases the previous strike.
+- Piano: sympathetic and pedal resonance come from a bank of tuned string resonators driven
+  by what is played (`resonance`), not from recordings with the pedal down. The strings
+  without dampers at the top of the keyboard aren't in it: their resonance is already in
+  every recording. A note between two recorded dynamics plays the nearer one's recorded hammer
+  attack, reshaped to the blended timbre; there are three dynamic layers (no *pp* recording).
 - Strings, winds and brass: legato is a pitch glide into the next note's sustain, not a recorded
   transition. Sections (`strings`, `violins`, …) are a single model, not individual players.
 - Organs: the Bureå and Piotr Grabowski sample sets record every pipe, so these models

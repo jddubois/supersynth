@@ -8,6 +8,7 @@ pub mod drive;
 pub mod eq;
 pub mod leslie;
 pub mod limiter;
+pub mod resonance;
 pub mod reverb;
 
 pub const MAX_BLOCK: usize = 512;

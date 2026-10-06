@@ -86,6 +86,10 @@ pub fn a16_to_db(v: u16) -> f32 {
     }
 }
 
+/// Span (s) over which a decaying instrument's zones are compared for morphing: the attack
+/// and early decay, where velocity and pitch shape the timbre most.
+pub const DECAY_MORPH_S: (f32, f32) = (0.02, 0.3);
+
 /// u8 dB quantisation used for noise envelopes (and amplitude envelopes of older models).
 #[inline]
 pub fn q_to_db(v: u8) -> f32 {
@@ -208,6 +212,14 @@ pub struct Zone {
     /// recordings, the smooth envelopes are mixed and only the nearest zone's own detail
     /// (beating, timbre drift) is added back, instead of averaging it away.
     pub amps_smooth: Vec<u16>,
+    /// Decaying instruments: each harmonic's mean level (dB) over the attack and early decay
+    /// (`DECAY_MORPH_S`), the reference at which notes are morphed between zones (computed
+    /// at load; empty: the level at the loop start or at 0.5 s).
+    pub morph_ref: Vec<f32>,
+    /// Mean level (dB) of each harmonic and of each noise band over the frames the recorded
+    /// onset covers (zones with a transient, in models that blend zones; computed at load).
+    pub onset_db: Vec<f32>,
+    pub onset_noise: Vec<f32>,
     /// frame times (s): the zone's own grid (dense around a recorded release) or the model's
     pub grid: Vec<f32>,
     /// frames, cents relative to f0.
@@ -271,6 +283,35 @@ impl Zone {
             return -200.0;
         }
         a16_to_db(self.amps[frame * self.partials + partial])
+    }
+
+    /// Frames `a..b` (at least one) whose times lie in [t0, t1] s.
+    pub fn frames_between(&self, t0: f32, t1: f32) -> (usize, usize) {
+        let a = self.grid.iter().position(|&g| g >= t0).unwrap_or(0).min(self.frames - 1);
+        let b = self.grid.iter().position(|&g| g > t1).unwrap_or(self.frames).clamp(a + 1, self.frames);
+        (a, b)
+    }
+
+    /// Mean power (dB) of harmonic `partial` over frames `a..b` (`harm_db` of frame `a` when
+    /// the range holds one frame).
+    pub fn harm_db_mean(&self, a: usize, b: usize, partial: usize) -> f32 {
+        if b <= a + 1 {
+            return self.harm_db(a, partial);
+        }
+        if partial >= self.harmonic {
+            return -200.0;
+        }
+        let mut acc = 0.0f64;
+        for f in a..b {
+            let db = a16_to_db(self.amps[f * self.partials + partial]);
+            if db > -150.0 {
+                acc += 10f64.powf(db as f64 / 10.0);
+            }
+        }
+        if acc <= 0.0 {
+            return -200.0;
+        }
+        (10.0 * (acc / (b - a) as f64).log10()) as f32
     }
 }
 
@@ -843,6 +884,9 @@ impl Model {
                 phases: phases_q[..k].iter().map(|&q| q as f32 * (std::f32::consts::TAU / 256.0)).collect(),
                 amps,
                 amps_smooth: Vec::new(),
+                morph_ref: Vec::new(),
+                onset_db: Vec::new(),
+                onset_noise: Vec::new(),
                 grid: zgrid,
                 pitch: pitch_q.as_chunks::<2>().0.iter().map(|&c| i16::from_le_bytes(c) as f32 / 100.0).collect(),
                 noise,
@@ -978,8 +1022,25 @@ impl Model {
         // between velocity layers); a model that plays every note from one recording does
         // without them (half its amplitude memory)
         if params.pitch_morph || layers.len() > 1 {
+            let decaying = h.kind == "decaying";
+            let nb = h.noise_edges.len().saturating_sub(1);
             for z in zones.iter_mut() {
                 z.amps_smooth = smooth_rows(&z.amps, z.frames, z.partials, &z.grid, 0.3);
+                if decaying && z.loop_range.is_none() {
+                    let (a, b) = z.frames_between(DECAY_MORPH_S.0, DECAY_MORPH_S.1);
+                    z.morph_ref = (0..z.harmonic).map(|i| z.harm_db_mean(a, b, i)).collect();
+                }
+                // (sustained instruments, organs among them, morph and play their onsets as before)
+                if let (true, Some(tr)) = (decaying, &z.transient) {
+                    let (a, b) = z.frames_between(0.0, tr.fade.1.max(0.03));
+                    z.onset_db = (0..z.harmonic).map(|i| z.harm_db_mean(a, b, i)).collect();
+                    z.onset_noise = (0..nb)
+                        .map(|band| {
+                            let p: f64 = (a..b).map(|f| 10f64.powf(q_to_db(z.noise[f * nb + band]) as f64 / 10.0)).sum();
+                            (10.0 * (p / (b - a) as f64).max(1e-30).log10()) as f32
+                        })
+                        .collect();
+                }
             }
         }
 
@@ -1019,6 +1080,9 @@ impl Model {
                     + b(&z.phases)
                     + b(&z.amps)
                     + b(&z.amps_smooth)
+                    + b(&z.morph_ref)
+                    + b(&z.onset_db)
+                    + b(&z.onset_noise)
                     + b(&z.grid)
                     + b(&z.pitch)
                     + b(&z.noise)
@@ -1302,7 +1366,10 @@ mod tests {
             }
         }
         let mut h = Fnv(0xcbf2_9ce4_8422_2325);
-        std::fmt::write(&mut h, format_args!("{m:?}")).unwrap();
+        // (without the levels derived at load for morphing, added after the fingerprints
+        // were taken; the caller clears them)
+        let text = format!("{m:?}").replace("morph_ref: [], onset_db: [], onset_noise: [], ", "");
+        std::fmt::Write::write_str(&mut h, &text).unwrap();
         h.0
     }
 
@@ -1319,21 +1386,29 @@ mod tests {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let mut checked = 0;
         for (file, want) in [
-            ("packages/instruments/models/piccolo.ssm", 0xf2b4f066de1e07b1u64),
-            ("packages/instruments/models/flute-vibrato.ssm", 0x083da5ae8a225130),
-            ("packages/instruments/models/grand-piano.ssm", 0xc81e687ca2ab0d26),
-            ("packages/organ-friesach/models/organ/friesach/great-gambe-8.ssm", 0xeb675083369b8aed),
-            ("packages/organ-harmonium/models/organ/harmonium/great-diapason-8-forte.ssm", 0x3f1d1b3079439eb8),
-            ("packages/organ-saint-jean-de-luz/models/organ/saint-jean-de-luz/pedal-bourdon-8.ssm", 0x66f40dc18eefa477),
-            ("packages/organ-skrzatusz/models/organ/skrzatusz/great-principal-8.ssm", 0xa583729ec5cfac89),
-            ("packages/organ-skrzatusz/models/organ/skrzatusz/noise-keys-pedal-down.ssm", 0x0b3d143ddd459f05),
+            ("packages/instruments/models/piccolo.ssm", &[0xf2b4f066de1e07b1][..]),
+            ("packages/instruments/models/flute-vibrato.ssm", &[0x083da5ae8a225130][..]),
+            // (0.3.0, and the same recordings with the faster piano damper in the header)
+            ("packages/instruments/models/grand-piano.ssm", &[0xc81e687ca2ab0d26, 0x9b93_c3f2_7cc2_30e2][..]),
+            ("packages/organ-friesach/models/organ/friesach/great-gambe-8.ssm", &[0xeb675083369b8aed][..]),
+            ("packages/organ-harmonium/models/organ/harmonium/great-diapason-8-forte.ssm", &[0x3f1d1b3079439eb8][..]),
+            ("packages/organ-saint-jean-de-luz/models/organ/saint-jean-de-luz/pedal-bourdon-8.ssm", &[0x66f40dc18eefa477][..]),
+            ("packages/organ-skrzatusz/models/organ/skrzatusz/great-principal-8.ssm", &[0xa583729ec5cfac89][..]),
+            ("packages/organ-skrzatusz/models/organ/skrzatusz/noise-keys-pedal-down.ssm", &[0x0b3d143ddd459f05][..]),
         ] {
             let Ok(bytes) = std::fs::read(root.join(file)) else {
                 eprintln!("not found, skipped: {file}");
                 continue;
             };
-            let m = Model::from_bytes(&bytes).unwrap_or_else(|e| panic!("{file}: {e}"));
-            assert_eq!(fingerprint(&m), want, "{file} decodes differently");
+            let mut m = Model::from_bytes(&bytes).unwrap_or_else(|e| panic!("{file}: {e}"));
+            // (levels derived at load for morphing, after the fingerprints were taken)
+            for z in m.zones.iter_mut() {
+                z.morph_ref.clear();
+                z.onset_db.clear();
+                z.onset_noise.clear();
+            }
+            let got = fingerprint(&m);
+            assert!(want.contains(&got), "{file} decodes differently: {got:#x}");
             checked += 1;
         }
         assert!(checked >= 3, "the shipped models are part of the repository");

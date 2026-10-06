@@ -15,7 +15,10 @@ CC0_VSCO = 'Analysed from VSCO 2 Community Edition (CC0)'
 
 RR_EXTRA = r'(_rr[2-9]|_RR[2-9]|_0[2-9][_.]|_var[2-9])'
 
-PIANO_DAMPER = [[21, 18.0], [36, 28.0], [48, 40.0], [60, 55.0], [72, 70.0], [84, 90.0]]
+# Damper decay (dB/s) by key: a felt damper stops a mid-range string ~40 dB within about 0.2 s;
+# the bass dampers (heavier strings, wedge felts) take several times longer. Upper partials die
+# faster still (the engine raises the rate with partial number).
+PIANO_DAMPER = [[21, 35.0], [36, 60.0], [48, 110.0], [60, 170.0], [72, 240.0], [84, 300.0]]
 
 INSTRUMENTS: dict[str, dict] = {
     # ── keyboards ──────────────────────────────────────────────────────────
@@ -379,6 +382,8 @@ def _piotr_organs():
     import os
     from piotr import model_id, spec_for
     for path in sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'piotr_organs', '*.json'))):
+        if path.endswith('.noises.json'):
+            continue        # an organ's machinery noises (noises.py), not its stops
         with open(path) as f:
             cat = json.load(f)
         for st in cat['stops']:

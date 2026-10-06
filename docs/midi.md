@@ -13,9 +13,12 @@ const audio = synth.renderMidi('song.mid', {
 await synth.playMidi('song.mid', { instrument: 'harpsichord' }); // real time (starts output)
 ```
 
-Supported messages are note on/off, sustain (CC64), modulation (CC1), volume (CC7), pan (CC10),
-expression (CC11), reverb send (CC91) and pitch bend. Program changes and other controllers are
-ignored. Channel 10 (GM drums) is skipped unless you map it.
+Supported messages are note on/off, sustain (CC64), sostenuto (CC66), soft pedal (CC67),
+modulation (CC1), volume (CC7), pan (CC10), expression (CC11), reverb send (CC91) and pitch bend.
+Program changes and other controllers are ignored. On instruments with dampers (pianos,
+harpsichords, vibraphone) CC64 is continuous: values between about 32 and 96 half-pedal; on
+everything else it switches at 64. Sostenuto acts on instruments with dampers, the soft pedal
+on pianos and harpsichords. Channel 10 (GM drums) is skipped unless you map it.
 
 With `byTrack: true`, instruments are assigned per track instead of per channel, and the keys
 of `channels` are 0-based track indices (`0` is the first track). Channel 10 isn't skipped in
