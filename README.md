@@ -24,8 +24,8 @@ synth.close();
 - Rendering MIDI files or generated scores to WAV, on a server or in a build step, without an
   audio device.
 - Small or headless machines. The bundled instruments take 36 MB and the engine is prebuilt for
-  64-bit ARM. (The Raspberry Pi 5 numbers under [Performance](#performance) are estimated on a
-  cloud VM, not measured on a Pi.)
+  64-bit ARM. (Most Raspberry Pi 5 numbers under [Performance](#performance) are estimated on a
+  cloud VM; [some](#measured-on-a-raspberry-pi-5) are measured on a Pi 5.)
 - Playing a MIDI keyboard through Node, including multi-manual organs whose stops, couplers and
   presets you control from code.
 - Changing the sound while it plays: brightness, attack, release, vibrato, inharmonicity, noise
@@ -78,8 +78,8 @@ nearest recording, resampled to the new pitch.
   apart from a simple shared-wind model (`wind`).
 - Live MIDI is applied at the start of the next audio buffer, so its timing can be off by up to
   one buffer (2.7 ms at 128 frames).
-- The largest organs at full registration probably need more CPU than a Raspberry Pi 5 has
-  (see [Performance](#performance)).
+- The largest organs at full registration probably need more CPU than a Raspberry Pi 5 has, at
+  least in fast pieces (see [Performance](#performance)).
 
 ## Instruments
 
@@ -111,7 +111,7 @@ Every instrument has presets (`synth.add('grand-piano', { preset: 'felt' })`). `
 - Instruments and organs have the same preset methods: `preset(name | object)`, `presets()`,
   `savePreset(name)`, `current()`, `activePreset()`.
 - MIDI channels are numbered 1–16. A MIDI keyboard only plays what you've assigned a channel
-  to: `instrument.midi(1)`, `organ.midi({ great: 1, pedal: 2 })`.
+  (or a device) to: `instrument.midi(1)`, `organ.midi({ great: 1, pedal: { device: 'pedalboard' } })`.
 - Instruments and organs are plain configuration objects (`InstrumentDefinition`,
   `OrganDefinition`). The built-in ones are in `INSTRUMENTS` and `ORGANS`, keyed by id; copy
   one, change it and pass it to `add`.
@@ -285,6 +285,20 @@ synth.on('midi', (e) => console.log(e));
 Incoming messages take effect at the start of the next audio buffer. While a MIDI input is
 open, Node.js keeps running until you call `disableMidi()` or `close()`.
 
+Several devices can play at once, each routed to its own instrument or keyboard, and they stay
+connected when they are unplugged or switched off and on again:
+
+```ts
+await synth.enableMidi('piano', { optional: true });       // no error if it's off now
+await synth.enableMidi('pedalboard', { optional: true });
+organ.midi({ great: { device: 'piano' }, pedal: { device: 'pedalboard' } });
+piano.midi({ device: 'piano' });                           // later: the keyboard plays the piano
+synth.on('midiDevice', ({ device, connected }) => console.log(device, connected));
+synth.sendMidi('piano', [0xb0, 122, 0]);                   // MIDI output: Local Control Off
+```
+
+See [docs/midi.md](docs/midi.md#hardware-input).
+
 ## Examples
 
 ```bash
@@ -396,18 +410,53 @@ third-octave levels in 100 ms windows with the full render while the guard is ac
 The large changes are in the quiet bands of the room between notes, where the shed releases
 were; the notes themselves aren't touched. On a machine that keeps up, the guard never engages.
 
+### Measured on a Raspberry Pi 5
+
+On a Raspberry Pi 5 (4 GB, 64-bit Raspberry Pi OS, JACK at 256 frames, real-time priority), a
+dense stress test, 6-note chords plus a pedal note every 350 ms on the "Plein jeu" registrations
+of Friesach and Cracow, measured:
+
+| Settings | median load | xruns |
+|---|---|---|
+| `threads: 3` (`'auto'` on a Pi 5) | about 72 % | 4 |
+| `threads: 4` | about 56 % | 1 |
+| `threads: 4`, `releaseCulling: { belowMixDb: 80, hold: 'smooth' }` | | 0 |
+
+So these registrations, which the estimate above puts out of reach, do play on a Pi 5 with all
+four cores and the gentlest release culling. `threads: 'auto'` still leaves one core free (3 on a
+Pi 5), because a machine that runs anything else besides needs it; on a Pi that does nothing but
+play, ask for `threads: 4`.
+
 ### Raspberry Pi 5 settings
 
-Suggested settings, based on the estimates above: a 64-bit OS, `threads: 'auto'` (or 4 if
-nothing else is running), `bufferSize: 256` (5.3 ms) for organs, and the defaults for everything
-else. Add `overloadGuard: true` to play the large organs (Friesach, Cracow, Szczecinek, Bureå at
-full registration) with shorter tails instead of dropouts. Check with
-`npm run live-test -- --repeat 3` and `npm run bench:organs` on the Pi itself. During real-time
-output the render threads get the same scheduling as the audio thread. With JACK or PipeWire
-that's the real-time priority of their audio thread; with ALSA on Linux, supersynth requests
-`SCHED_FIFO` for the audio and render threads together, which is granted if the user's
-real-time priority limit allows it. Render threads never run at a higher priority than the
-audio thread.
+Suggested settings: a 64-bit OS, `threads: 4` if nothing else is running (else `'auto'`),
+`bufferSize: 256` (5.3 ms) for organs, `releaseCulling: { belowMixDb: 80, hold: 'smooth' }` for
+the large organs, and the defaults for everything else. Add `overloadGuard: true` to play the
+large organs at full registration with shorter tails instead of dropouts. Check with
+`npm run live-test -- --repeat 3` and `npm run bench:organs` on the Pi itself, and watch
+`synth.xruns` (or the `'xrun'` event) with JACK. Real-time priority is essential (below).
+
+### Real-time priority
+
+During real-time output the render threads get the same scheduling as the audio thread. With
+JACK or PipeWire that's the real-time priority of their audio thread; with ALSA on Linux,
+supersynth requests `SCHED_FIFO` for the audio and render threads together. Render threads never
+run at a higher priority than the audio thread. Either way, Linux grants real-time scheduling only
+up to the user's real-time priority limit (`ulimit -r`, `RLIMIT_RTPRIO`), and without it the audio
+drops out whenever the machine is busy. `synth.realtime` says whether it was granted (`null` until
+output has started), and supersynth warns once when it wasn't (in Node.js a process warning,
+code `SUPERSYNTH_NO_REALTIME`).
+
+A login shell usually has the limit from `/etc/security/limits.d/` (e.g. `@audio - rtprio 95` and
+`@audio - memlock unlimited`, with the user in the `audio` group). A systemd service doesn't: it
+gets the limits of its unit, 0 by default, which also applies to process managers such as pm2
+started by systemd. Raise them in the unit, or in a drop-in (`systemctl edit <unit>`):
+
+```ini
+[Service]
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+```
 
 Models are loaded off the JavaScript thread. Adding an organ only waits for the stops in its
 starting preset, which load in parallel; the rest load in the background, so drawing a stop
@@ -424,7 +473,9 @@ TypeScript API (src/)          Synth · Instrument · Organ · catalog · MIDI f
                                AudioWorklet, Web Workers, fetched models, Web MIDI)
         │ napi-rs (Node.js)            │ wasm-bindgen (browser)
 native/src/                    native/wasm/
-  CPAL audio output, MIDI input  render entry for the AudioWorklet, threads for Web Workers
+  CPAL audio output, MIDI        render entry for the AudioWorklet, threads for Web Workers
+  devices (ALSA sequencer on
+  Linux, midir elsewhere)
         └──────────────┬───────────────┘
 native/host/                   supersynth-host: everything the two share — argument checks,
                                commands at their frame, models and their (background) loading,

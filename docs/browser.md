@@ -79,7 +79,8 @@ nothing else to configure.
 | audio output | the audio device (CPAL) | an AudioWorklet (128-frame buffers) |
 | render threads | `threads`, default one per core but one | the same, as Web Workers |
 | models | read from disk, parsed on loading threads | downloaded by `synth.load()`, then parsed on loading workers (Web Workers, one per core less two, up to 6) |
-| MIDI input | hardware devices (`midir`) | Web MIDI; `listMidiDevices()` lists the inputs once `enableMidi()` has been granted access |
+| MIDI input and output | hardware devices (the ALSA sequencer on Linux, `midir` elsewhere) | Web MIDI; `listMidiDevices()` and `listMidiOutputs()` list the devices once `enableMidi()` has been granted access |
+| `realtime`, `xruns` | reported (`xruns` by JACK) | `null` and 0: the browser runs its audio thread |
 | files | `renderToFile()`, `renderMidi(path)` | none: `encodeWav(audio)` makes a WAV file's bytes, `renderMidi(bytes)` |
 | `encodeWav()`, MIDI event `raw` | Buffer | Uint8Array |
 | `overloadGuard` | follows the render time of every buffer | follows the load the AudioWorklet reports every 64 buffers (about 170 ms), so it reacts more slowly |

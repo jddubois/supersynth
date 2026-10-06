@@ -34,4 +34,12 @@ export const platform: Platform = {
   readFile: (file) => readFileSync(file),
   writeFile: (file, data) => writeFileSync(file, data),
   allocBytes: (n) => Buffer.alloc(n) as Bytes,
+  toBytes: (data) => Buffer.from(data as ArrayLike<number>) as Bytes,
+  warn(message, code) {
+    if (warned.has(code)) return;
+    warned.add(code);
+    process.emitWarning(message, { code });
+  },
 };
+
+const warned = new Set<string>();

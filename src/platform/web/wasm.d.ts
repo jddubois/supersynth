@@ -43,11 +43,12 @@ export class SynthEngine {
   setLayerEnabled(part: number, layer: number, enabled: boolean, time?: number | null): void;
   setLayerGain(part: number, layer: number, gainDb: number, time?: number | null): void;
   setCouplers(part: number, targets: unknown, unisonOff?: boolean | null, time?: number | null): void;
-  setMidiRoute(channel: number, part: number): void;
+  setMidiRoute(channel: number, part: number, source?: number): void;
   allNotesOff(part?: number | null, time?: number | null): void;
   allSoundOff(): void;
   render(frames: number): Float32Array;
-  midiInput(bytes: Uint8Array): void;
+  midiInput(bytes: Uint8Array, source?: number): void;
+  midiRelease(source: number): void;
   releaseResources(): void;
   audioHandle(frames: number): number;
 }

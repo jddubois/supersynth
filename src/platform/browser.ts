@@ -99,4 +99,12 @@ export const platform: Platform = {
     throw new SupersynthError('There are no files in a browser: encodeWav() makes the bytes of a WAV file (to download, or play)');
   },
   allocBytes: (n) => new Uint8Array(n) as Bytes,
+  toBytes: (data) => Uint8Array.from(data as ArrayLike<number>) as Bytes,
+  warn(message, code) {
+    if (warned.has(code)) return;
+    warned.add(code);
+    console.warn(`supersynth (${code}): ${message}`);
+  },
 };
+
+const warned = new Set<string>();

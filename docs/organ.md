@@ -187,16 +187,23 @@ synth.add('burea', { presets: { solo: { great: ["Trumpet 8'"], pedal: ["Subbass 
 await synth.enableMidi();
 organ.midi();                                    // great 1, swell 2, positive 3, pedal 4
 organ.midi({ great: 1, swell: 2, pedal: 3 }, { presets: ['flutes', 'principal-chorus', 'plenum', 'full'] });
+
+// a keyboard and a pedalboard, each a device of its own
+await synth.enableMidi('piano', { optional: true });
+await synth.enableMidi('pedalboard', { optional: true });
+organ.midi({ great: { device: 'piano' }, pedal: { device: 'pedalboard' } });
 ```
 
-Each division's MIDI channel is played directly in the engine, couplers included, with no
+A division listens to a channel of every input (`great: 1`), or to one device's input:
+`{ device }` (every channel) or `{ device, channel }`, `device` being what was passed to
+`synth.enableMidi()`. Each division's MIDI input is played directly in the engine, couplers included, with no
 JavaScript in the note path. CC 11 on a division's channel works as its swell pedal. A program
-change on any of the organ's channels selects one of the `presets`: program 0 the first,
+change on any of the organ's channels (of its devices) selects one of the `presets`: program 0 the first,
 1 the second, and so on. By default that's every preset, in the order of `organ.presets()`;
 pass `false` to ignore program changes. Preset names are checked when you call `midi()`. If a
 preset can't be applied when its program change arrives, the synth emits an `'error'` event
 when something is listening and otherwise ignores it; nothing is thrown from the MIDI callback.
-Calling `midi()` again replaces the organ's channels. To play a MIDI file on an organ, map
+Calling `midi()` again replaces the organ's channels; `midi(false)` stops it listening. To play a MIDI file on an organ, map
 channels to divisions: `synth.renderMidi(file, { channels: { 1: organ.great, 2: organ.pedal } })`.
 
 ## The VCSL church organ
@@ -302,7 +309,9 @@ division or several (`{ division: ['great', 'pedal'], depth, pitch, rate }`). Op
 fall back to `CHURCH_DIVISIONS` (great in the centre, swell on the right in its swell box,
 positive on the left, pedal in the centre), `SWELL_TREMULANT` and `ORGAN_DEFAULTS`.
 
-Each stop also has a `family` (`'principal'`, `'flute'`, …), an optional `gain` in dB for stops
+Each stop also has a `family` (`'principal'`, `'flute'`, `'string'`, `'reed'`, `'mutation'` or
+`'mixture'`), its pitch in `feet` (`8`, `4`, `2 + 2 / 3`, …: what its pipes sound, which the knob
+doesn't always say; left out for mixtures), an optional `gain` in dB for stops
 whose recordings were normalised separately, and an `actionNoise` pair `[on, off]` giving the
 notes of its drawing and retiring sounds in the stop-action model. Tremulants can have a `name`
 and `actionNoise` too. `noises` names the machinery models: `keys` (per division, `{ down, up }`
@@ -311,6 +320,16 @@ in that model), `blower` and `ambient` (`{ model, note? }`), and `gain` in dB. `
 room the synth uses for the organ when the reverb is automatic (`'church'` by default), and
 `reverbSend` is each division's send into it (0.07 by default, because the pipes already carry
 their church's acoustic).
+
+`findStops(organ, { division, family, feet })` returns the stops that match (each field is
+optional, and `division` and `family` can be lists), which finds the same registration on any
+organ by family and pitch rather than by name:
+
+```ts
+import { findStops, ORGANS, type StopFamily } from '@supersynth/core';
+const great = (family: StopFamily, feet: number) => findStops(ORGANS.friesach, { division: 'great', family, feet })[0]!.name;
+synth.add('friesach', { preset: { great: [great('principal', 8), great('principal', 4), great('mutation', 2 + 2 / 3)] } });
+```
 
 The rest of this page covers the Bureå organ.
 

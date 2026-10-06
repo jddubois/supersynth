@@ -34,6 +34,11 @@ export interface NativeEngine {
   /** Threads rendering audio, the audio thread included. */
   readonly threads: number;
   readonly isRunning: boolean;
+  /** Real-time output renders at real-time priority: null until its first buffer (or with
+   *  output stopped, or where it is not known: a browser), false when the system refused it. */
+  readonly realtime: boolean | null;
+  /** Xruns the audio backend has reported (JACK does). */
+  readonly xruns: number;
   /** The overload guard is shedding load now. */
   readonly guardActive: boolean;
   readonly guardStats: { active: boolean; voicesShed: number; partialsReduced: number };
@@ -72,18 +77,34 @@ export interface NativeEngine {
   setLayerEnabled(part: number, layer: number, enabled: boolean, time?: number | null): void;
   setLayerGain(part: number, layer: number, gainDb: number, time?: number | null): void;
   setCouplers(part: number, targets: NativeCoupler[], unisonOff?: boolean | null, time?: number | null): void;
-  setMidiRoute(channel: number, part: number): void;
+  /** Part that MIDI `channel` of `source` plays (source 0, the default: any input; 1…: the
+   *  inputs opened with `openMidiInput`, whose routes come first); 255: none. */
+  setMidiRoute(channel: number, part: number, source?: number): void;
   allNotesOff(part?: number | null, time?: number | null): void;
   allSoundOff(): void;
-  /** Start real-time output (a browser sets up its audio graph asynchronously). */
-  start(): void | Promise<void>;
+  /** Start real-time output (a browser sets up its audio graph asynchronously). `onEvent` is
+   *  called with null for an xrun, and with the reason when the output stops by itself. */
+  start(onEvent?: (stopped: string | null) => void): void | Promise<void>;
   stop(): void;
   render(frames: number): Float32Array;
   listMidiDevices(): string[];
+  listMidiOutputs(): string[];
   listAudioBackends(): string[];
-  /** (A browser asks for MIDI access asynchronously.) */
-  enableMidi(deviceName: string | null | undefined, route: boolean, callback: (bytes: Uint8Array) => void): void | Promise<void>;
-  disableMidi(): void;
+  /** Open MIDI input `source` (1–15) on the first device whose name contains `device` (any
+   *  case; the first device when null), now and whenever one appears again; `onState` hears it
+   *  connect and go away. Resolves to the device's name, or null (`optional`: none now). (A
+   *  browser asks for MIDI access asynchronously.) */
+  openMidiInput(
+    source: number,
+    options: { device?: string | null; route: boolean; optional: boolean },
+    onMessage: (bytes: Uint8Array) => void,
+    onState: (connected: boolean, name: string) => void,
+  ): string | null | Promise<string | null>;
+  /** Close MIDI input `source`, or all of them. */
+  closeMidiInput(source?: number | null): void;
+  /** Send whole MIDI messages to the first output device whose name contains `device`; false
+   *  when there is none. */
+  sendMidi(device: string, bytes: Uint8Array): boolean;
   /** Resolves once the engine's threads run (a browser's Web Workers start asynchronously). */
   ready?(): Promise<void>;
   /** Stop and let go of every instrument and model now; the engine cannot be used afterwards. */
@@ -100,6 +121,8 @@ export interface NativeModule {
     bufferSize?: number;
     /** Rendering threads, the audio thread included; 0 or absent: one per core but one. */
     threads?: number;
+    /** The engine's name in JACK and the ALSA sequencer. */
+    clientName?: string;
   }) => NativeEngine;
   reverbPresets(): string[];
   partParamNames(): string[];

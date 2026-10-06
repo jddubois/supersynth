@@ -2,7 +2,7 @@
 
 //! Node.js bindings for supersynth: napi types over `supersynth-host` (shared with the browser's
 //! WebAssembly bindings), plus what only Node.js has here — an audio device (cpal), MIDI devices
-//! (midir), and model files loaded on worker threads.
+//! (the ALSA sequencer on Linux, midir elsewhere), and model files loaded on worker threads.
 
 mod audio;
 mod midi;
@@ -11,10 +11,12 @@ use napi::bindgen_prelude::*;
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 
+use std::sync::Arc;
+
 use audio::backend::{list_available_backends, BackendKind};
-use audio::output::{default_output_rate, AudioOutput};
-use midi::input::{connect_midi_device, list_midi_devices, MidiInputHandle};
-use supersynth_host::{CouplerSpec, EngineOptions, ErrorKind, GuardStats, Host, LayerSpec};
+use audio::output::{default_output_rate, AudioOutput, OutputEvents};
+use midi::devices::MidiDevices;
+use supersynth_host::{CouplerSpec, EngineOptions, ErrorKind, GuardStats, Host, LayerSpec, MIDI_SOURCES};
 
 // ── JS objects ────────────────────────────────────────────────────────────────
 
@@ -32,6 +34,9 @@ pub struct JsEngineOptions {
     /// Threads rendering audio, the audio thread included (default 0 = one per core but one,
     /// at most 8). The output is the same for any number.
     pub threads: Option<u32>,
+    /// The engine's name where the system shows it: the JACK client (`<name>_out`) and the
+    /// ALSA sequencer client of its MIDI devices (default "supersynth").
+    pub client_name: Option<String>,
 }
 
 #[napi(object)]
@@ -87,6 +92,17 @@ impl From<GuardStats> for JsGuardStats {
     }
 }
 
+/// How to open a MIDI input (see `SynthEngine::open_midi_input`).
+#[napi(object)]
+pub struct JsMidiInput {
+    /// Substring of the device name (ignoring case); the first device when left out.
+    pub device: Option<String>,
+    /// Play its notes on the parts their channels are routed to.
+    pub route: bool,
+    /// No such device now is not an error: it is connected when it appears.
+    pub optional: bool,
+}
+
 /// One organ coupler: also play `part`, `shift` semitones away (±12: octave couplers).
 #[napi(object)]
 pub struct JsCoupler {
@@ -113,9 +129,12 @@ fn js(e: supersynth_host::Error) -> Error {
 pub struct SynthEngine {
     host: Host,
     output: Option<AudioOutput>,
-    midi: Option<MidiInputHandle>,
+    events: Arc<OutputEvents>,
+    /// MIDI devices, opened with the first input (or output) used.
+    midi: Option<MidiDevices>,
     backend: BackendKind,
     buffer_size: Option<u32>,
+    client_name: String,
 }
 
 #[napi]
@@ -129,11 +148,13 @@ impl SynthEngine {
             reverb: None,
             buffer_size: None,
             threads: None,
+            client_name: None,
         });
         let backend = BackendKind::parse(o.backend.as_deref().unwrap_or(""));
         let sample_rate = o.sample_rate.unwrap_or_else(|| default_output_rate(&backend).unwrap_or(48000));
         let host = Host::new(EngineOptions { sample_rate, max_voices: o.max_voices, reverb: o.reverb, threads: o.threads }).map_err(js)?;
-        Ok(Self { host, output: None, midi: None, backend, buffer_size: o.buffer_size })
+        let client_name = o.client_name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "supersynth".into());
+        Ok(Self { host, output: None, events: Arc::default(), midi: None, backend, buffer_size: o.buffer_size, client_name })
     }
 
     /// True once rendering has failed (an internal error in the engine). The engine is then
@@ -185,9 +206,28 @@ impl SynthEngine {
         self.host.threads()
     }
 
+    /// Real-time output is running (it stops by itself when its device goes away).
     #[napi(getter)]
     pub fn is_running(&self) -> bool {
-        self.output.is_some()
+        self.output.is_some() && !self.events.stopped()
+    }
+
+    /// Whether real-time output renders at real-time priority: null until its first buffer (or
+    /// with output stopped), false when the system refused it.
+    #[napi(getter)]
+    pub fn realtime(&self) -> Option<bool> {
+        if self.output.is_some() {
+            self.host.realtime()
+        } else {
+            None
+        }
+    }
+
+    /// Xruns (buffers the audio system missed) its backend has reported so far: JACK reports
+    /// them; ALSA, CoreAudio and WASAPI through cpal do not.
+    #[napi(getter)]
+    pub fn xruns(&self) -> f64 {
+        self.events.xruns() as f64
     }
 
     /// Opt-in overload guard: while rendering in real time, when buffers come close to their
@@ -351,10 +391,11 @@ impl SynthEngine {
         self.host.set_couplers(part, &targets, unison_off, time).map_err(js)
     }
 
-    /// Part that MIDI input on `channel` (1–16) plays; 255 (or more) routes it to no part.
+    /// Part that MIDI input on `channel` (1–16) of `source` plays; 255 (or more) routes it to
+    /// no part. Source 0 (the default) is any input; 1… are the inputs of `openMidiInput`.
     #[napi]
-    pub fn set_midi_route(&self, channel: u32, part: u32) -> Result<()> {
-        self.host.set_midi_route(channel, part).map_err(js)
+    pub fn set_midi_route(&self, channel: u32, part: u32, source: Option<u32>) -> Result<()> {
+        self.host.set_midi_route(channel, part, source.unwrap_or(0)).map_err(js)
     }
 
     #[napi]
@@ -375,19 +416,45 @@ impl SynthEngine {
 
     // ── audio output ────────────────────────────────────────────────────────
 
-    #[napi]
-    pub fn start(&mut self) -> Result<()> {
+    /// Start real-time output. `on_event` is called with null for an xrun the backend reports,
+    /// and with the reason when the output stops by itself (its device went away, the JACK
+    /// server shut down, the engine failed); `stop()` it then.
+    #[napi(ts_args_type = "onEvent?: (stopped: string | null) => void")]
+    pub fn start(&mut self, env: Env, on_event: Option<JsFunction>) -> Result<()> {
         if self.output.is_some() {
-            return Ok(());
+            if !self.events.stopped() {
+                return Ok(());
+            }
+            self.stop();
         }
         self.host.check_open().map_err(js)?;
+        let notify: Option<audio::output::Notify> = match on_event {
+            Some(f) => {
+                let mut tsfn: ThreadsafeFunction<Option<String>, ErrorStrategy::Fatal> = f.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+                tsfn.unref(&env)?;
+                Some(Box::new(move |what: Option<&str>| {
+                    tsfn.call(what.map(String::from), ThreadsafeFunctionCallMode::NonBlocking);
+                }))
+            }
+            None => None,
+        };
+        self.events.reset(notify);
         // asked for before the stream starts, so the audio thread never waits for this lock:
         // the render workers take the audio thread's priority when it renders its first buffer
         self.host.set_realtime(true);
-        match AudioOutput::start(self.host.engine().clone(), self.host.fault().clone(), &self.backend, self.host.sample_rate(), self.buffer_size) {
+        match AudioOutput::start(
+            self.host.engine().clone(),
+            self.host.fault().clone(),
+            Arc::clone(&self.events),
+            &self.backend,
+            self.host.sample_rate(),
+            self.buffer_size,
+            &self.client_name,
+        ) {
             Ok(out) => self.output = Some(out),
             Err(e) => {
                 self.host.set_realtime(false);
+                self.events.reset(None);
                 return Err(err(e));
             }
         }
@@ -400,6 +467,7 @@ impl SynthEngine {
     pub fn stop(&mut self) {
         self.host.set_running(false);
         self.output = None;
+        self.events.reset(None);
         self.host.set_realtime(false);
     }
 
@@ -412,9 +480,23 @@ impl SynthEngine {
 
     // ── MIDI ────────────────────────────────────────────────────────────────
 
+    fn midi_devices(&mut self) -> Result<&MidiDevices> {
+        if self.midi.is_none() {
+            self.midi = Some(MidiDevices::new(&self.client_name, MIDI_SOURCES).map_err(err)?);
+        }
+        Ok(self.midi.as_ref().expect("opened"))
+    }
+
+    /// Names of the MIDI input devices.
     #[napi]
-    pub fn list_midi_devices(&self) -> Vec<String> {
-        list_midi_devices()
+    pub fn list_midi_devices(&mut self) -> Vec<String> {
+        self.midi_devices().map(|m| m.inputs()).unwrap_or_default()
+    }
+
+    /// Names of the MIDI output devices.
+    #[napi]
+    pub fn list_midi_outputs(&mut self) -> Vec<String> {
+        self.midi_devices().map(|m| m.outputs()).unwrap_or_default()
     }
 
     #[napi]
@@ -422,31 +504,75 @@ impl SynthEngine {
         list_available_backends()
     }
 
-    /// Connect a MIDI input. Messages are applied to the engine immediately (to the part each
-    /// channel is given with `set_midi_route`, when `route` is true, and only while real-time
-    /// output is running) and forwarded to `callback` as raw bytes.
-    #[napi]
-    pub fn enable_midi(&mut self, device_name: Option<String>, route: bool, callback: JsFunction) -> Result<()> {
-        let tsfn: ThreadsafeFunction<Vec<u8>, ErrorStrategy::Fatal> =
-            callback.create_threadsafe_function(0, |ctx| Ok(vec![Buffer::from(ctx.value)]))?;
+    /// Open MIDI input `source` (1–15): the first device whose name contains `device` (ignoring
+    /// case; the first device when null), now and whenever one appears again after going away.
+    /// Its messages are played on the parts their channels are routed to for this source, else
+    /// for source 0 (when `route` is true, and only while real-time output is running), and
+    /// passed to `on_message` as raw bytes. `on_state` is told when the device connects (true,
+    /// its name) and goes away (false: the keys and pedals it held down are let go first).
+    /// Returns the device's name, or null when there is none now and `optional` is true (else
+    /// that is an error). Replaces what the source had.
+    #[napi(ts_args_type = "source: number, options: { device?: string | null; route: boolean; optional: boolean }, onMessage: (bytes: Buffer) => void, onState: (connected: boolean, name: string) => void")]
+    pub fn open_midi_input(&mut self, env: Env, source: u32, options: JsMidiInput, on_message: JsFunction, on_state: JsFunction) -> Result<Option<String>> {
+        let JsMidiInput { device, route, optional } = options;
+        if source == 0 || source as usize >= MIDI_SOURCES {
+            return Err(err(format!("MIDI input {source} is not 1–{}", MIDI_SOURCES - 1)));
+        }
+        // (keeps Node.js running while the input is open)
+        let msg_fn: ThreadsafeFunction<Vec<u8>, ErrorStrategy::Fatal> = on_message.create_threadsafe_function(0, |ctx| Ok(vec![Buffer::from(ctx.value)]))?;
+        let mut state_fn: ThreadsafeFunction<(bool, String), ErrorStrategy::Fatal> =
+            on_state.create_threadsafe_function(0, |ctx: napi::threadsafe_function::ThreadSafeCallContext<(bool, String)>| {
+                let (c, n) = ctx.value;
+                Ok(vec![ctx.env.get_boolean(c)?.into_unknown(), ctx.env.create_string(&n)?.into_unknown()])
+            })?;
+        state_fn.unref(&env)?;
         let router = self.host.midi_router();
-        let handle = connect_midi_device(
-            device_name.as_deref(),
-            Box::new(move |bytes| {
-                if route {
-                    router.route(&bytes);
-                }
-                tsfn.call(bytes, ThreadsafeFunctionCallMode::NonBlocking);
-            }),
-        )
-        .map_err(err)?;
-        self.midi = Some(handle);
-        Ok(())
+        let release = self.host.midi_router();
+        let slot = source as usize;
+        // a source opened again lets go of what its previous device held
+        release.release(slot);
+        let devices = self.midi_devices()?;
+        devices
+            .open(
+                slot,
+                device.as_deref(),
+                optional,
+                Arc::new(move |bytes: &[u8]| {
+                    if route {
+                        router.route_from(slot, bytes);
+                    }
+                    msg_fn.call(bytes.to_vec(), ThreadsafeFunctionCallMode::NonBlocking);
+                }),
+                Arc::new(move |connected: bool, name: &str| {
+                    if !connected {
+                        release.release(slot);
+                    }
+                    state_fn.call((connected, name.to_string()), ThreadsafeFunctionCallMode::NonBlocking);
+                }),
+            )
+            .map_err(err)
     }
 
+    /// Close MIDI input `source`, or every input when left out; the keys and pedals they held
+    /// down are let go.
     #[napi]
-    pub fn disable_midi(&mut self) {
-        self.midi = None;
+    pub fn close_midi_input(&mut self, source: Option<u32>) {
+        let Some(m) = &self.midi else { return };
+        let router = self.host.midi_router();
+        for s in 1..MIDI_SOURCES {
+            if source.is_none_or(|x| x as usize == s) {
+                m.close(s);
+                router.release(s);
+            }
+        }
+    }
+
+    /// Send whole MIDI messages (`bytes`) to the first output device whose name contains
+    /// `device` (ignoring case). False when there is no such device.
+    #[napi]
+    pub fn send_midi(&mut self, device: String, bytes: Buffer) -> Result<bool> {
+        let bytes = bytes.to_vec();
+        self.midi_devices()?.send(&device, &bytes).map_err(err)
     }
 
     /// Stop output and MIDI and let go of everything the engine holds: its instruments and their
@@ -458,6 +584,7 @@ impl SynthEngine {
     pub fn release_resources(&mut self) {
         self.host.set_running(false);
         self.output = None;
+        self.events.reset(None);
         self.midi = None;
         self.host.release_resources();
     }

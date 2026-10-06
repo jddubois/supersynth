@@ -17,6 +17,10 @@ napi-derive = "2"
 cpal = { version = "0.15", features = ["jack"] }
 midir = "0.10"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+alsa = "0.9"
+libc = "0.2"
+
 [build-dependencies]
 napi-build = "2"
 

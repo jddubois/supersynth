@@ -1,5 +1,6 @@
 import { SupersynthError } from './errors.js';
 import type { NativeEngine } from './engine.js';
+import type { MidiSource } from './types.js';
 
 /** Events the engine's command queue holds before they are rendered (see `docs/synth.md`). */
 export const QUEUE_CAPACITY = 32768;
@@ -99,4 +100,30 @@ function nativeError(e: unknown): SupersynthError {
   const err = new SupersynthError(msg);
   if (e instanceof Error) err.cause = e;
   return err;
+}
+
+/** The (MIDI channel, device) pairs a {@link MidiSource} listens on; RangeError for a bad one. */
+export function midiRoutes(source: MidiSource): [channel: number, device: string | undefined][] {
+  const s = typeof source === 'number' ? { channel: source } : source;
+  if (typeof s !== 'object' || s === null) throw new RangeError(`A MIDI source is a channel (1-16) or { device, channel }, got ${describe(source)}`);
+  const { channel, device } = s;
+  if (channel !== undefined && (!Number.isInteger(channel) || channel < 1 || channel > 16)) {
+    throw new RangeError(`MIDI channel must be 1-16, got ${channel}`);
+  }
+  if (device !== undefined && typeof device !== 'string') throw new RangeError(`MIDI device must be a string, got ${describe(device)}`);
+  const out: [number, string | undefined][] = [];
+  for (let ch = 1; ch <= 16; ch++) if (channel === undefined || ch === channel) out.push([ch, device]);
+  return out;
+}
+
+/** Whether a MIDI message from `device` (an input's name, or undefined) on `channel` is one a
+ *  source listens to. */
+export function midiSourceMatches(source: MidiSource, device: string | undefined, channel: number): boolean {
+  const s = typeof source === 'number' ? { channel: source } : source;
+  return (s.channel === undefined || s.channel === channel) && (s.device === undefined || midiKey(s.device) === midiKey(device));
+}
+
+/** How MIDI device names are compared: trimmed, ignoring case. */
+export function midiKey(device: string | undefined): string {
+  return (device ?? '').trim().toLowerCase();
 }

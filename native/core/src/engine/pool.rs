@@ -56,6 +56,8 @@ struct Shared {
     /// the dispatching thread is rendering a buffer: more jobs follow within microseconds, so
     /// idle workers keep spinning instead of parking
     hot: AtomicBool,
+    /// what real-time output got (see [`Pool::realtime_state`])
+    rt_state: AtomicU8,
 }
 
 // SAFETY: `job` is only accessed under the generation protocol described above.
@@ -99,6 +101,7 @@ impl Pool {
             applied: AtomicU8::new(0),
             sched: AtomicU32::new(SCHED_NORMAL),
             hot: AtomicBool::new(false),
+            rt_state: AtomicU8::new(RT_UNKNOWN),
         });
         let mut workers = Vec::with_capacity(threads - 1);
         for w in 1..threads {
@@ -137,11 +140,20 @@ impl Pool {
             if want != sh.applied.load(Ordering::Relaxed) {
                 // once per start or stop of real-time output: a few system calls
                 sh.applied.store(want, Ordering::Relaxed);
-                let sched = if want != 0 { dispatcher_realtime() } else { SCHED_NORMAL };
+                let (sched, state) = if want != 0 { dispatcher_realtime() } else { (SCHED_NORMAL, RT_UNKNOWN) };
                 sh.sched.store(sched, Ordering::Relaxed);
+                sh.rt_state.store(state, Ordering::Relaxed);
             }
         }
         sh.hot.store(hot, Ordering::Relaxed);
+    }
+
+    /// Whether rendering for real-time output runs at real-time priority: [`RT_UNKNOWN`] until
+    /// the first buffer after [`Pool::set_realtime`]`(true)` (and after `set_realtime(false)`),
+    /// then [`RT_GRANTED`] or [`RT_REFUSED`] (the system refused real-time scheduling: on
+    /// Linux, the user's real-time priority limit, `RLIMIT_RTPRIO`, is too low).
+    pub fn realtime_state(&self) -> u8 {
+        self.shared.rt_state.load(Ordering::Relaxed)
     }
 
     /// The scheduling the workers take (for tests): `None` for normal, else the policy
@@ -307,6 +319,13 @@ impl Spin {
     }
 }
 
+/// [`Pool::realtime_state`]: not rendering for real-time output (or not known yet).
+pub const RT_UNKNOWN: u8 = 0;
+/// [`Pool::realtime_state`]: the audio thread and the workers run at real-time priority.
+pub const RT_GRANTED: u8 = 1;
+/// [`Pool::realtime_state`]: real-time scheduling was refused; everything runs at normal priority.
+pub const RT_REFUSED: u8 = 2;
+
 /// Workers at normal priority.
 const SCHED_NORMAL: u32 = 0;
 /// Workers at the platform's highest priority (Windows).
@@ -322,10 +341,13 @@ const fn encode_sched(policy: u32, priority: u8) -> u32 {
 }
 
 /// Called on the dispatching thread when real-time output starts: the scheduling the workers
-/// should take, which is that thread's own when it is real-time (JACK, PipeWire). Elsewhere
-/// on Linux (ALSA), the dispatching thread is given `SCHED_FIFO` first, if allowed. In
-/// WebAssembly the workers stay as they are (a browser schedules its Web Workers itself).
-fn dispatcher_realtime() -> u32 {
+/// should take, which is that thread's own when it is real-time (JACK, PipeWire), and whether
+/// rendering is real-time ([`RT_GRANTED`] or [`RT_REFUSED`]). Elsewhere on Linux (ALSA, or a
+/// JACK client denied real-time priority), the dispatching thread is given `SCHED_FIFO` first,
+/// if allowed. On macOS and Windows the audio thread is real-time (the system's audio thread)
+/// and the workers stay normal or take the highest priority. In WebAssembly the workers stay as
+/// they are (a browser schedules its Web Workers itself) and nothing is known.
+fn dispatcher_realtime() -> (u32, u8) {
     #[cfg(all(unix, not(target_arch = "wasm32")))]
     {
         use thread_priority::unix::*;
@@ -336,28 +358,34 @@ fn dispatcher_realtime() -> u32 {
             _ => None,
         };
         if let Some(s) = thread_schedule_policy_param(id).ok().and_then(own) {
-            return s;
+            return (s, RT_GRANTED);
         }
         // macOS: the audio thread has a time-constraint policy of its own, which changing its
         // POSIX scheduling would take away; the workers stay at normal priority
+        #[cfg(not(target_os = "linux"))]
+        {
+            (SCHED_NORMAL, RT_GRANTED)
+        }
         #[cfg(target_os = "linux")]
         {
             use thread_priority::{ThreadPriority, ThreadPriorityValue};
             let prio = ThreadPriorityValue::try_from(DISPATCH_PRIORITY).map(ThreadPriority::Crossplatform).unwrap_or(ThreadPriority::Max);
             let fifo = ThreadSchedulePolicy::Realtime(RealtimeThreadSchedulePolicy::Fifo);
             if set_thread_priority_and_policy(id, prio, fifo).is_ok() {
-                return thread_schedule_policy_param(id).ok().and_then(own).unwrap_or(SCHED_NORMAL);
+                if let Some(s) = thread_schedule_policy_param(id).ok().and_then(own) {
+                    return (s, RT_GRANTED);
+                }
             }
+            (SCHED_NORMAL, RT_REFUSED)
         }
-        SCHED_NORMAL
     }
     #[cfg(not(any(unix, target_arch = "wasm32")))]
     {
-        SCHED_MAX
+        (SCHED_MAX, RT_GRANTED)
     }
     #[cfg(target_arch = "wasm32")]
     {
-        SCHED_NORMAL
+        (SCHED_NORMAL, RT_UNKNOWN)
     }
 }
 
@@ -439,6 +467,7 @@ mod tests {
             let pool = Pool::new(2);
             pool.set_hot(true);
             assert_eq!(pool.worker_scheduling(), None, "normal until real-time output starts");
+            assert_eq!(pool.realtime_state(), RT_UNKNOWN);
             pool.set_realtime(true);
             pool.set_hot(true);
             let (policy, params) = thread_schedule_policy_param(thread_native_id()).unwrap();
@@ -449,10 +478,15 @@ mod tests {
                 _ => None,
             };
             assert_eq!(pool.worker_scheduling(), expected, "never above the dispatching thread");
+            #[cfg(target_os = "linux")]
+            assert_eq!(pool.realtime_state(), if expected.is_some() { RT_GRANTED } else { RT_REFUSED });
+            #[cfg(not(target_os = "linux"))]
+            assert_eq!(pool.realtime_state(), RT_GRANTED);
             pool.run(8, &|_, _| {});
             pool.set_realtime(false);
             pool.set_hot(true);
             assert_eq!(pool.worker_scheduling(), None);
+            assert_eq!(pool.realtime_state(), RT_UNKNOWN);
             pool.set_hot(false);
         })
         .join()

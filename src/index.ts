@@ -1,5 +1,5 @@
 export { Synth } from './Synth.js';
-export type { SynthOptions, SynthSettings, ReleaseCulling, GuardStats, MidiFileOptions, MidiTarget, AudioBackend } from './Synth.js';
+export type { SynthOptions, SynthSettings, ReleaseCulling, GuardStats, MidiFileOptions, MidiTarget, AudioBackend, MidiInputOptions, XrunEvent } from './Synth.js';
 export { Instrument } from './Instrument.js';
 export type { InstrumentOptions } from './Instrument.js';
 export { Organ, Division } from './Organ.js';
@@ -17,4 +17,4 @@ export type { MidiFileData, MidiFileEvent } from './midifile.js';
 export { writeWav, encodeWav } from './wav.js';
 export type { AudioBuffer, WavOptions } from './wav.js';
 export { AbortError, AudioBackendError, MidiError, SupersynthError } from './errors.js';
-export type { MidiEvent } from './types.js';
+export type { MidiEvent, MidiInputInfo, MidiSource } from './types.js';
