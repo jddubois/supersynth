@@ -393,9 +393,10 @@ impl SynthEngine {
 
     /// Part that MIDI input on `channel` (1–16) of `source` plays; 255 (or more) routes it to
     /// no part. Source 0 (the default) is any input; 1… are the inputs of `openMidiInput`.
+    /// `controllers` false: only notes go to the part.
     #[napi]
-    pub fn set_midi_route(&self, channel: u32, part: u32, source: Option<u32>) -> Result<()> {
-        self.host.set_midi_route(channel, part, source.unwrap_or(0)).map_err(js)
+    pub fn set_midi_route(&self, channel: u32, part: u32, source: Option<u32>, controllers: Option<bool>) -> Result<()> {
+        self.host.set_midi_route(channel, part, source.unwrap_or(0), controllers.unwrap_or(true)).map_err(js)
     }
 
     #[napi]

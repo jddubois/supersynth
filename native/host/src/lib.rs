@@ -174,10 +174,16 @@ impl Default for Held {
     }
 }
 
-/// The commands that play one MIDI message from an input holding `held`, on `part` (the part
-/// its channel is routed to now, or `NO_ROUTE`).
-fn held_route(held: &mut Held, part: u8, msg: &MidiMessage) -> [Option<Command>; 2] {
+/// A route's flag: only notes go to its part, not controllers or pitch bend.
+const NOTES_ONLY: u8 = 0x80;
+
+/// The commands that play one MIDI message from an input holding `held`, by `route` (the part
+/// its channel is routed to now, with `NOTES_ONLY` if so, or `NO_ROUTE`).
+fn held_route(held: &mut Held, route: u8, msg: &MidiMessage) -> [Option<Command>; 2] {
     let ch = (msg.channel.clamp(1, 16) - 1) as usize;
+    let part = if route == NO_ROUTE { NO_ROUTE } else { route & !NOTES_ONLY };
+    // controllers and pitch bend follow the route unless it takes notes only
+    let ctl_part = if route != NO_ROUTE && route & NOTES_ONLY != 0 { NO_ROUTE } else { part };
     let mut cmds: [Option<Command>; 2] = [None, None];
     match msg.kind {
         MidiMessageKind::NoteOn if part != NO_ROUTE => {
@@ -199,21 +205,21 @@ fn held_route(held: &mut Held, part: u8, msg: &MidiMessage) -> [Option<Command>;
         }
         MidiMessageKind::ControlChange if msg.data1 == 64 => {
             let was = held.pedal[ch];
-            if was != NO_ROUTE && was != part {
+            if was != NO_ROUTE && was != ctl_part {
                 cmds[0] = Some(Command::ControlChange { part: was as u16, controller: 64, value: 0 });
             }
-            if part != NO_ROUTE {
-                cmds[1] = Some(Command::ControlChange { part: part as u16, controller: 64, value: msg.data2 });
+            if ctl_part != NO_ROUTE {
+                cmds[1] = Some(Command::ControlChange { part: ctl_part as u16, controller: 64, value: msg.data2 });
             }
-            held.pedal[ch] = if msg.data2 > 0 { part } else { NO_ROUTE };
+            held.pedal[ch] = if msg.data2 > 0 { ctl_part } else { NO_ROUTE };
         }
-        _ if part == NO_ROUTE => {}
+        _ if ctl_part == NO_ROUTE => {}
         MidiMessageKind::ControlChange => {
-            cmds[0] = Some(Command::ControlChange { part: part as u16, controller: msg.data1, value: msg.data2 });
+            cmds[0] = Some(Command::ControlChange { part: ctl_part as u16, controller: msg.data1, value: msg.data2 });
         }
         MidiMessageKind::PitchBend => {
             let v = ((msg.data2 as i32) << 7 | msg.data1 as i32) - 8192;
-            cmds[0] = Some(Command::PitchBend { part: part as u16, value: v as f32 / 8192.0 });
+            cmds[0] = Some(Command::PitchBend { part: ctl_part as u16, value: v as f32 / 8192.0 });
         }
         _ => {}
     }
@@ -641,15 +647,17 @@ impl Host {
     /// Part that MIDI input on `channel` (1–16) from `source` plays; 255 (or more) routes it
     /// to no part. Source 0 is any input; the routes of sources 1… (an input each, see
     /// [`MidiRouter::route_from`]) come first for messages from that input. Keys already down
-    /// still come up on the part they went down on.
-    pub fn set_midi_route(&self, channel: u32, part: u32, source: u32) -> Result<()> {
+    /// still come up on the part they went down on. With `controllers` false the part gets
+    /// only the notes, not controllers (pedals, wheels) or pitch bend.
+    pub fn set_midi_route(&self, channel: u32, part: u32, source: u32, controllers: bool) -> Result<()> {
         if !(1..=16).contains(&channel) {
             return Err(err(format!("MIDI channel {channel} is not 1–16")));
         }
         if source as usize >= MIDI_SOURCES {
             return Err(err(format!("MIDI source {source} is not 0–{}", MIDI_SOURCES - 1)));
         }
-        self.shared.midi_routes[source as usize][channel as usize - 1].store(part.min(NO_ROUTE as u32) as u8, Ordering::Relaxed);
+        let route = if part >= MAX_PARTS as u32 { NO_ROUTE } else { part as u8 | if controllers { 0 } else { NOTES_ONLY } };
+        self.shared.midi_routes[source as usize][channel as usize - 1].store(route, Ordering::Relaxed);
         Ok(())
     }
 
@@ -833,12 +841,25 @@ mod tests {
     }
 
     #[test]
+    fn a_notes_only_route_leaves_controllers_out() {
+        let mut h = Held::default();
+        let r = 3 | NOTES_ONLY;
+        assert_eq!(plan(&mut h, r, &[0x90, 60, 100]), [("on", 3, 60, 100)]);
+        assert_eq!(plan(&mut h, r, &[0xB0, 64, 127]), []);
+        assert_eq!(plan(&mut h, r, &[0xE0, 0, 64]), []);
+        assert_eq!(plan(&mut h, r, &[0x80, 60, 0]), [("off", 3, 60, 0)]);
+        // a pedal held down before the route took notes only is let go
+        assert_eq!(plan(&mut h, 3, &[0xB0, 64, 127]), [("cc", 3, 64, 127)]);
+        assert_eq!(plan(&mut h, r, &[0xB0, 64, 0]), [("cc", 3, 64, 0)]);
+    }
+
+    #[test]
     fn device_routes_come_before_any_device_routes() {
         let host = Host::new(EngineOptions { sample_rate: 48000, threads: Some(1), ..EngineOptions::default() }).unwrap();
-        host.set_midi_route(1, 4, 0).unwrap();
-        host.set_midi_route(1, 9, 2).unwrap();
-        assert!(host.set_midi_route(1, 9, MIDI_SOURCES as u32).is_err());
-        assert!(host.set_midi_route(17, 9, 0).is_err());
+        host.set_midi_route(1, 4, 0, true).unwrap();
+        host.set_midi_route(1, 9, 2, true).unwrap();
+        assert!(host.set_midi_route(1, 9, MIDI_SOURCES as u32, true).is_err());
+        assert!(host.set_midi_route(17, 9, 0, true).is_err());
         let r = &host.shared.midi_routes;
         assert_eq!(r[0][0].load(Ordering::Relaxed), 4);
         assert_eq!(r[2][0].load(Ordering::Relaxed), 9);

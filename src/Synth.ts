@@ -1061,10 +1061,11 @@ export class Synth extends EventEmitter {
   }
 
   /** @internal Play MIDI channel `midiChannel` (1–16) of the input opened with `device` (of
-   *  any input when left out) on engine channel `channel`. */
-  _route(midiChannel: number, channel: number, device?: string): void {
+   *  any input when left out) on engine channel `channel`: its notes, and its controllers
+   *  unless `controllers` is false. */
+  _route(midiChannel: number, channel: number, device?: string, controllers = true): void {
     const source = device === undefined ? 0 : this.midiSource(device);
-    this.engine.setMidiRoute(midiChannel, channel, source);
+    this.engine.setMidiRoute(midiChannel, channel, source, controllers);
     this.routes[source]![midiChannel - 1] = channel;
   }
 

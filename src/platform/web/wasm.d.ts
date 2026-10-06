@@ -43,7 +43,7 @@ export class SynthEngine {
   setLayerEnabled(part: number, layer: number, enabled: boolean, time?: number | null): void;
   setLayerGain(part: number, layer: number, gainDb: number, time?: number | null): void;
   setCouplers(part: number, targets: unknown, unisonOff?: boolean | null, time?: number | null): void;
-  setMidiRoute(channel: number, part: number, source?: number): void;
+  setMidiRoute(channel: number, part: number, source?: number, controllers?: boolean): void;
   allNotesOff(part?: number | null, time?: number | null): void;
   allSoundOff(): void;
   render(frames: number): Float32Array;

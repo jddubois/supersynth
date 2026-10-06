@@ -263,10 +263,11 @@ impl SynthEngine {
         self.host.set_couplers(part, &targets, unison_off, time).map_err(js)
     }
 
-    /// Part that MIDI `channel` of `source` plays (source 0, the default: any input).
+    /// Part that MIDI `channel` of `source` plays (source 0, the default: any input);
+    /// `controllers` false: notes only.
     #[wasm_bindgen(js_name = setMidiRoute)]
-    pub fn set_midi_route(&self, channel: u32, part: u32, source: Option<u32>) -> Result<(), JsError> {
-        self.host.set_midi_route(channel, part, source.unwrap_or(0)).map_err(js)
+    pub fn set_midi_route(&self, channel: u32, part: u32, source: Option<u32>, controllers: Option<bool>) -> Result<(), JsError> {
+        self.host.set_midi_route(channel, part, source.unwrap_or(0), controllers.unwrap_or(true)).map_err(js)
     }
 
     #[wasm_bindgen(js_name = allNotesOff)]

@@ -362,8 +362,8 @@ export class WasmEngine implements NativeEngine {
     this.e.setCouplers(part, targets, unisonOff, time);
   }
 
-  setMidiRoute(channel: number, part: number, source?: number): void {
-    this.e.setMidiRoute(channel, part, source ?? 0);
+  setMidiRoute(channel: number, part: number, source?: number, controllers?: boolean): void {
+    this.e.setMidiRoute(channel, part, source ?? 0, controllers ?? true);
   }
 
   allNotesOff(part?: number | null, time?: number | null): void {

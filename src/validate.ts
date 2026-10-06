@@ -102,17 +102,19 @@ function nativeError(e: unknown): SupersynthError {
   return err;
 }
 
-/** The (MIDI channel, device) pairs a {@link MidiSource} listens on; RangeError for a bad one. */
-export function midiRoutes(source: MidiSource): [channel: number, device: string | undefined][] {
+/** The MIDI channels (and device, and whether controllers are routed) a {@link MidiSource}
+ *  listens on; RangeError for a bad one. */
+export function midiRoutes(source: MidiSource): [channel: number, device: string | undefined, controllers: boolean][] {
   const s = typeof source === 'number' ? { channel: source } : source;
   if (typeof s !== 'object' || s === null) throw new RangeError(`A MIDI source is a channel (1-16) or { device, channel }, got ${describe(source)}`);
-  const { channel, device } = s;
+  const { channel, device, controllers = true } = s;
   if (channel !== undefined && (!Number.isInteger(channel) || channel < 1 || channel > 16)) {
     throw new RangeError(`MIDI channel must be 1-16, got ${channel}`);
   }
   if (device !== undefined && typeof device !== 'string') throw new RangeError(`MIDI device must be a string, got ${describe(device)}`);
-  const out: [number, string | undefined][] = [];
-  for (let ch = 1; ch <= 16; ch++) if (channel === undefined || ch === channel) out.push([ch, device]);
+  if (typeof controllers !== 'boolean') throw new RangeError(`MIDI controllers must be true or false, got ${describe(controllers)}`);
+  const out: [number, string | undefined, boolean][] = [];
+  for (let ch = 1; ch <= 16; ch++) if (channel === undefined || ch === channel) out.push([ch, device, controllers]);
   return out;
 }
 

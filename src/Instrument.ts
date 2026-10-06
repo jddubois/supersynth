@@ -171,7 +171,7 @@ export class Instrument implements Playable {
     const routes = sources.flatMap(midiRoutes);
     this._engine();
     this.synth._unroute(this.channel);
-    for (const [ch, device] of routes) this.synth._route(ch, this.channel, device);
+    for (const [ch, device, controllers] of routes) this.synth._route(ch, this.channel, device, controllers);
     return this;
   }
 

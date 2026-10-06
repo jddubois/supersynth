@@ -21,9 +21,11 @@ export interface MidiEvent {
  * Where an instrument or an organ division listens for MIDI input ({@link Instrument.midi},
  * {@link Organ.midi}): a channel (1–16) of every input, or `{ device, channel }`: the input
  * opened with `synth.enableMidi(device)` (any case), on one channel or, without `channel`, on
- * all of them. Routes naming a device come first for that device's messages.
+ * all of them. Routes naming a device come first for that device's messages. With
+ * `controllers: false` only the notes play there, not controllers (pedals, wheels) or pitch
+ * bend.
  */
-export type MidiSource = number | { device?: string; channel?: number };
+export type MidiSource = number | { device?: string; channel?: number; controllers?: boolean };
 
 /** A MIDI input of the synth ({@link Synth.midiInputs}, and the `'midiDevice'` event). */
 export interface MidiInputInfo {

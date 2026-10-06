@@ -719,6 +719,10 @@ describe('MIDI devices and the output', () => {
     expect(routes(synth)[2]).toEqual(new Array(16).fill(null));
     piano.midi(false);
     expect(routes(synth).flat().every((c) => c === null)).toBe(true);
+    expect(() => piano.midi({ device: 'piano', controllers: 'no' as never })).toThrow(RangeError);
+    // notes only: the engine's route carries the flag (bit 7 in the host; checked in Rust)
+    organ.midi({ great: { device: 'piano', channel: 1, controllers: false } });
+    expect(routes(synth)[1]![0]).toBe(organ.great.channel);
     synth.close();
   });
 
