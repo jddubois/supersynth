@@ -12,14 +12,14 @@ import type { OrganDefinition, OrganPreset, StopDefinition } from './types.js';
 // the full organ plays 12 semitones down, the 16' pedal 24 (that octave, and one for its 16').
 const STOPS: StopDefinition[] = [
   { id: 'full', model: 'pipe-organ', name: 'Full Organ', division: 'great', family: 'mixture', transpose: -12, gain: 0 },
-  { id: 'flutes', model: 'pipe-organ-soft', name: 'Flutes', division: 'great', family: 'flute', transpose: 0, gain: -7.8 },
+  { id: 'flutes', model: 'pipe-organ-soft', name: 'Flutes', division: 'great', family: 'flute', transpose: 0, feet: 8, gain: -7.8 },
   { id: 'swell-full', model: 'pipe-organ', name: 'Full Organ', division: 'swell', family: 'mixture', transpose: -12, gain: 0 },
-  { id: 'swell-flutes', model: 'pipe-organ-soft', name: 'Flutes', division: 'swell', family: 'flute', transpose: 0, gain: -7.8 },
-  { id: 'chamber-8', model: 'renaissance-organ-8', name: "Gedackt 8'", division: 'positive', family: 'flute', transpose: 0, gain: -15.4 },
-  { id: 'chamber-4', model: 'renaissance-organ-4', name: "Principal 4'", division: 'positive', family: 'principal', transpose: 0, gain: -14.5 },
+  { id: 'swell-flutes', model: 'pipe-organ-soft', name: 'Flutes', division: 'swell', family: 'flute', transpose: 0, feet: 8, gain: -7.8 },
+  { id: 'chamber-8', model: 'renaissance-organ-8', name: "Gedackt 8'", division: 'positive', family: 'flute', transpose: 0, feet: 8, gain: -15.4 },
+  { id: 'chamber-4', model: 'renaissance-organ-4', name: "Principal 4'", division: 'positive', family: 'principal', transpose: 0, feet: 4, gain: -14.5 },
   { id: 'chamber-full', model: 'renaissance-organ-full', name: 'Chorus', division: 'positive', family: 'mixture', transpose: 0, gain: -8.7 },
-  { id: 'pedal-loud', model: 'pipe-organ-pedal', name: "Pedal 16' + 8'", division: 'pedal', family: 'principal', transpose: -24, gain: 0 },
-  { id: 'pedal-soft', model: 'pipe-organ-pedal-soft', name: "Soft Bass 16'", division: 'pedal', family: 'flute', transpose: 0, gain: -12.8 },
+  { id: 'pedal-loud', model: 'pipe-organ-pedal', name: "Pedal 16' + 8'", division: 'pedal', family: 'principal', transpose: -24, feet: 16, gain: 0 },
+  { id: 'pedal-soft', model: 'pipe-organ-pedal-soft', name: "Soft Bass 16'", division: 'pedal', family: 'flute', transpose: 0, feet: 16, gain: -12.8 },
 ];
 
 const PRESETS: Record<string, OrganPreset> = {

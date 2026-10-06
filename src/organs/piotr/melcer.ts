@@ -3,26 +3,26 @@ import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/melcer/<id>.ssm.
 // The Brustwerk (manual II) stands in a swell box: it is the swell here.
 const STOPS: StopDefinition[] = [
-  { id: 'great-nachthorn-8', model: 'organ/melcer/great-nachthorn-8', name: "Nachthorn 8'", division: 'great', family: 'flute', transpose: 0, actionNoise: [5, 6] },
-  { id: 'great-prinzipal-4', model: 'organ/melcer/great-prinzipal-4', name: "Prinzipal 4'", division: 'great', family: 'principal', transpose: 12, actionNoise: [11, 12] },
-  { id: 'great-nasard-2-2-3', model: 'organ/melcer/great-nasard-2-2-3', name: "Nasard 2 2/3'", division: 'great', family: 'mutation', transpose: 19, actionNoise: [7, 8] },
-  { id: 'great-oktave-2', model: 'organ/melcer/great-oktave-2', name: "Oktave 2'", division: 'great', family: 'principal', transpose: 24, actionNoise: [9, 10] },
+  { id: 'great-nachthorn-8', model: 'organ/melcer/great-nachthorn-8', name: "Nachthorn 8'", division: 'great', family: 'flute', transpose: 0, feet: 8, actionNoise: [5, 6] },
+  { id: 'great-prinzipal-4', model: 'organ/melcer/great-prinzipal-4', name: "Prinzipal 4'", division: 'great', family: 'principal', transpose: 12, feet: 4, actionNoise: [11, 12] },
+  { id: 'great-nasard-2-2-3', model: 'organ/melcer/great-nasard-2-2-3', name: "Nasard 2 2/3'", division: 'great', family: 'mutation', transpose: 19, feet: 2 + 2 / 3, actionNoise: [7, 8] },
+  { id: 'great-oktave-2', model: 'organ/melcer/great-oktave-2', name: "Oktave 2'", division: 'great', family: 'principal', transpose: 24, feet: 2, actionNoise: [9, 10] },
   { id: 'great-mixtur-1-1-3-4f', model: 'organ/melcer/great-mixtur-1-1-3-4f', name: "Mixtur 1 1/3' 4f", division: 'great', family: 'mixture', transpose: 0, actionNoise: [3, 4] },
-  { id: 'great-trompete-8', model: 'organ/melcer/great-trompete-8', name: "Trompete 8'", division: 'great', family: 'reed', transpose: 0, actionNoise: [13, 14] },
+  { id: 'great-trompete-8', model: 'organ/melcer/great-trompete-8', name: "Trompete 8'", division: 'great', family: 'reed', transpose: 0, feet: 8, actionNoise: [13, 14] },
 
-  { id: 'swell-gedackt-8', model: 'organ/melcer/swell-gedackt-8', name: "Gedackt 8'", division: 'swell', family: 'flute', transpose: 0, actionNoise: [25, 26] },
-  { id: 'swell-quintaton-8', model: 'organ/melcer/swell-quintaton-8', name: "Quintatön 8'", division: 'swell', family: 'flute', transpose: 0, actionNoise: [31, 32] },
-  { id: 'swell-rohrflote-4', model: 'organ/melcer/swell-rohrflote-4', name: "Rohrflöte 4'", division: 'swell', family: 'flute', transpose: 12, actionNoise: [35, 36] },
-  { id: 'swell-prinzipal-2', model: 'organ/melcer/swell-prinzipal-2', name: "Prinzipal 2'", division: 'swell', family: 'principal', transpose: 24, actionNoise: [29, 30] },
-  { id: 'swell-quinte-1-1-3', model: 'organ/melcer/swell-quinte-1-1-3', name: "Quinte 1 1/3'", division: 'swell', family: 'mutation', transpose: 31, actionNoise: [33, 34] },
-  { id: 'swell-sifflote-1', model: 'organ/melcer/swell-sifflote-1', name: "Sifflöte 1'", division: 'swell', family: 'flute', transpose: 36, actionNoise: [37, 38] },
-  { id: 'swell-krumhorn-8', model: 'organ/melcer/swell-krumhorn-8', name: "Krumhorn 8'", division: 'swell', family: 'reed', transpose: 0, actionNoise: [27, 28] },
+  { id: 'swell-gedackt-8', model: 'organ/melcer/swell-gedackt-8', name: "Gedackt 8'", division: 'swell', family: 'flute', transpose: 0, feet: 8, actionNoise: [25, 26] },
+  { id: 'swell-quintaton-8', model: 'organ/melcer/swell-quintaton-8', name: "Quintatön 8'", division: 'swell', family: 'flute', transpose: 0, feet: 8, actionNoise: [31, 32] },
+  { id: 'swell-rohrflote-4', model: 'organ/melcer/swell-rohrflote-4', name: "Rohrflöte 4'", division: 'swell', family: 'flute', transpose: 12, feet: 4, actionNoise: [35, 36] },
+  { id: 'swell-prinzipal-2', model: 'organ/melcer/swell-prinzipal-2', name: "Prinzipal 2'", division: 'swell', family: 'principal', transpose: 24, feet: 2, actionNoise: [29, 30] },
+  { id: 'swell-quinte-1-1-3', model: 'organ/melcer/swell-quinte-1-1-3', name: "Quinte 1 1/3'", division: 'swell', family: 'mutation', transpose: 31, feet: 1 + 1 / 3, actionNoise: [33, 34] },
+  { id: 'swell-sifflote-1', model: 'organ/melcer/swell-sifflote-1', name: "Sifflöte 1'", division: 'swell', family: 'flute', transpose: 36, feet: 1, actionNoise: [37, 38] },
+  { id: 'swell-krumhorn-8', model: 'organ/melcer/swell-krumhorn-8', name: "Krumhorn 8'", division: 'swell', family: 'reed', transpose: 0, feet: 8, actionNoise: [27, 28] },
 
-  { id: 'pedal-subbass-16', model: 'organ/melcer/pedal-subbass-16', name: "Subbass 16'", division: 'pedal', family: 'flute', transpose: -12, actionNoise: [21, 22] },
-  { id: 'pedal-gedacktbass-8', model: 'organ/melcer/pedal-gedacktbass-8', name: "Gedacktbass 8'", division: 'pedal', family: 'flute', transpose: 0, actionNoise: [17, 18] },
-  { id: 'pedal-choralbas-4', model: 'organ/melcer/pedal-choralbas-4', name: "Choralbas 4'", division: 'pedal', family: 'principal', transpose: 12, actionNoise: [15, 16] },
-  { id: 'pedal-oktave-2', model: 'organ/melcer/pedal-oktave-2', name: "Oktave 2'", division: 'pedal', family: 'principal', transpose: 24, actionNoise: [19, 20] },
-  { id: 'pedal-trompete-8', model: 'organ/melcer/pedal-trompete-8', name: "Trompete 8'", division: 'pedal', family: 'reed', transpose: 0, actionNoise: [23, 24] },
+  { id: 'pedal-subbass-16', model: 'organ/melcer/pedal-subbass-16', name: "Subbass 16'", division: 'pedal', family: 'flute', transpose: -12, feet: 16, actionNoise: [21, 22] },
+  { id: 'pedal-gedacktbass-8', model: 'organ/melcer/pedal-gedacktbass-8', name: "Gedacktbass 8'", division: 'pedal', family: 'flute', transpose: 0, feet: 8, actionNoise: [17, 18] },
+  { id: 'pedal-choralbas-4', model: 'organ/melcer/pedal-choralbas-4', name: "Choralbas 4'", division: 'pedal', family: 'principal', transpose: 12, feet: 4, actionNoise: [15, 16] },
+  { id: 'pedal-oktave-2', model: 'organ/melcer/pedal-oktave-2', name: "Oktave 2'", division: 'pedal', family: 'principal', transpose: 24, feet: 2, actionNoise: [19, 20] },
+  { id: 'pedal-trompete-8', model: 'organ/melcer/pedal-trompete-8', name: "Trompete 8'", division: 'pedal', family: 'reed', transpose: 0, feet: 8, actionNoise: [23, 24] },
 ];
 
 const PRESETS: Record<string, OrganPreset> = {

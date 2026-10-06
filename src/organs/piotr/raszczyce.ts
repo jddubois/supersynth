@@ -3,29 +3,29 @@ import type { OrganDefinition, OrganPreset, StopDefinition } from '../types.js';
 // Every pipe analysed from Piotr Grabowski's free sample set; models/organ/raszczyce/<id>.ssm.
 // Hoofdwerk (manual II) is the great, Rugwerk (manual I) the positive.
 const STOPS: StopDefinition[] = [
-  { id: 'great-prestant-8', model: 'organ/raszczyce/great-prestant-8', name: "Prestant 8'", division: 'great', family: 'principal', transpose: 0, actionNoise: [11, 12] },
-  { id: 'great-roerfluit-8', model: 'organ/raszczyce/great-roerfluit-8', name: "Roerfluit 8'", division: 'great', family: 'flute', transpose: 0, actionNoise: [13, 14] },
-  { id: 'great-octaaf-4', model: 'organ/raszczyce/great-octaaf-4', name: "Octaaf 4'", division: 'great', family: 'principal', transpose: 12, actionNoise: [9, 10] },
-  { id: 'great-gedekt-fluit-4', model: 'organ/raszczyce/great-gedekt-fluit-4', name: "Gedekt fluit 4'", division: 'great', family: 'flute', transpose: 12, actionNoise: [3, 4] },
-  { id: 'great-nasard-2-2-3', model: 'organ/raszczyce/great-nasard-2-2-3', name: "Nasard 2 2/3'", division: 'great', family: 'mutation', transpose: 19, actionNoise: [7, 8] },
-  { id: 'great-woudfluit-2', model: 'organ/raszczyce/great-woudfluit-2', name: "Woudfluit 2'", division: 'great', family: 'flute', transpose: 24, actionNoise: [19, 20] },
+  { id: 'great-prestant-8', model: 'organ/raszczyce/great-prestant-8', name: "Prestant 8'", division: 'great', family: 'principal', transpose: 0, feet: 8, actionNoise: [11, 12] },
+  { id: 'great-roerfluit-8', model: 'organ/raszczyce/great-roerfluit-8', name: "Roerfluit 8'", division: 'great', family: 'flute', transpose: 0, feet: 8, actionNoise: [13, 14] },
+  { id: 'great-octaaf-4', model: 'organ/raszczyce/great-octaaf-4', name: "Octaaf 4'", division: 'great', family: 'principal', transpose: 12, feet: 4, actionNoise: [9, 10] },
+  { id: 'great-gedekt-fluit-4', model: 'organ/raszczyce/great-gedekt-fluit-4', name: "Gedekt fluit 4'", division: 'great', family: 'flute', transpose: 12, feet: 4, actionNoise: [3, 4] },
+  { id: 'great-nasard-2-2-3', model: 'organ/raszczyce/great-nasard-2-2-3', name: "Nasard 2 2/3'", division: 'great', family: 'mutation', transpose: 19, feet: 2 + 2 / 3, actionNoise: [7, 8] },
+  { id: 'great-woudfluit-2', model: 'organ/raszczyce/great-woudfluit-2', name: "Woudfluit 2'", division: 'great', family: 'flute', transpose: 24, feet: 2, actionNoise: [19, 20] },
   { id: 'great-sesquialter-ii', model: 'organ/raszczyce/great-sesquialter-ii', name: "Sesquialter II", division: 'great', family: 'mixture', transpose: 0, actionNoise: [15, 16] },
   { id: 'great-mixtuur-iv', model: 'organ/raszczyce/great-mixtuur-iv', name: "Mixtuur IV", division: 'great', family: 'mixture', transpose: 0, actionNoise: [5, 6] },
-  { id: 'great-trompet-8', model: 'organ/raszczyce/great-trompet-8', name: "Trompet 8'", division: 'great', family: 'reed', transpose: 0, actionNoise: [17, 18] },
+  { id: 'great-trompet-8', model: 'organ/raszczyce/great-trompet-8', name: "Trompet 8'", division: 'great', family: 'reed', transpose: 0, feet: 8, actionNoise: [17, 18] },
 
-  { id: 'positive-holpijp-8', model: 'organ/raszczyce/positive-holpijp-8', name: "Holpijp 8'", division: 'positive', family: 'flute', transpose: 0, actionNoise: [33, 34] },
-  { id: 'positive-prestant-4', model: 'organ/raszczyce/positive-prestant-4', name: "Prestant 4'", division: 'positive', family: 'principal', transpose: 12, actionNoise: [39, 40] },
-  { id: 'positive-roerfluit-4', model: 'organ/raszczyce/positive-roerfluit-4', name: "Roerfluit 4'", division: 'positive', family: 'flute', transpose: 12, actionNoise: [41, 42] },
-  { id: 'positive-octaaf-2', model: 'organ/raszczyce/positive-octaaf-2', name: "Octaaf 2'", division: 'positive', family: 'principal', transpose: 24, actionNoise: [37, 38] },
+  { id: 'positive-holpijp-8', model: 'organ/raszczyce/positive-holpijp-8', name: "Holpijp 8'", division: 'positive', family: 'flute', transpose: 0, feet: 8, actionNoise: [33, 34] },
+  { id: 'positive-prestant-4', model: 'organ/raszczyce/positive-prestant-4', name: "Prestant 4'", division: 'positive', family: 'principal', transpose: 12, feet: 4, actionNoise: [39, 40] },
+  { id: 'positive-roerfluit-4', model: 'organ/raszczyce/positive-roerfluit-4', name: "Roerfluit 4'", division: 'positive', family: 'flute', transpose: 12, feet: 4, actionNoise: [41, 42] },
+  { id: 'positive-octaaf-2', model: 'organ/raszczyce/positive-octaaf-2', name: "Octaaf 2'", division: 'positive', family: 'principal', transpose: 24, feet: 2, actionNoise: [37, 38] },
   { id: 'positive-scherp-iv', model: 'organ/raszczyce/positive-scherp-iv', name: "Scherp IV", division: 'positive', family: 'mixture', transpose: 0, actionNoise: [43, 44] },
   { id: 'positive-cymbel-iii', model: 'organ/raszczyce/positive-cymbel-iii', name: "Cymbel III", division: 'positive', family: 'mixture', transpose: 0, actionNoise: [31, 32] },
-  { id: 'positive-kromhoorn-8', model: 'organ/raszczyce/positive-kromhoorn-8', name: "Kromhoorn 8'", division: 'positive', family: 'reed', transpose: 0, actionNoise: [35, 36] },
+  { id: 'positive-kromhoorn-8', model: 'organ/raszczyce/positive-kromhoorn-8', name: "Kromhoorn 8'", division: 'positive', family: 'reed', transpose: 0, feet: 8, actionNoise: [35, 36] },
 
-  { id: 'pedal-subbas-16', model: 'organ/raszczyce/pedal-subbas-16', name: "Subbas 16'", division: 'pedal', family: 'flute', transpose: -12, actionNoise: [29, 30] },
-  { id: 'pedal-prestant-8', model: 'organ/raszczyce/pedal-prestant-8', name: "Prestant 8'", division: 'pedal', family: 'principal', transpose: 0, actionNoise: [27, 28] },
-  { id: 'pedal-gedekt-8', model: 'organ/raszczyce/pedal-gedekt-8', name: "Gedekt 8'", division: 'pedal', family: 'flute', transpose: 0, actionNoise: [23, 24] },
-  { id: 'pedal-octaaf-4', model: 'organ/raszczyce/pedal-octaaf-4', name: "Octaaf 4'", division: 'pedal', family: 'principal', transpose: 12, actionNoise: [25, 26] },
-  { id: 'pedal-fagot-16', model: 'organ/raszczyce/pedal-fagot-16', name: "Fagot 16'", division: 'pedal', family: 'reed', transpose: -12, actionNoise: [21, 22] },
+  { id: 'pedal-subbas-16', model: 'organ/raszczyce/pedal-subbas-16', name: "Subbas 16'", division: 'pedal', family: 'flute', transpose: -12, feet: 16, actionNoise: [29, 30] },
+  { id: 'pedal-prestant-8', model: 'organ/raszczyce/pedal-prestant-8', name: "Prestant 8'", division: 'pedal', family: 'principal', transpose: 0, feet: 8, actionNoise: [27, 28] },
+  { id: 'pedal-gedekt-8', model: 'organ/raszczyce/pedal-gedekt-8', name: "Gedekt 8'", division: 'pedal', family: 'flute', transpose: 0, feet: 8, actionNoise: [23, 24] },
+  { id: 'pedal-octaaf-4', model: 'organ/raszczyce/pedal-octaaf-4', name: "Octaaf 4'", division: 'pedal', family: 'principal', transpose: 12, feet: 4, actionNoise: [25, 26] },
+  { id: 'pedal-fagot-16', model: 'organ/raszczyce/pedal-fagot-16', name: "Fagot 16'", division: 'pedal', family: 'reed', transpose: -12, feet: 16, actionNoise: [21, 22] },
 ];
 
 const PRESETS: Record<string, OrganPreset> = {
