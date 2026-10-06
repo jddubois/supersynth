@@ -78,8 +78,9 @@ export interface NativeEngine {
   setLayerGain(part: number, layer: number, gainDb: number, time?: number | null): void;
   setCouplers(part: number, targets: NativeCoupler[], unisonOff?: boolean | null, time?: number | null): void;
   /** Part that MIDI `channel` of `source` plays (source 0, the default: any input; 1…: the
-   *  inputs opened with `openMidiInput`, whose routes come first); 255: none. */
-  setMidiRoute(channel: number, part: number, source?: number): void;
+   *  inputs opened with `openMidiInput`, whose routes come first); 255: none. `controllers`
+   *  false: only its notes. */
+  setMidiRoute(channel: number, part: number, source?: number, controllers?: boolean): void;
   allNotesOff(part?: number | null, time?: number | null): void;
   allSoundOff(): void;
   /** Start real-time output (a browser sets up its audio graph asynchronously). `onEvent` is

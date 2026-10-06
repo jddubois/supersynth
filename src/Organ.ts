@@ -802,7 +802,7 @@ export class Organ {
     const routes = sources.map(([name, src]) => [this.division(name), midiRoutes(src)] as const);
     if (Array.isArray(options.presets)) for (const name of options.presets) this.checkPreset(this.lookup(name));
     this._detachMidi();
-    for (const [division, rs] of routes) for (const [ch, device] of rs) this.synth._route(ch, division.channel, device);
+    for (const [division, rs] of routes) for (const [ch, device, controllers] of rs) this.synth._route(ch, division.channel, device, controllers);
     if (options.presets !== false && sources.length > 0) {
       const names = () => (options.presets === undefined ? Object.keys(this.presets()) : options.presets) as string[];
       // runs inside an event emitted for MIDI input: it must not throw

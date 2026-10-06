@@ -115,7 +115,9 @@ piano.midi({ device: 'piano' }); organ.midi({});                         // pian
 ```
 
 A source is a channel (`1`: channel 1 of every input), `{ device }` (every channel of that
-device's input), `{ device, channel }`, or an array of these. Routes that name a device come
+device's input), `{ device, channel }`, or an array of these. Add `controllers: false` to play
+only the notes there: a piano's sustain pedal then doesn't hold the organ's notes, and
+controllers and pitch bend still reach the `'midi'` event. Routes that name a device come
 first for that device's messages; its other channels follow the routes for all inputs. So two
 devices that send on the same channel can still play different instruments, and a device that
 other programs or a session manager also send to hears only itself (see below).

@@ -127,7 +127,7 @@ Returned by `synth.add`: one instrument on one channel.
 | `sustain(down \| 0…1)`, `sostenuto(down)`, `softPedal(down)`, `pitchBend(-1…1)`, `modulation(0…1)`, `expression(0…1)`, `controlChange(n, v)` | controllers. On pianos `sustain` takes a depth for half-pedalling (other instruments switch at 0.5); `sostenuto` (CC 66) keeps ringing only the notes held when it goes down; `softPedal` (una corda, CC 67) makes new notes softer and darker |
 | `set(parameters, { at })`, `get(name)`, `parameters()` | sound parameters, see [parameters.md](parameters.md) |
 | `preset(name \| preset, { at })`, `presets()`, `savePreset(name, preset?)`, `current()`, `activePreset()` | presets |
-| `midi(source?)` | play it from MIDI input: a channel 1–16 of any input (every channel if left out), `{ device, channel? }` for one device's input, an array of these, or `false` for none (see [midi.md](midi.md#hardware-input)) |
+| `midi(source?)` | play it from MIDI input: a channel 1–16 of any input (every channel if left out), `{ device, channel?, controllers? }` for one device's input (`controllers: false`: notes only), an array of these, or `false` for none (see [midi.md](midi.md#hardware-input)) |
 
 | Property | |
 |---|---|
