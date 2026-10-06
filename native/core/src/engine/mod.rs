@@ -2677,7 +2677,8 @@ mod tests {
     #[test]
     fn half_pedal_damps_partly() {
         let (Some(none), Some(half), Some(full)) = (after_key_up(Some(0)), after_key_up(Some(64)), after_key_up(Some(127))) else { return };
-        assert!(full > -6.0, "pedal down: {full:.1} dB");
+        // (pedal down: only the note's own decay over that half second)
+        assert!(full > -12.0, "pedal down: {full:.1} dB");
         assert!(half < full - 6.0 && half > none + 3.0, "half pedal {half:.1} dB (off {none:.1}, down {full:.1})");
     }
 

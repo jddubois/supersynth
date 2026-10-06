@@ -1388,8 +1388,8 @@ mod tests {
         for (file, want) in [
             ("packages/instruments/models/piccolo.ssm", &[0xf2b4f066de1e07b1][..]),
             ("packages/instruments/models/flute-vibrato.ssm", &[0x083da5ae8a225130][..]),
-            // (0.3.0, and the same recordings with the faster piano damper in the header)
-            ("packages/instruments/models/grand-piano.ssm", &[0xc81e687ca2ab0d26, 0x9b93_c3f2_7cc2_30e2][..]),
+            // (0.3.0, and the 0.4.0 rebuild: treble tuning fixed, faster damper)
+            ("packages/instruments/models/grand-piano.ssm", &[0xc81e687ca2ab0d26, 0x6bad_be6b_213d_e012][..]),
             ("packages/organ-friesach/models/organ/friesach/great-gambe-8.ssm", &[0xeb675083369b8aed][..]),
             ("packages/organ-harmonium/models/organ/harmonium/great-diapason-8-forte.ssm", &[0x3f1d1b3079439eb8][..]),
             ("packages/organ-saint-jean-de-luz/models/organ/saint-jean-de-luz/pedal-bourdon-8.ssm", &[0x66f40dc18eefa477][..]),

@@ -386,8 +386,13 @@ def stable_segment(x: np.ndarray, sr: int, n: int, skip_s: float = 0.03, range_d
     return x[best:best + n]
 
 
-def comb_fit(x, sr, f0, t0, t1, K, max_B):
-    """(f0, B, per-partial ratios) from a long, low-leakage spectrum of the steady part."""
+def comb_fit(x, sr, f0, t0, t1, K, max_B, wide=False):
+    """(f0, B, per-partial ratios) from a long, low-leakage spectrum of the steady part.
+
+    `wide` (struck and plucked strings): the first fit can be tens of cents off where a note
+    has few partials (the top of a piano: 5-10, strongly stretched), so search ±60 cents
+    around it, and measure each partial within ±25 cents of the comb (unison strings).
+    Otherwise ±10 cents, and each partial within its window's main lobe."""
     seg = x[int(t0 * sr):int(t1 * sr)]
     if len(seg) < int(0.1 * sr):
         # (not the first 0.1 s: that is the attack — hammer, pluck — not the partials' comb)
@@ -413,26 +418,45 @@ def comb_fit(x, sr, f0, t0, t1, K, max_B):
         fk = fk[fk < 0.45 * sr]
         return pmax[np.minimum((fk / binhz).round().astype(int), len(pmax) - 1)].sum()
 
-    cents = np.arange(-10, 10.01, 0.5)
     Bs = np.concatenate([[0.0], np.geomspace(1e-6, max_B, 90)])
-    best = (score(f0, 0.0), f0, 0.0)
-    base = max(score(f0 * 2 ** (c / 1200), 0.0) for c in cents)
-    for b in Bs:
-        for c in cents:
-            f = f0 * 2 ** (c / 1200)
-            sc = score(f, b)
-            if sc > best[0]:
-                best = (sc, f, b)
+
+    def search(around):
+        cents = np.arange(-10, 10.01, 0.5)
+        best = (score(around, 0.0), around, 0.0)
+        base = max(score(around * 2 ** (c / 1200), 0.0) for c in cents)
+        for b in Bs:
+            for c in cents:
+                f = around * 2 ** (c / 1200)
+                sc = score(f, b)
+                if sc > best[0]:
+                    best = (sc, f, b)
+        if best[0] < base * 1.04:      # stretching must clearly explain more of the spectrum
+            f = max(((score(around * 2 ** (c / 1200), 0.0), around * 2 ** (c / 1200)) for c in cents))[1]
+            best = (score(f, 0.0), f, 0.0)
+        return best
+
+    best = search(f0)
+    if wide:
+        # The first fit can be tens of cents off where a note has few, strongly stretched
+        # partials (the top of a piano), out of reach of the search: if the comb misses a
+        # prominent fundamental, search again around it.
+        f1 = best[1] * math.sqrt(1 + best[2])
+        lo, hi = int(f1 * 2 ** (-60 / 1200) / binhz), int(f1 * 2 ** (60 / 1200) / binhz) + 1
+        if lo > 1 and hi < len(ldb) - 1:
+            j = lo + int(np.argmax(ldb[lo:hi]))
+            if prom[j] >= 12 and abs(1200 * math.log2(j * binhz / f1)) > 8:
+                again = search(j * binhz / math.sqrt(1 + best[2]))
+                if again[0] >= best[0]:
+                    best = again
     _, f0b, Bb = best
-    if best[0] < base * 1.04:      # stretching must clearly explain more of the spectrum
-        Bb = 0.0
-        f0b = max(((score(f0 * 2 ** (c / 1200), 0.0), f0 * 2 ** (c / 1200)) for c in cents))[1]
     model = kk * np.sqrt(1 + Bb * kk ** 2)
     ratios = model.copy()
-    # measured peak frequencies where a partial stands clearly above the floor
+    # measured peak frequencies where a partial stands clearly above the floor (`wide`: within
+    # ±25 cents of the comb, never nearer a neighbouring partial)
     for i, r in enumerate(model):
         fc = r * f0b / binhz
-        lo, hi = int(fc - lobe), int(fc + lobe) + 1
+        half = max(lobe, min(fc * (2 ** (25 / 1200) - 1), 0.3 * f0b / binhz)) if wide else lobe
+        lo, hi = int(fc - half), int(fc + half) + 1
         if hi >= len(ldb) - 1 or lo < 1:
             continue
         j = lo + int(np.argmax(ldb[lo:hi]))
@@ -613,7 +637,7 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
         # as a piano). Confirm (f0, B) against a high-resolution spectrum: the comb that
         # lands on the most prominent peaks wins, and B = 0 unless stretching clearly helps.
         if not locked:
-            f0, B, ratios = comb_fit(x, sr, f0, steady0, steady1, K, max_stiffness)
+            f0, B, ratios = comb_fit(x, sr, f0, steady0, steady1, K, max_stiffness, wide=kind == 'decaying')
         else:
             ratios = kk * np.sqrt(1 + B * kk ** 2)
         if locked:
