@@ -3,7 +3,8 @@ import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
 import {
-  INSTRUMENTS, Organ, Synth, SupersynthError, type InstrumentDefinition, type InstrumentId, type OrganDefinition, type Playable,
+  AudioBackendError, INSTRUMENTS, MidiError, Organ, Synth, SupersynthError, type InstrumentDefinition, type InstrumentId, type OrganDefinition, type Playable,
+  type XrunEvent,
 } from '../src/index.js';
 import * as instrumentConfigs from '../src/catalog/index.js';
 import { BUREA_ORGAN, ORGANS, PIOTR_ORGANS } from '../src/organs/index.js';
@@ -686,5 +687,96 @@ describe('files', () => {
     const audio = synth.renderMidi(bytes, { instrument: 'harpsichord', tail: 0.5, speed: 8 });
     expect(audio.duration).toBeGreaterThan(1);
     expect(rms(audio.left)).toBeGreaterThan(1e-3);
+  });
+});
+
+describe('MIDI devices and the output', () => {
+  /** The engine channel each MIDI channel (index 0–15) of each source plays (source 0: any input). */
+  const routes = (synth: Synth) => (synth as unknown as { routes: (number | null)[][] }).routes;
+
+  test('instruments and divisions listen to channels of one device or of any', () => {
+    const synth = new Synth({ sampleRate: 22050 });
+    const piano = synth.add('grand-piano');
+    const organ = synth.add('burea');
+    expect(() => piano.midi({ device: 'piano', channel: 0 })).toThrow(RangeError);
+    expect(() => piano.midi({ device: 3 as never })).toThrow(RangeError);
+    expect(() => organ.midi({ great: { channel: 17 } })).toThrow(RangeError);
+    piano.midi({ device: 'Piano' });
+    const [any, pianoIn] = routes(synth);
+    expect(pianoIn).toEqual(new Array(16).fill(piano.channel));
+    expect(any).toEqual(new Array(16).fill(null));
+    // the organ takes channel 1 of the same device (named in another case), and a second device
+    organ.midi({ great: { device: 'PIANO', channel: 1 }, pedal: { device: 'pedals' }, swell: 3 });
+    expect(routes(synth)[1]![0]).toBe(organ.great.channel);
+    expect(routes(synth)[1]![1]).toBe(piano.channel);
+    expect(routes(synth)[2]).toEqual(new Array(16).fill(organ.pedal.channel));
+    expect(routes(synth)[0]![2]).toBe(organ.swell.channel);
+    // switching the keyboard back to the piano, and the organ off
+    piano.midi([{ device: 'piano' }, 5]);
+    organ.midi(false);
+    expect(routes(synth)[1]).toEqual(new Array(16).fill(piano.channel));
+    expect(routes(synth)[0]![4]).toBe(piano.channel);
+    expect(routes(synth)[2]).toEqual(new Array(16).fill(null));
+    piano.midi(false);
+    expect(routes(synth).flat().every((c) => c === null)).toBe(true);
+    synth.close();
+  });
+
+  test('program changes select presets only from the organ\'s sources', () => {
+    const synth = new Synth({ sampleRate: 22050 });
+    const organ = synth.add('burea').midi({ great: { device: 'piano' }, pedal: { device: 'pedals', channel: 2 } }, { presets: ['flutes', 'plenum'] });
+    const pc = (program: number, channel: number, device?: string) =>
+      synth.emit('midi', { type: 'programChange', channel, program, raw: Buffer.from([0xc0 | (channel - 1), program]), ...(device ? { device } : {}) });
+    pc(1, 7, 'Piano');
+    expect(organ.activePreset()).toBe('plenum');
+    pc(0, 7);  // not from the piano
+    pc(0, 3, 'pedals'); // not the pedals' channel
+    expect(organ.activePreset()).toBe('plenum');
+    pc(0, 2, 'pedals');
+    expect(organ.activePreset()).toBe('flutes');
+    synth.close();
+  });
+
+  test('inputs and output without such a device', async () => {
+    const synth = new Synth({ sampleRate: 22050 });
+    await expect(synth.enableMidi('no such device 7f3a')).rejects.toBeInstanceOf(MidiError);
+    // (a machine without MIDI at all, such as CI's, refuses even an optional input)
+    const opened = await synth.enableMidi('no such device 7f3a', { optional: true }).then(
+      () => true,
+      (e) => (expect(e).toBeInstanceOf(MidiError), false),
+    );
+    if (opened) {
+      expect(synth.midiInputs()).toEqual([{ device: 'no such device 7f3a', name: null, connected: false }]);
+      synth.disableMidi('NO SUCH DEVICE 7f3a');
+      expect(synth.midiInputs()).toEqual([]);
+      expect(synth.sendMidi('no such device 7f3a', [0xb0, 122, 0])).toBe(false);
+      expect(Array.isArray(synth.listMidiOutputs())).toBe(true);
+    }
+    expect(() => synth.sendMidi('x', [0xb0, 300, 0])).toThrow(SupersynthError);
+    expect(() => synth.sendMidi('x', [0x90, 60])).toThrow(MidiError);
+    synth.close();
+  });
+
+  test('the output: real-time priority, xruns, stopping by itself', async () => {
+    expect(() => new Synth({ clientName: '' })).toThrow(SupersynthError);
+    const synth = new Synth({ sampleRate: 22050, clientName: 'organ synth' });
+    expect(synth.realtime).toBeNull();
+    expect(synth.xruns).toBe(0);
+    const events: unknown[] = [];
+    synth.on('xrun', (e: XrunEvent) => events.push(e));
+    synth.on('stopped', (e?: Error) => events.push(e));
+    // what the audio backend reports (an output that cannot run on a machine without audio)
+    const report = (synth as unknown as { outputEvent(stopped: string | null): void }).outputEvent.bind(synth);
+    report(null);
+    report(null);
+    report(null);
+    expect(events).toEqual([{ count: 1, total: 0 }]);
+    await new Promise((r) => setTimeout(r, 1100));
+    expect(events).toEqual([{ count: 1, total: 0 }, { count: 2, total: 0 }]);
+    report('JACK was shut down for reason: gone');
+    expect(events[2]).toBeInstanceOf(AudioBackendError);
+    expect((events[2] as Error).message).toContain('JACK was shut down');
+    expect(synth.isRunning).toBe(false);
+    synth.close();
   });
 });

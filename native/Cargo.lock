@@ -944,7 +944,9 @@ dependencies = [
 name = "supersynth-native"
 version = "0.1.0"
 dependencies = [
+ "alsa",
  "cpal",
+ "libc",
  "midir",
  "napi",
  "napi-build",

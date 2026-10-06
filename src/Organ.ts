@@ -7,8 +7,8 @@ import { ORGANS, type OrganId } from './organs/index.js';
 import type { CouplerLike, DivisionName, OrganDefinition, OrganPreset, StopDefinition, TremulantDefinition } from './organs/types.js';
 import { playNotes, playSequence, resolveTime, type Keys, type Playable, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
 import type { Synth } from './Synth.js';
-import type { MidiEvent } from './types.js';
-import { clamp, finite, inRange, velocity as checkVelocity } from './validate.js';
+import type { MidiEvent, MidiSource } from './types.js';
+import { clamp, finite, inRange, midiRoutes, midiSourceMatches, velocity as checkVelocity } from './validate.js';
 
 export type { CouplerLike, DivisionName, OrganDefinition, OrganPreset, StopDefinition } from './organs/types.js';
 
@@ -485,8 +485,9 @@ export interface OrganOptions extends OrganSettings {
   presets?: Record<string, OrganPreset>;
 }
 
-/** MIDI channel (1–16) of each keyboard, for {@link Organ.midi}. */
-export type OrganMidiChannels = Partial<Record<DivisionName, number>>;
+/** Where each keyboard listens for MIDI input, for {@link Organ.midi}: a channel (1–16) of any
+ *  input, or `{ device, channel? }` (see {@link MidiSource}). */
+export type OrganMidiChannels = Partial<Record<DivisionName, MidiSource>>;
 
 export interface OrganMidiOptions {
   /** Program change on any of the organ's channels selects a preset: program 0 the first of
@@ -780,32 +781,33 @@ export class Organ {
   // ── MIDI ──────────────────────────────────────────────────────────────────
 
   /**
-   * Play the organ from MIDI keyboards (after `synth.enableMidi()`): each division listens on
-   * its channel, couplers included, and the swell pedal is CC 11 on a division's channel.
-   * Program changes select presets (the names are checked now). Replaces the channels the
-   * organ had. A preset that fails to apply on a program change is emitted as the synth's
-   * `'error'` event when it has listeners, and otherwise ignored.
+   * Play the organ from MIDI keyboards (see `synth.enableMidi()`): each division listens to
+   * its source, a channel of any input or one device's input (`{ device, channel? }`, see
+   * {@link MidiSource}), couplers included, and the swell pedal is CC 11 on a division's
+   * channel. Program changes on those sources select presets (the names are checked now).
+   * Replaces what the organ listened to; `false` (or `{}`) stops listening. A preset that
+   * fails to apply on a program change is emitted as the synth's `'error'` event when it has
+   * listeners, and otherwise ignored.
    *
    * ```ts
    * await synth.enableMidi();
    * organ.midi({ great: 1, swell: 2, pedal: 3 }, { presets: ['flutes', 'principal-chorus', 'plenum', 'full'] });
+   * // or a keyboard and a pedalboard, each its own device:
+   * organ.midi({ great: { device: 'piano' }, pedal: { device: 'pedalboard' } });
    * ```
    */
-  midi(channels: OrganMidiChannels = { great: 1, swell: 2, positive: 3, pedal: 4 }, options: OrganMidiOptions = {}): this {
+  midi(channels: OrganMidiChannels | false = { great: 1, swell: 2, positive: 3, pedal: 4 }, options: OrganMidiOptions = {}): this {
     this._engine();
-    for (const [name, ch] of Object.entries(channels)) {
-      this.division(name as DivisionName);
-      if (!Number.isInteger(ch) || ch < 1 || ch > 16) throw new RangeError(`MIDI channel must be 1-16, got ${ch}`);
-    }
+    const sources = Object.entries(channels === false ? {} : channels) as [DivisionName, MidiSource][];
+    const routes = sources.map(([name, src]) => [this.division(name), midiRoutes(src)] as const);
     if (Array.isArray(options.presets)) for (const name of options.presets) this.checkPreset(this.lookup(name));
     this._detachMidi();
-    for (const [name, ch] of Object.entries(channels)) this.synth._route(ch, this.division(name as DivisionName).channel);
-    if (options.presets !== false) {
-      const ours = new Set(Object.values(channels));
+    for (const [division, rs] of routes) for (const [ch, device] of rs) this.synth._route(ch, division.channel, device);
+    if (options.presets !== false && sources.length > 0) {
       const names = () => (options.presets === undefined ? Object.keys(this.presets()) : options.presets) as string[];
       // runs inside an event emitted for MIDI input: it must not throw
       this.midiListener = (e: MidiEvent) => {
-        if (e.type !== 'programChange' || !ours.has(e.channel)) return;
+        if (e.type !== 'programChange' || !sources.some(([, src]) => midiSourceMatches(src, e.device, e.channel))) return;
         try {
           const name = names()[e.program ?? 0];
           if (name !== undefined) this.preset(name);

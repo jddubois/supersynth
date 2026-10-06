@@ -121,6 +121,15 @@ interface Watcher {
   callback: (error: string | null) => void;
 }
 
+/** A MIDI input of the browser engine: the device it follows. */
+interface WebMidiInput {
+  pattern: string;
+  route: boolean;
+  onMessage: (bytes: Uint8Array) => void;
+  onState: (connected: boolean, name: string) => void;
+  port: MIDIInput | undefined;
+}
+
 /** @internal */
 export class WasmEngine implements NativeEngine {
   private e: SynthEngine;
@@ -135,7 +144,10 @@ export class WasmEngine implements NativeEngine {
    *  reclaim thread here). */
   private sweeper: ReturnType<typeof setInterval> | undefined;
   private midiAccess: MIDIAccess | undefined;
-  private midiIn: MIDIInput | undefined;
+  /** MIDI inputs by source (see `openMidiInput`). */
+  private midiInputs = new Map<number, WebMidiInput>();
+  /** Told when the output stops by itself. */
+  private onEvent: ((stopped: string | null) => void) | undefined;
   /** Model bytes (fetched by the platform) by location. */
   private readonly bytes: (location: string) => Uint8Array;
   private readonly started: Promise<void>;
@@ -206,6 +218,15 @@ export class WasmEngine implements NativeEngine {
 
   get isRunning(): boolean {
     return this.node !== undefined;
+  }
+
+  /** (A browser schedules its audio thread itself: not known.) */
+  get realtime(): boolean | null {
+    return null;
+  }
+
+  get xruns(): number {
+    return 0;
   }
 
   get queueFree(): number {
@@ -341,8 +362,8 @@ export class WasmEngine implements NativeEngine {
     this.e.setCouplers(part, targets, unisonOff, time);
   }
 
-  setMidiRoute(channel: number, part: number): void {
-    this.e.setMidiRoute(channel, part);
+  setMidiRoute(channel: number, part: number, source?: number): void {
+    this.e.setMidiRoute(channel, part, source ?? 0);
   }
 
   allNotesOff(part?: number | null, time?: number | null): void {
@@ -357,8 +378,9 @@ export class WasmEngine implements NativeEngine {
 
   /** Start playing: an AudioWorklet renders the engine (sound starts once the page is allowed
    *  to play audio, after a user gesture). */
-  async start(): Promise<void> {
+  async start(onEvent?: (stopped: string | null) => void): Promise<void> {
     if (this.node || !shared) return;
+    this.onEvent = onEvent;
     this.e.checkOpen();
     const sampleRate = this.e.sampleRate;
     this.ctx ??= new AudioContext({ sampleRate, latencyHint: this.bufferSize ? this.bufferSize / sampleRate : 'interactive' });
@@ -378,6 +400,7 @@ export class WasmEngine implements NativeEngine {
     };
     node.onprocessorerror = () => {
       this.failure ??= 'the audio engine failed (in its AudioWorklet)';
+      this.onEvent?.(this.failure);
     };
     node.connect(ctx.destination);
     this.node = node;
@@ -390,6 +413,7 @@ export class WasmEngine implements NativeEngine {
     const node = this.node;
     if (!node) return;
     this.node = undefined;
+    this.onEvent = undefined;
     clearInterval(this.sweeper);
     this.e.setRunning(false);
     node.port.postMessage('stop');
@@ -408,37 +432,86 @@ export class WasmEngine implements NativeEngine {
     return this.midiAccess ? [...this.midiAccess.inputs.values()].map((i) => i.name ?? i.id) : [];
   }
 
+  listMidiOutputs(): string[] {
+    return this.midiAccess ? [...this.midiAccess.outputs.values()].map((o) => o.name ?? o.id) : [];
+  }
+
   listAudioBackends(): string[] {
     return ['webaudio'];
   }
 
-  async enableMidi(deviceName: string | null | undefined, route: boolean, callback: (bytes: Uint8Array) => void): Promise<void> {
+  async openMidiInput(
+    source: number,
+    options: { device?: string | null; route: boolean; optional: boolean },
+    onMessage: (bytes: Uint8Array) => void,
+    onState: (connected: boolean, name: string) => void,
+  ): Promise<string | null> {
     const nav = globalThis.navigator as Navigator | undefined;
     if (!nav?.requestMIDIAccess) throw new Error('Web MIDI is not available in this browser');
-    this.midiAccess ??= await nav.requestMIDIAccess();
-    const inputs = [...this.midiAccess.inputs.values()];
-    const input = deviceName ? inputs.find((i) => (i.name ?? '').includes(deviceName)) : inputs[0];
-    if (!input) {
-      throw new Error(deviceName ? `No MIDI input matching '${deviceName}'. Inputs: ${inputs.map((i) => i.name).join(', ') || 'none'}` : 'No MIDI input device found');
+    const access = (this.midiAccess ??= await nav.requestMIDIAccess({ sysex: false }));
+    access.onstatechange = () => this.rescanMidi();
+    this.closeMidiInput(source);
+    const pattern = (options.device ?? '').toLowerCase();
+    const inputs = [...access.inputs.values()];
+    const found = inputs.find((i) => (i.name ?? '').toLowerCase().includes(pattern) && i.state === 'connected');
+    if (!found && !options.optional) {
+      throw new Error(options.device ? `No MIDI input matching '${options.device}'. Inputs: ${inputs.map((i) => i.name).join(', ') || 'none'}` : 'No MIDI input device found');
     }
-    this.disableMidi();
-    input.onmidimessage = (ev: MIDIMessageEvent) => {
-      const data = ev.data;
-      if (!data) return;
-      if (route) this.e.midiInput(data);
-      callback(data);
-    };
-    this.midiIn = input;
+    const input: WebMidiInput = { pattern, route: options.route, onMessage, onState, port: undefined };
+    this.midiInputs.set(source, input);
+    if (found) this.attachMidi(source, input, found);
+    return found ? (found.name ?? found.id) : null;
   }
 
-  disableMidi(): void {
-    if (this.midiIn) this.midiIn.onmidimessage = null;
-    this.midiIn = undefined;
+  private attachMidi(source: number, input: WebMidiInput, port: MIDIInput): void {
+    input.port = port;
+    port.onmidimessage = (ev: MIDIMessageEvent) => {
+      const data = ev.data;
+      if (!data) return;
+      if (input.route) this.e.midiInput(data, source);
+      input.onMessage(data);
+    };
+    input.onState(true, port.name ?? port.id);
+  }
+
+  /** A device was plugged in or out: inputs follow their devices. */
+  private rescanMidi(): void {
+    const inputs = [...(this.midiAccess?.inputs.values() ?? [])];
+    for (const [source, input] of this.midiInputs) {
+      const port = input.port;
+      if (port && port.state !== 'connected') {
+        port.onmidimessage = null;
+        input.port = undefined;
+        this.e.midiRelease(source);
+        input.onState(false, port.name ?? port.id);
+      }
+      if (!input.port) {
+        const found = inputs.find((i) => (i.name ?? '').toLowerCase().includes(input.pattern) && i.state === 'connected');
+        if (found) this.attachMidi(source, input, found);
+      }
+    }
+  }
+
+  closeMidiInput(source?: number | null): void {
+    for (const [s, input] of [...this.midiInputs]) {
+      if (source != null && s !== source) continue;
+      if (input.port) input.port.onmidimessage = null;
+      this.midiInputs.delete(s);
+      this.e.midiRelease(s);
+    }
+  }
+
+  sendMidi(device: string, bytes: Uint8Array): boolean {
+    const pattern = device.toLowerCase();
+    const out = [...(this.midiAccess?.outputs.values() ?? [])].find((o) => (o.name ?? '').toLowerCase().includes(pattern) && o.state === 'connected');
+    if (!out) return false;
+    out.send(bytes);
+    return true;
   }
 
   releaseResources(): void {
     this.stop();
-    this.disableMidi();
+    this.closeMidiInput();
     this.watchers = [];
     this.e.releaseResources();
     void startQueued();

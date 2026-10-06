@@ -70,7 +70,7 @@ and files that are truncated, corrupt or not MIDI files at all throw `MidiError`
 synth.add('grand-piano').midi(1);           // MIDI channel 1
 synth.add('strings').midi(2);               // MIDI channel 2
 await synth.start();                        // real-time output: the keys sound only while it runs
-await synth.enableMidi('Arturia');          // substring of the device name; omit for the first device
+await synth.enableMidi('Arturia');          // part of the device name, any case; omit for the first device
 synth.on('midi', (e) => console.log(e.type, e.channel, e.note, e.velocity));
 ```
 
@@ -78,14 +78,16 @@ While a MIDI input is enabled, Node.js keeps running until you call `disableMidi
 `synth.close()`.
 
 Each `'midi'` event is a `MidiEvent` with a `type` (`'noteOn'`, `'noteOff'`, `'cc'`,
-`'programChange'`, `'pitchBend'` or `'unknown'`), a `channel` (1–16) and the `raw` bytes. Depending
-on the type it also has `note` and `velocity`, `controller` and `value` (0–127), `program`, or a
-pitch-bend `value` from −1 to 1. A note-on with velocity 0 arrives as `'noteOff'`.
+`'programChange'`, `'pitchBend'` or `'unknown'`), a `channel` (1–16), the `device` it came from
+(what was passed to `enableMidi`, left out for the input opened without one) and the `raw`
+bytes. Depending on the type it also has `note` and `velocity`, `controller` and `value`
+(0–127), `program`, or a pitch-bend `value` from −1 to 1. A note-on with velocity 0 arrives as
+`'noteOff'`.
 
 A MIDI keyboard doesn't play anything until you assign a channel: `instrument.midi(n)` (or
 `instrument.midi()` for all channels) and `organ.midi({ great: 1, … })`. Each channel belongs to
 one instrument or division at a time. Assigning it to another one moves it, and calling `midi()`
-again replaces the channels an instrument or organ had before.
+again replaces the channels an instrument or organ had before; `midi(false)` takes them all away.
 
 With `route: true` (the default), notes and controllers go straight to the engine without a
 round trip through JavaScript, but only while real-time output is running (`synth.start()`).
@@ -94,8 +96,65 @@ anything. Messages take effect at the start of the next audio buffer, so their t
 by up to one buffer (`bufferSize`). Live input has its own space in the engine's queue, so
 events a program schedules ahead of time can't crowd it out. Set `route: false` to handle
 everything yourself in the `'midi'` event, which fires for every message either way.
-`disableMidi()` disconnects the device.
 
-To play an organ from MIDI, assign its divisions to channels with
-`organ.midi({ great: 1, swell: 2, pedal: 3 })`. Couplers apply, and program changes select
-presets; see [organ.md](organ.md#midi-keyboards).
+### Several devices
+
+Call `enableMidi()` once per device. Each input is named by the `device` string you pass, and
+an instrument or division can listen to one device's input rather than to a channel of all of
+them:
+
+```ts
+await synth.enableMidi('piano', { optional: true });     // a digital piano
+await synth.enableMidi('teensy', { optional: true });    // a pedalboard
+const piano = synth.add('grand-piano');
+const organ = synth.add('friesach');
+
+organ.midi({ great: { device: 'piano' }, pedal: { device: 'teensy' } });   // organ mode
+piano.midi({ device: 'piano' }); organ.midi({});                         // piano mode: the
+                                                                         // pedalboard is silent
+```
+
+A source is a channel (`1`: channel 1 of every input), `{ device }` (every channel of that
+device's input), `{ device, channel }`, or an array of these. Routes that name a device come
+first for that device's messages; its other channels follow the routes for all inputs. So two
+devices that send on the same channel can still play different instruments, and a device that
+other programs or a session manager also send to hears only itself (see below).
+
+Moving a channel to another instrument while keys are held is safe: a key comes up on the
+instrument it went down on, and a sustain pedal held down on the instrument the channel left is
+let go there.
+
+### Devices that come and go
+
+An input stays with its device. When the device goes away (unplugged, switched off), the keys
+and pedals it held are let go, so nothing hangs. When a device whose name contains `device`
+appears again, the input connects to it, with the routes it had. Devices are checked twice a
+second. The `'midiDevice'` event tells you both, with `{ device, name, connected }` (`name` is
+the device's full name as the system lists it), and `synth.midiInputs()` lists the inputs and
+whether their device is connected now.
+
+`enableMidi()` fails with a `MidiError` when no such device is connected, unless you pass
+`optional: true`: the input then connects when the device appears. Calling `enableMidi()` again
+with the same `device` (in any case) replaces that input; `disableMidi(device)` closes it and
+`disableMidi()` closes every input. Up to 15 devices can be named.
+
+On Linux, supersynth is one ALSA sequencer client (named `supersynth`, or `clientName`) with a
+port per input. Each port connects only to its own device, refuses connections made by other
+programs, and drops messages from anything else. Session managers such as `amidiminder`, which
+connect every device to every program's ports, can't make one device's notes arrive on another
+device's input.
+
+## Output
+
+```ts
+synth.listMidiOutputs();                                       // names of the output devices
+// Local Control Off on all 16 channels: a digital piano's keys then only send MIDI
+const localOff = Array.from({ length: 16 }, (_, ch) => [0xb0 | ch, 122, 0]).flat();
+setInterval(() => synth.sendMidi('piano', localOff), 1000);    // (it forgets when switched off)
+```
+
+`sendMidi(device, bytes)` sends one or more whole MIDI messages, each starting with its status
+byte (no running status), to the first output device whose name contains `device` (any case).
+It returns `false` without sending when there is no such device, so it can be called whether the
+device is on or not. Bytes that aren't whole messages throw a `MidiError`. Messages go out at
+once, not at a scheduled time.

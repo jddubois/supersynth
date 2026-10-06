@@ -13,9 +13,9 @@ import { Organ, type Division, type OrganOptions } from './Organ.js';
 import { ORGAN_DEFAULTS } from './organs/defaults.js';
 import { ORGANS, type OrganDefinition, type OrganId } from './organs/index.js';
 import { resolveTime, type TimeOptions } from './scheduling.js';
-import { atLeast, finite, guardEngine, inRange, integer, positive, QUEUE_CAPACITY } from './validate.js';
+import { atLeast, finite, guardEngine, inRange, integer, midiKey, positive, QUEUE_CAPACITY } from './validate.js';
 import { deinterleave, makeAudioBuffer, writeWav, type AudioBuffer, type WavOptions } from './wav.js';
-import type { MidiEvent } from './types.js';
+import type { MidiEvent, MidiInputInfo } from './types.js';
 
 export type AudioBackend = 'auto' | 'coreaudio' | 'wasapi' | 'alsa' | 'jack' | 'pulseaudio' | 'pipewire';
 
@@ -96,6 +96,27 @@ export interface SynthOptions extends Omit<SynthSettings, 'reverb'> {
   /** Browser: where the WebAssembly engine is, if not next to supersynth's `wasm/supersynth.js`
    *  (read by the first {@link Synth.create}). */
   wasmUrl?: string | URL;
+  /** The synth's name where the system lists it: its JACK client (`<name>_out`) and, on Linux,
+   *  the ALSA sequencer client of its MIDI inputs. @default 'supersynth' */
+  clientName?: string;
+}
+
+/** How to open a MIDI input ({@link Synth.enableMidi}). */
+export interface MidiInputOptions {
+  /** Play notes and controllers in the engine, on the instruments and organ divisions given
+   *  MIDI sources with `midi()`. `false`: only the `'midi'` event. @default true */
+  route?: boolean;
+  /** Don't fail when no such device is connected now: the input connects when one appears.
+   *  @default false */
+  optional?: boolean;
+}
+
+/** Xruns reported together ({@link Synth} `'xrun'` event). */
+export interface XrunEvent {
+  /** Xruns since the last event. */
+  count: number;
+  /** Xruns since the synth was created ({@link Synth.xruns}). */
+  total: number;
 }
 
 export interface MidiFileOptions {
@@ -124,6 +145,18 @@ export type MidiTarget = InstrumentId | Instrument | Division;
 /** Events sent ahead of the engine, at most, while a MIDI file plays (some room is kept for
  *  other calls). */
 const MIDI_PENDING = QUEUE_CAPACITY - 1024;
+
+/** MIDI sources the engine routes: 0 (any input) and an input per device name. */
+const MIDI_SOURCES = 16;
+
+/** Shortest time between two `'xrun'` events, ms. */
+const XRUN_EVENT_MS = 1000;
+
+const NO_REALTIME_WARNING =
+  'the audio threads could not get real-time priority, so the sound may drop out (xruns) whenever the machine is busy. ' +
+  'Allow real-time scheduling for this user: in a systemd service, LimitRTPRIO=95 and LimitMEMLOCK=infinity; ' +
+  'otherwise "@audio - rtprio 95" and "@audio - memlock unlimited" in /etc/security/limits.d/ with the user in the audio group ' +
+  '(`ulimit -r` shows the limit). See https://github.com/jddubois/supersynth#real-time-priority';
 
 /** Decoded models take about this many bytes per byte of their (gzip) file. */
 const DECODED_PER_FILE_BYTE = 5;
@@ -173,8 +206,18 @@ export class Synth extends EventEmitter {
   private engine: NativeEngine;
   /** What owns each engine channel. */
   private slots: (Instrument | Organ | null)[] = new Array(32).fill(null);
-  /** Engine channel each MIDI channel (1–16, index 0–15) plays, if any. */
-  private routes: (number | null)[] = new Array(16).fill(null);
+  /** Engine channel each MIDI channel (1–16, index 0–15) of each MIDI source plays, if any
+   *  (source 0: any input; the others: `midiSources`). */
+  private routes: (number | null)[][] = Array.from({ length: MIDI_SOURCES }, () => new Array(16).fill(null));
+  /** The MIDI source of each device name (by {@link midiKey}). */
+  private midiSources = new Map<string, number>();
+  /** MIDI inputs open, by source. */
+  private midiOpen = new Map<number, MidiInputInfo>();
+  /** Xruns not reported yet, and the timer that will (see the `'xrun'` event). */
+  private xrunPending = 0;
+  private xrunTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastXrunEvent = -Infinity;
+  private realtimeTimer: ReturnType<typeof setInterval> | undefined;
   private models = new Map<string, LoadedModel>();
   private modelsDirectory: string | undefined;
   /** `'auto'`: the room follows the first instrument or organ added (`roomOwner`). */
@@ -210,6 +253,7 @@ export class Synth extends EventEmitter {
         ...(options.maxVoices !== undefined ? { maxVoices: integer(options.maxVoices, 1, 1e6, 'maxVoices') } : {}),
         ...(options.bufferSize !== undefined ? { bufferSize: integer(options.bufferSize, 1, 1e7, 'bufferSize') } : {}),
         ...(options.threads !== undefined && options.threads !== 'auto' ? { threads: integer(options.threads, 1, 16, 'threads') } : {}),
+        ...(options.clientName !== undefined ? { clientName: clientName(options.clientName) } : {}),
         reverb: reverbPreset,
       }));
     } catch (e) {
@@ -264,8 +308,27 @@ export class Synth extends EventEmitter {
     return { active: s.active, voicesShed: s.voicesShed, partialsReduced: s.partialsReduced };
   }
 
+  /** Real-time output is running. It stops by itself when its device goes away, the JACK
+   *  server shuts down or the engine fails (the `'stopped'` event). */
   get isRunning(): boolean {
     return this.engine.isRunning;
+  }
+
+  /** Whether real-time output runs at real-time priority: `true`, `false` when the system
+   *  refused it (on Linux, the user's `RLIMIT_RTPRIO`: see the README's
+   *  [Real-time priority](https://github.com/jddubois/supersynth#real-time-priority)), or
+   *  `null` while output is stopped, in its first buffer, or in a browser (not known). When
+   *  refused, supersynth also warns once (Node.js: a process warning,
+   *  `SUPERSYNTH_NO_REALTIME`). */
+  get realtime(): boolean | null {
+    return this.engine.realtime;
+  }
+
+  /** Xruns (buffers the audio system missed: an audible dropout) reported since the synth was
+   *  created. JACK reports them; the ALSA, CoreAudio, WASAPI and browser outputs do not (0).
+   *  See also the `'xrun'` event. */
+  get xruns(): number {
+    return this.engine.xruns;
   }
 
   /** The engine's internal error, if it hit one: it then outputs silence until a new `Synth`
@@ -437,15 +500,61 @@ export class Synth extends EventEmitter {
 
   /** Start real-time audio output. The output alone does not keep Node.js running: a script
    *  that plays and ends exits at once, so wait for the music with {@link idle} (or keep the
-   *  process busy otherwise: a server, MIDI input, a timer). */
+   *  process busy otherwise: a server, MIDI input, a timer).
+   *
+   *  Events: `'stopped'` when the output stops (with an {@link AudioBackendError} when it
+   *  stopped by itself: the device went away, the JACK server shut down, the engine failed;
+   *  `start()` again to resume), and `'xrun'` ({@link XrunEvent}, at most once a second) when
+   *  the backend reports dropouts. */
   async start(): Promise<this> {
     this.checkOpen();
+    if (this.engine.isRunning) return this;
     try {
-      await this.engine.start();
+      await this.engine.start((stopped) => this.outputEvent(stopped));
     } catch (e) {
       throw new AudioBackendError(`Failed to start audio: ${(e as Error).message}`);
     }
+    this.watchRealtime();
     return this;
+  }
+
+  /** The output reported an xrun (`null`), or stopped by itself. */
+  private outputEvent(stopped: string | null): void {
+    if (stopped !== null) {
+      if (this.closed) return;
+      this.halt(new AudioBackendError(`Audio output stopped: ${stopped}`));
+      return;
+    }
+    this.xrunPending++;
+    if (this.xrunTimer !== undefined) return;
+    const flush = () => {
+      this.xrunTimer = undefined;
+      if (this.xrunPending === 0) return;
+      const count = this.xrunPending;
+      this.xrunPending = 0;
+      this.lastXrunEvent = Date.now();
+      this.emit('xrun', { count, total: this.engine.xruns } satisfies XrunEvent);
+    };
+    const wait = this.lastXrunEvent + XRUN_EVENT_MS - Date.now();
+    if (wait <= 0) flush();
+    else {
+      this.xrunTimer = setTimeout(flush, wait);
+      unref(this.xrunTimer);
+    }
+  }
+
+  /** Once the output knows whether it got real-time priority: warn if it did not. */
+  private watchRealtime(): void {
+    clearInterval(this.realtimeTimer);
+    let checks = 0;
+    this.realtimeTimer = setInterval(() => {
+      const rt = this.closed || !this.engine.isRunning ? true : this.engine.realtime;
+      if (rt === null && ++checks < 50) return;
+      clearInterval(this.realtimeTimer);
+      this.realtimeTimer = undefined;
+      if (rt === false) platform.warn(NO_REALTIME_WARNING, 'SUPERSYNTH_NO_REALTIME');
+    }, 100);
+    unref(this.realtimeTimer);
   }
 
   /**
@@ -482,8 +591,17 @@ export class Synth extends EventEmitter {
 
   /** Stop real-time output (the engine keeps its state; `render()` works again). */
   stop(): this {
-    this.engine.stop();
+    this.halt();
     return this;
+  }
+
+  /** Stop the output, which stopped by itself when there is an `error`, and tell. */
+  private halt(error?: AudioBackendError): void {
+    const was = this.engine.isRunning || error !== undefined;
+    this.engine.stop();
+    clearInterval(this.realtimeTimer);
+    this.realtimeTimer = undefined;
+    if (was && !this.closed) this.emit('stopped', error);
   }
 
   /** Stop output and MIDI, and release every instrument, organ and model. The synth cannot
@@ -492,11 +610,14 @@ export class Synth extends EventEmitter {
     if (this.closed) return;
     this.closed = true;
     try {
-      this.engine.disableMidi();
+      this.engine.closeMidiInput();
     } catch {
       /* not enabled */
     }
+    this.midiOpen.clear();
     this.engine.stop();
+    clearInterval(this.realtimeTimer);
+    clearTimeout(this.xrunTimer);
     for (const item of this.instruments()) this.remove(item);
     for (const m of this.models.values()) this.unload(m.id);
     this.models.clear();
@@ -742,34 +863,126 @@ export class Synth extends EventEmitter {
     return { midi, route, tail, release, channels: [...new Set(channelByKey.values())] };
   }
 
-  // ── MIDI input ────────────────────────────────────────────────────────────
+  // ── MIDI devices ──────────────────────────────────────────────────────────
 
   /**
-   * Connect a hardware MIDI input: the first device, or the first whose name contains `device`.
+   * Connect a hardware MIDI input: the first device whose name contains `device` (ignoring
+   * case), or the first device when it is left out. Call it once per device to play several;
+   * calling it again with the same `device` replaces that input.
+   *
+   * The input stays with its device: when the device goes away (unplugged, switched off), the
+   * keys and pedals it held are let go, and when a device of that name comes back it is
+   * connected again. The `'midiDevice'` event ({@link MidiInputInfo}) tells both.
+   *
    * With `route` (default), notes and controllers go straight to the engine, with no JavaScript
-   * in between, to the instruments and organs given MIDI channels with {@link Instrument.midi}
-   * and {@link Organ.midi}. Every message is also emitted as a `'midi'` event.
+   * in between, to the instruments and organ divisions listening to it ({@link Instrument.midi},
+   * {@link Organ.midi}: `{ device }` for this input's own routes, or a channel for any input).
+   * Every message is also emitted as a `'midi'` event. Fails with a {@link MidiError} when no
+   * such device is connected, unless `optional`.
+   *
+   * ```ts
+   * await synth.enableMidi('piano', { optional: true });
+   * await synth.enableMidi('pedalboard', { optional: true });
+   * piano.midi({ device: 'piano' });
+   * organ.midi({ pedal: { device: 'pedalboard' } });
+   * ```
    */
-  async enableMidi(device?: string, options: { route?: boolean } = {}): Promise<this> {
+  async enableMidi(device?: string, options: MidiInputOptions = {}): Promise<this> {
     this.checkOpen();
+    if (device !== undefined && typeof device !== 'string') throw new MidiError(`The MIDI device must be a string, got ${typeof device}`);
+    const source = this.midiSource(device);
+    const info: MidiInputInfo = { ...(device !== undefined ? { device } : {}), name: null, connected: false };
+    // (before opening: a browser tells of the device connecting while it opens)
+    this.midiOpen.set(source, info);
+    let name: string | null;
     try {
-      await this.engine.enableMidi(device ?? null, options.route ?? true, (raw: Uint8Array) => {
-        this.emit('midi', parseMidiBytes(raw));
-      });
+      name = await this.engine.openMidiInput(
+        source,
+        { device: device ?? null, route: options.route ?? true, optional: options.optional ?? false },
+        (raw: Uint8Array) => {
+          const e = parseMidiBytes(raw);
+          if (device !== undefined) e.device = device;
+          this.emit('midi', e);
+        },
+        (connected, portName) => {
+          if (this.midiOpen.get(source) !== info) return;
+          info.connected = connected;
+          info.name = portName;
+          this.emit('midiDevice', { ...info });
+        },
+      );
     } catch (e) {
+      if (this.midiOpen.get(source) === info) this.midiOpen.delete(source);
       throw new MidiError(`Failed to enable MIDI: ${(e as Error).message}`);
+    }
+    if (name !== null && !info.connected) {
+      // (the device's 'midiDevice' event is on its way; until then, what open() said)
+      info.name = name;
+      info.connected = true;
     }
     return this;
   }
 
-  /** Disconnect the MIDI input. */
-  disableMidi(): this {
-    this.engine.disableMidi();
+  /** Disconnect the MIDI input opened with `device` (the keys and pedals it held are let go),
+   *  or every MIDI input when it is left out. */
+  disableMidi(device?: string): this {
+    if (device === undefined) {
+      this.engine.closeMidiInput();
+      this.midiOpen.clear();
+      return this;
+    }
+    const source = this.midiSources.get(midiKey(device));
+    if (source !== undefined && this.midiOpen.delete(source)) this.engine.closeMidiInput(source);
     return this;
   }
 
+  /** The MIDI inputs opened with {@link enableMidi}, and whether their device is connected. */
+  midiInputs(): MidiInputInfo[] {
+    return [...this.midiOpen.values()].map((i) => ({ ...i }));
+  }
+
+  /** Names of the MIDI input devices. */
   listMidiDevices(): string[] {
     return this.engine.listMidiDevices();
+  }
+
+  /** Names of the MIDI output devices. */
+  listMidiOutputs(): string[] {
+    return this.engine.listMidiOutputs();
+  }
+
+  /**
+   * Send MIDI to the first output device whose name contains `device` (ignoring case): one or
+   * more whole messages, each starting with its status byte. Returns `false`, sending nothing,
+   * when there is no such device, so it can be called whether or not the device is on:
+   *
+   * ```ts
+   * // Local Control Off on all 16 channels: the keyboard's own sound stays silent
+   * synth.sendMidi('piano', Array.from({ length: 16 }, (_, ch) => [0xb0 | ch, 122, 0]).flat());
+   * ```
+   */
+  sendMidi(device: string, message: ArrayLike<number>): boolean {
+    this.checkOpen();
+    if (typeof device !== 'string') throw new MidiError(`The MIDI device must be a string, got ${typeof device}`);
+    const bytes: number[] = [];
+    for (let i = 0; i < message.length; i++) bytes.push(integer(message[i], 0, 255, `MIDI byte ${i}`));
+    try {
+      return this.engine.sendMidi(device, platform.toBytes(bytes));
+    } catch (e) {
+      throw new MidiError(`Failed to send MIDI: ${(e as Error).message}`);
+    }
+  }
+
+  /** The engine's MIDI source for an input device name (given one the first time). */
+  private midiSource(device: string | undefined): number {
+    const key = midiKey(device);
+    let source = this.midiSources.get(key);
+    if (source === undefined) {
+      if (this.midiSources.size >= MIDI_SOURCES - 1) throw new MidiError(`At most ${MIDI_SOURCES - 1} MIDI devices`);
+      source = this.midiSources.size + 1;
+      this.midiSources.set(key, source);
+    }
+    return source;
   }
 
   listAudioBackends(): string[] {
@@ -847,19 +1060,23 @@ export class Synth extends EventEmitter {
     n.setParam(ch, 'wind', 0);
   }
 
-  /** @internal Play MIDI channel `midiChannel` (1–16) on engine channel `channel`. */
-  _route(midiChannel: number, channel: number): void {
-    this.engine.setMidiRoute(midiChannel, channel);
-    this.routes[midiChannel - 1] = channel;
+  /** @internal Play MIDI channel `midiChannel` (1–16) of the input opened with `device` (of
+   *  any input when left out) on engine channel `channel`. */
+  _route(midiChannel: number, channel: number, device?: string): void {
+    const source = device === undefined ? 0 : this.midiSource(device);
+    this.engine.setMidiRoute(midiChannel, channel, source);
+    this.routes[source]![midiChannel - 1] = channel;
   }
 
   /** @internal Stop playing any MIDI channel on engine channel `channel`. */
   _unroute(channel: number): void {
-    for (let i = 0; i < 16; i++) {
-      if (this.routes[i] !== channel) continue;
-      this.engine.setMidiRoute(i + 1, 255);
-      this.routes[i] = null;
-    }
+    this.routes.forEach((channels, source) => {
+      for (let i = 0; i < 16; i++) {
+        if (channels[i] !== channel) continue;
+        this.engine.setMidiRoute(i + 1, 255, source);
+        channels[i] = null;
+      }
+    });
   }
 
   /** @internal The room of the first instrument or organ added, while the reverb is
@@ -1000,6 +1217,18 @@ function abortError(signal: AbortSignal): AbortError {
   const err = new AbortError(reason instanceof Error && reason.name !== 'AbortError' ? `MIDI playback was aborted: ${reason.message}` : undefined);
   if (reason !== undefined) err.cause = reason;
   return err;
+}
+
+/** A timer that does not keep Node.js running (a browser's need not). */
+function unref(timer: unknown): void {
+  (timer as { unref?: () => void }).unref?.();
+}
+
+function clientName(name: unknown): string {
+  if (typeof name !== 'string' || !/^[\w .-]{1,60}$/.test(name)) {
+    throw new SupersynthError(`clientName must be 1-60 letters, digits, spaces, '.', '-' or '_', got ${JSON.stringify(name)}`);
+  }
+  return name;
 }
 
 function parseMidiBytes(bytes: Uint8Array): MidiEvent {

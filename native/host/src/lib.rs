@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use supersynth_core::engine::params::{MasterParam, PartParam};
-use supersynth_core::engine::pool::MAX_THREADS;
+use supersynth_core::engine::pool::{MAX_THREADS, RT_GRANTED, RT_REFUSED};
 use supersynth_core::engine::{
     default_threads, Command, Controller, Couplers, Engine, EngineConfig, InstLayer, Instrument, Route, Status as EngineStatus, DEFAULT_MAX_VOICES, MAX_PARTS,
     MAX_ROUTES,
@@ -154,14 +154,82 @@ pub fn part_param_names() -> Vec<String> {
 /// A MIDI channel routed to no part: its messages only reach the host's callback.
 const NO_ROUTE: u8 = 255;
 
+/// MIDI sources a route can name: source 0 is any input; sources 1… are inputs of their own
+/// (a device each), whose routes come before source 0's.
+pub const MIDI_SOURCES: usize = 16;
+
+/// What one MIDI source's input is holding down, so that a key comes up on the part it went
+/// down on (even when the channel was routed elsewhere in between), and so that everything it
+/// holds can be let go when the device goes away.
+struct Held {
+    /// Part each (channel, key) is sounding on, or `NO_ROUTE`.
+    notes: [[u8; 128]; 16],
+    /// Part each channel's sustain pedal (CC 64) is down on, or `NO_ROUTE`.
+    pedal: [u8; 16],
+}
+
+impl Default for Held {
+    fn default() -> Self {
+        Held { notes: [[NO_ROUTE; 128]; 16], pedal: [NO_ROUTE; 16] }
+    }
+}
+
+/// The commands that play one MIDI message from an input holding `held`, on `part` (the part
+/// its channel is routed to now, or `NO_ROUTE`).
+fn held_route(held: &mut Held, part: u8, msg: &MidiMessage) -> [Option<Command>; 2] {
+    let ch = (msg.channel.clamp(1, 16) - 1) as usize;
+    let mut cmds: [Option<Command>; 2] = [None, None];
+    match msg.kind {
+        MidiMessageKind::NoteOn if part != NO_ROUTE => {
+            let note = msg.data1 & 0x7F;
+            let was = std::mem::replace(&mut held.notes[ch][note as usize], part);
+            if was != NO_ROUTE && was != part {
+                // re-struck after a re-route: the old part lets go of it
+                cmds[0] = Some(Command::NoteOff { part: was as u16, note });
+            }
+            cmds[1] = Some(Command::NoteOn { part: part as u16, note, velocity: msg.data2 });
+        }
+        MidiMessageKind::NoteOff => {
+            let note = msg.data1 & 0x7F;
+            let was = std::mem::replace(&mut held.notes[ch][note as usize], NO_ROUTE);
+            let to = if was != NO_ROUTE { was } else { part };
+            if to != NO_ROUTE {
+                cmds[0] = Some(Command::NoteOff { part: to as u16, note });
+            }
+        }
+        MidiMessageKind::ControlChange if msg.data1 == 64 => {
+            let was = held.pedal[ch];
+            if was != NO_ROUTE && was != part {
+                cmds[0] = Some(Command::ControlChange { part: was as u16, controller: 64, value: 0 });
+            }
+            if part != NO_ROUTE {
+                cmds[1] = Some(Command::ControlChange { part: part as u16, controller: 64, value: msg.data2 });
+            }
+            held.pedal[ch] = if msg.data2 > 0 { part } else { NO_ROUTE };
+        }
+        _ if part == NO_ROUTE => {}
+        MidiMessageKind::ControlChange => {
+            cmds[0] = Some(Command::ControlChange { part: part as u16, controller: msg.data1, value: msg.data2 });
+        }
+        MidiMessageKind::PitchBend => {
+            let v = ((msg.data2 as i32) << 7 | msg.data1 as i32) - 8192;
+            cmds[0] = Some(Command::PitchBend { part: part as u16, value: v as f32 / 8192.0 });
+        }
+        _ => {}
+    }
+    cmds
+}
+
 /// What the API side and MIDI input share.
 struct Shared {
     ctl: Mutex<Controller>,
     status: Arc<EngineStatus>,
     sample_rate: f32,
-    /// Part each MIDI channel (1–16) plays when MIDI input is routed (`NO_ROUTE`: none)
-    /// until changed.
-    midi_routes: [AtomicU8; 16],
+    /// Part each MIDI channel (1–16) of each source plays when MIDI input is routed
+    /// (`NO_ROUTE`: none) until changed.
+    midi_routes: [[AtomicU8; 16]; MIDI_SOURCES],
+    /// Keys and pedals each source holds down.
+    held: [Mutex<Held>; MIDI_SOURCES],
     /// Real-time output is running. MIDI input is routed into the engine only then: nothing
     /// would consume it otherwise, and the backlog would all sound at once on `start()`.
     running: AtomicBool,
@@ -226,7 +294,8 @@ impl Host {
                 ctl: Mutex::new(ctl),
                 status,
                 sample_rate: sample_rate as f32,
-                midi_routes: std::array::from_fn(|_| AtomicU8::new(NO_ROUTE)),
+                midi_routes: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU8::new(NO_ROUTE))),
+                held: std::array::from_fn(|_| Mutex::new(Held::default())),
                 running: AtomicBool::new(false),
                 released: AtomicBool::new(false),
             }),
@@ -361,6 +430,17 @@ impl Host {
     /// the system allows it.
     pub fn set_realtime(&self, on: bool) {
         lock(&self.engine).set_realtime(on);
+    }
+
+    /// Whether real-time output renders at real-time priority: `None` until it has rendered its
+    /// first buffer (or when it is not running), `Some(false)` when the system refused it (on
+    /// Linux: the user's real-time priority limit, `RLIMIT_RTPRIO`, is 0).
+    pub fn realtime(&self) -> Option<bool> {
+        match self.shared.status.realtime.load(Ordering::Relaxed) {
+            RT_GRANTED => Some(true),
+            RT_REFUSED => Some(false),
+            _ => None,
+        }
     }
 
     // ── models ──────────────────────────────────────────────────────────────
@@ -558,12 +638,18 @@ impl Host {
         self.shared.send(time, Command::SetCouplers { part: part as u16, couplers })
     }
 
-    /// Part that MIDI input on `channel` (1–16) plays; 255 (or more) routes it to no part.
-    pub fn set_midi_route(&self, channel: u32, part: u32) -> Result<()> {
+    /// Part that MIDI input on `channel` (1–16) from `source` plays; 255 (or more) routes it
+    /// to no part. Source 0 is any input; the routes of sources 1… (an input each, see
+    /// [`MidiRouter::route_from`]) come first for messages from that input. Keys already down
+    /// still come up on the part they went down on.
+    pub fn set_midi_route(&self, channel: u32, part: u32, source: u32) -> Result<()> {
         if !(1..=16).contains(&channel) {
             return Err(err(format!("MIDI channel {channel} is not 1–16")));
         }
-        self.shared.midi_routes[channel as usize - 1].store(part.min(NO_ROUTE as u32) as u8, Ordering::Relaxed);
+        if source as usize >= MIDI_SOURCES {
+            return Err(err(format!("MIDI source {source} is not 0–{}", MIDI_SOURCES - 1)));
+        }
+        self.shared.midi_routes[source as usize][channel as usize - 1].store(part.min(NO_ROUTE as u32) as u8, Ordering::Relaxed);
         Ok(())
     }
 
@@ -616,38 +702,159 @@ impl Host {
 pub struct MidiRouter(Arc<Shared>);
 
 impl MidiRouter {
-    /// Apply one MIDI message to the part its channel plays (see [`Host::set_midi_route`]), if
-    /// real-time output is running. Notes, controllers and pitch bend are applied; other
-    /// messages, and channels routed nowhere, are left to the host's callback.
+    /// Apply one MIDI message from any input (source 0; see [`MidiRouter::route_from`]).
     pub fn route(&self, bytes: &[u8]) {
+        self.route_from(0, bytes);
+    }
+
+    /// Apply one MIDI message from the input of `source` (1…, or 0 for any) to the part its
+    /// channel plays: the source's own route for that channel, else source 0's (see
+    /// [`Host::set_midi_route`]), if real-time output is running. Notes, controllers and pitch
+    /// bend are applied; other messages, and channels routed nowhere, are left to the host's
+    /// callback. A key comes up on the part it went down on, and a sustain pedal held down on
+    /// a part the channel no longer plays is let go there.
+    pub fn route_from(&self, source: usize, bytes: &[u8]) {
         let shared = &self.0;
-        if !shared.running.load(Ordering::Acquire) {
+        if source >= MIDI_SOURCES || !shared.running.load(Ordering::Acquire) {
             return;
         }
         let Some(msg) = MidiMessage::parse(bytes) else { return };
         let ch = (msg.channel.clamp(1, 16) - 1) as usize;
-        let part = shared.midi_routes[ch].load(Ordering::Relaxed);
-        if part == NO_ROUTE {
+        let mut part = shared.midi_routes[source][ch].load(Ordering::Relaxed);
+        if part == NO_ROUTE && source != 0 {
+            part = shared.midi_routes[0][ch].load(Ordering::Relaxed);
+        }
+        let cmds = held_route(&mut lock(&shared.held[source]), part, &msg);
+        // live input has room of its own in the queue, so events a program scheduled ahead
+        // never crowd it out; it is applied at the start of the next audio buffer (a full
+        // queue drops the message: there is no caller to tell)
+        if cmds.iter().any(|c| c.is_some()) && !shared.released.load(Ordering::Acquire) {
+            let mut ctl = lock(&shared.ctl);
+            for c in cmds.into_iter().flatten() {
+                let _ = ctl.send_live(c);
+            }
+        }
+    }
+
+    /// Let go of everything the input of `source` holds down (its device went away, or the
+    /// input was closed): its keys come up and its sustain pedals are released, on the parts
+    /// they went down on.
+    pub fn release(&self, source: usize) {
+        let shared = &self.0;
+        if source >= MIDI_SOURCES {
             return;
         }
-        let part = part as u16;
-        let cmd = match msg.kind {
-            MidiMessageKind::NoteOn => Some(Command::NoteOn { part, note: msg.data1, velocity: msg.data2 }),
-            MidiMessageKind::NoteOff => Some(Command::NoteOff { part, note: msg.data1 }),
-            MidiMessageKind::ControlChange => Some(Command::ControlChange { part, controller: msg.data1, value: msg.data2 }),
-            MidiMessageKind::PitchBend => {
-                let v = ((msg.data2 as i32) << 7 | msg.data1 as i32) - 8192;
-                Some(Command::PitchBend { part, value: v as f32 / 8192.0 })
+        let mut held = lock(&shared.held[source]);
+        let mut cmds = Vec::new();
+        for ch in 0..16 {
+            for note in 0..128 {
+                let part = std::mem::replace(&mut held.notes[ch][note], NO_ROUTE);
+                if part != NO_ROUTE {
+                    cmds.push(Command::NoteOff { part: part as u16, note: note as u8 });
+                }
             }
-            _ => None,
-        };
-        if let Some(c) = cmd {
-            // live input has room of its own in the queue, so events a program scheduled ahead
-            // never crowd it out; it is applied at the start of the next audio buffer (a full
-            // queue drops the message: there is no caller to tell)
-            if !shared.released.load(Ordering::Acquire) {
-                let _ = lock(&shared.ctl).send_live(c);
+            let part = std::mem::replace(&mut held.pedal[ch], NO_ROUTE);
+            if part != NO_ROUTE {
+                cmds.push(Command::ControlChange { part: part as u16, controller: 64, value: 0 });
             }
         }
+        drop(held);
+        // (with output stopped nothing plays: the engine would only get these at the next start)
+        if cmds.is_empty() || shared.released.load(Ordering::Acquire) || !shared.running.load(Ordering::Acquire) {
+            return;
+        }
+        let mut ctl = lock(&shared.ctl);
+        for c in cmds {
+            let _ = ctl.send_live(c);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn msg(bytes: &[u8]) -> MidiMessage {
+        MidiMessage::parse(bytes).unwrap()
+    }
+
+    /// The commands as (kind, part, data) for comparison.
+    fn plan(held: &mut Held, part: u8, bytes: &[u8]) -> Vec<(&'static str, u16, u8, u8)> {
+        held_route(held, part, &msg(bytes))
+            .into_iter()
+            .flatten()
+            .map(|c| match c {
+                Command::NoteOn { part, note, velocity } => ("on", part, note, velocity),
+                Command::NoteOff { part, note } => ("off", part, note, 0),
+                Command::ControlChange { part, controller, value } => ("cc", part, controller, value),
+                Command::PitchBend { part, .. } => ("bend", part, 0, 0),
+                _ => ("other", 0, 0, 0),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_key_comes_up_on_the_part_it_went_down_on() {
+        let mut h = Held::default();
+        assert_eq!(plan(&mut h, 3, &[0x90, 60, 100]), [("on", 3, 60, 100)]);
+        // the channel is routed elsewhere while the key is down
+        assert_eq!(plan(&mut h, 7, &[0x80, 60, 0]), [("off", 3, 60, 0)]);
+        // once up, it follows the route again (a note-on with velocity 0 is a note-off)
+        assert_eq!(plan(&mut h, 7, &[0x90, 60, 0]), [("off", 7, 60, 0)]);
+        // routed nowhere: nothing plays, and a key that went down nowhere comes up nowhere
+        assert_eq!(plan(&mut h, NO_ROUTE, &[0x90, 61, 90]), []);
+        assert_eq!(plan(&mut h, NO_ROUTE, &[0x80, 61, 0]), []);
+        // channels are kept apart
+        assert_eq!(plan(&mut h, 1, &[0x91, 60, 80]), [("on", 1, 60, 80)]);
+        assert_eq!(plan(&mut h, 2, &[0x90, 60, 80]), [("on", 2, 60, 80)]);
+        assert_eq!(plan(&mut h, 5, &[0x81, 60, 0]), [("off", 1, 60, 0)]);
+    }
+
+    #[test]
+    fn a_key_struck_again_after_a_reroute_lets_go_of_the_old_part() {
+        let mut h = Held::default();
+        plan(&mut h, 3, &[0x90, 60, 100]);
+        assert_eq!(plan(&mut h, 4, &[0x90, 60, 100]), [("off", 3, 60, 0), ("on", 4, 60, 100)]);
+        assert_eq!(plan(&mut h, 3, &[0x80, 60, 0]), [("off", 4, 60, 0)]);
+    }
+
+    #[test]
+    fn a_pedal_held_on_a_part_the_channel_left_is_let_go_there() {
+        let mut h = Held::default();
+        assert_eq!(plan(&mut h, 3, &[0xB0, 64, 127]), [("cc", 3, 64, 127)]);
+        assert_eq!(plan(&mut h, 3, &[0xB0, 64, 90]), [("cc", 3, 64, 90)]);
+        // re-routed while down: the old part's pedal comes up, the new part gets this one
+        assert_eq!(plan(&mut h, 5, &[0xB0, 64, 0]), [("cc", 3, 64, 0), ("cc", 5, 64, 0)]);
+        assert_eq!(plan(&mut h, 5, &[0xB0, 64, 0]), [("cc", 5, 64, 0)]);
+        // other controllers and pitch bend follow the route
+        assert_eq!(plan(&mut h, 5, &[0xB0, 11, 40]), [("cc", 5, 11, 40)]);
+        assert_eq!(plan(&mut h, 6, &[0xE0, 0, 64]), [("bend", 6, 0, 0)]);
+        assert_eq!(plan(&mut h, NO_ROUTE, &[0xB0, 11, 40]), []);
+    }
+
+    #[test]
+    fn device_routes_come_before_any_device_routes() {
+        let host = Host::new(EngineOptions { sample_rate: 48000, threads: Some(1), ..EngineOptions::default() }).unwrap();
+        host.set_midi_route(1, 4, 0).unwrap();
+        host.set_midi_route(1, 9, 2).unwrap();
+        assert!(host.set_midi_route(1, 9, MIDI_SOURCES as u32).is_err());
+        assert!(host.set_midi_route(17, 9, 0).is_err());
+        let r = &host.shared.midi_routes;
+        assert_eq!(r[0][0].load(Ordering::Relaxed), 4);
+        assert_eq!(r[2][0].load(Ordering::Relaxed), 9);
+        assert_eq!(r[1][0].load(Ordering::Relaxed), NO_ROUTE);
+        // played through the engine: source 2 plays part 9, source 1 falls back to part 4
+        host.set_running(true);
+        let router = host.midi_router();
+        router.route_from(2, &[0x90, 60, 100]);
+        router.route_from(1, &[0x90, 62, 100]);
+        let held = |s: usize, n: usize| lock(&host.shared.held[s]).notes[0][n];
+        assert_eq!(held(2, 60), 9);
+        assert_eq!(held(1, 62), 4);
+        // a device going away lets go of what it held
+        router.release(2);
+        assert_eq!(held(2, 60), NO_ROUTE);
+        assert_eq!(held(1, 62), 4);
+        host.set_running(false);
     }
 }

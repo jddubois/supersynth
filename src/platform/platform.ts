@@ -16,6 +16,7 @@ export interface EngineOptions {
   reverb?: string;
   bufferSize?: number;
   threads?: number;
+  clientName?: string;
 }
 
 /** @internal How the API gets ready on a platform (see `Synth.create`). */
@@ -45,4 +46,8 @@ export interface Platform {
   writeFile(path: string, data: Uint8Array): void;
   /** Zeroed bytes for a file being made. */
   allocBytes(n: number): Bytes;
+  /** Bytes from numbers (a Buffer in Node.js). */
+  toBytes(data: ArrayLike<number>): Bytes;
+  /** Warn the developer (Node.js: a process warning, printed once per code). */
+  warn(message: string, code: string): void;
 }

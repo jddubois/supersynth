@@ -5,7 +5,8 @@ import { noteNumber, type NoteLike } from './notes.js';
 import { checkParameter, defaultParameter, PARAMETER_DEFAULTS, PARAMETER_NAMES, toNativeParameter, type InstrumentParameters } from './parameters.js';
 import { playNotes, playSequence, resolveTime, type Keys, type Playable, type PlayOptions, type SequenceOptions, type SequenceStep, type TimeOptions } from './scheduling.js';
 import type { Synth } from './Synth.js';
-import { clamp, integer, velocity as checkVelocity } from './validate.js';
+import { clamp, integer, midiRoutes, velocity as checkVelocity } from './validate.js';
+import type { MidiSource } from './types.js';
 
 export interface InstrumentOptions {
   /** Preset to start with: a name from the instrument's presets, or a preset. @default 'default' */
@@ -153,17 +154,24 @@ export class Instrument implements Playable {
   }
 
   /**
-   * Play this instrument from a MIDI keyboard (after `synth.enableMidi()`): from `channel`
-   * (1–16), or from every channel when it is left out. Replaces the channels it had; a channel
-   * another instrument or organ had is taken over. Notes go straight to the engine.
+   * Play this instrument from MIDI input (see `synth.enableMidi()`): from a channel (1–16) of
+   * every input, from every channel when left out, or from one device's input:
+   * `{ device: 'piano' }` (all its channels) or `{ device: 'piano', channel: 1 }`. Several
+   * sources can be given in an array; `false` stops listening. Replaces what it listened to; a
+   * channel another instrument or organ division had is taken over (keys held down on it come
+   * up there). Notes go straight to the engine.
+   *
+   * ```ts
+   * piano.midi(1);                       // channel 1 of any input
+   * piano.midi({ device: 'keystation' }); // everything from that keyboard
+   * ```
    */
-  midi(channel?: number): this {
-    if (channel !== undefined && (!Number.isInteger(channel) || channel < 1 || channel > 16)) {
-      throw new RangeError(`MIDI channel must be 1-16, got ${channel}`);
-    }
+  midi(source?: MidiSource | readonly MidiSource[] | false): this {
+    const sources: readonly MidiSource[] = source === undefined ? [{}] : source === false ? [] : Array.isArray(source) ? source : [source as MidiSource];
+    const routes = sources.flatMap(midiRoutes);
     this._engine();
     this.synth._unroute(this.channel);
-    for (let ch = 1; ch <= 16; ch++) if (channel === undefined || ch === channel) this.synth._route(ch, this.channel);
+    for (const [ch, device] of routes) this.synth._route(ch, this.channel, device);
     return this;
   }
 

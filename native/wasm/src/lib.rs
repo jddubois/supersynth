@@ -263,9 +263,10 @@ impl SynthEngine {
         self.host.set_couplers(part, &targets, unison_off, time).map_err(js)
     }
 
+    /// Part that MIDI `channel` of `source` plays (source 0, the default: any input).
     #[wasm_bindgen(js_name = setMidiRoute)]
-    pub fn set_midi_route(&self, channel: u32, part: u32) -> Result<(), JsError> {
-        self.host.set_midi_route(channel, part).map_err(js)
+    pub fn set_midi_route(&self, channel: u32, part: u32, source: Option<u32>) -> Result<(), JsError> {
+        self.host.set_midi_route(channel, part, source.unwrap_or(0)).map_err(js)
     }
 
     #[wasm_bindgen(js_name = allNotesOff)]
@@ -287,9 +288,16 @@ impl SynthEngine {
 
     /// A MIDI message from the host's MIDI input: played on the part its channel is routed
     /// to, while real-time output runs.
+    /// `source`: the input it came from (1…), or 0 / left out for any.
     #[wasm_bindgen(js_name = midiInput)]
-    pub fn midi_input(&self, bytes: &[u8]) {
-        self.midi.route(bytes);
+    pub fn midi_input(&self, bytes: &[u8], source: Option<u32>) {
+        self.midi.route_from(source.unwrap_or(0) as usize, bytes);
+    }
+
+    /// The input of `source` went away: let go of the keys and pedals it holds down.
+    #[wasm_bindgen(js_name = midiRelease)]
+    pub fn midi_release(&self, source: u32) {
+        self.midi.release(source as usize);
     }
 
     #[wasm_bindgen(js_name = releaseResources)]

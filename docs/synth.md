@@ -60,6 +60,7 @@ Node.js the two are the same. See [browser.md](browser.md).
 | `overloadGuard` | `false` | opt-in, real-time output only. When buffers get close to their deadline (render time, smoothed over about 100 ms, above 85 % of the buffer's duration, or a late buffer on a busy engine), it ends the quietest released notes early with a 10 ms fade, just enough of them, by the measured cost per voice, for the next buffers to fit in 70 %. Only when no released notes are left does it fade out upper partials of the quietest notes past their attack. Held notes and attacks are never touched. It lets go once the load has stayed under 50 % for 0.5 s (and at least 1 s after it engaged), and the partials fade back in. When nothing is overloaded the output is identical to running without it, and offline rendering (`render()`, `renderMidi()`) is never guarded. Can also be changed with `synth.set({ overloadGuard })`, which takes effect immediately rather than being scheduled. See `guardActive` and `guardStats` below, and the README's Performance section |
 | `modelsDirectory` | none | a directory searched first for `.ssm` models, laid out like a model package's `models/` (`grand-piano.ssm`, `organ/friesach/<stop>.ssm`; also `$SUPERSYNTH_MODELS_DIR`); then the installed model packages (`@supersynth/instruments`, `@supersynth/organ-<id>`). In a browser: the URL models are downloaded from |
 | `wasmUrl` | next to the package's `wasm/supersynth.js` | browser: where the WebAssembly engine is (read by the first `Synth.create()`) |
+| `clientName` | `'supersynth'` | the synth's name where the system lists it: its JACK client (`<name>_out`) and, on Linux, the ALSA sequencer client of its MIDI inputs |
 
 | Method | |
 |---|---|
@@ -68,27 +69,42 @@ Node.js the two are the same. See [browser.md](browser.md).
 | `ready()` | a promise: every organ added has loaded the models it loads in the background |
 | `instruments()`, `remove(instrument \| organ)` | list the instruments and organs added, or remove one. Removing stops its notes, frees and clears its channels (including an organ's noise channel) and unloads models nothing else uses. Using it afterwards throws |
 | `set({ volume, reverb, releaseCulling, overloadGuard }, { at })` | master volume (0–1) and room (see [parameters.md](parameters.md#reverb)), plus release culling and the overload guard as in the options above. Everything is checked before anything changes |
-| `start()` / `stop()` / `close()` | real-time output; `close()` also releases every instrument, organ and model, and the synth cannot be used afterwards. Output alone does not keep Node.js running: a script that plays and then ends exits at once, so wait for the music (`idle()`) |
+| `start()` / `stop()` / `close()` | real-time output; `close()` also releases every instrument, organ and model, and the synth cannot be used afterwards. Output alone does not keep Node.js running: a script that plays and then ends exits at once, so wait for the music (`idle()`). The output stops by itself when its device goes away, the JACK server shuts down or the engine fails (the `'stopped'` event); `start()` again to resume |
 | `idle()` | a promise: everything sent so far has played out with real-time output running (no event waiting, no note sounding, the output below −60 dBFS). A held note, or an organ's blower and room noise, keeps it waiting; it resolves at once without output, and when output stops |
 | `render(seconds)` | offline → `{ sampleRate, left, right, duration }` |
 | `renderToFile(path, seconds, { bitDepth, mono, dither })` | offline → WAV: 16-bit (TPDF-dithered; digital silence stays 0) or 24-bit PCM, or 32-bit float; also returns the audio |
 | `renderMidi(file, options)` / `playMidi(file, options)` | Standard MIDI Files, see [midi.md](midi.md) |
 | `allNotesOff({ at })`, `panic()` | release every note; silence everything at once |
-| `enableMidi(device?, { route })`, `disableMidi()` | hardware MIDI input, see [midi.md](midi.md) |
-| `listMidiDevices()`, `listAudioBackends()` | |
+| `enableMidi(device?, { route, optional })`, `disableMidi(device?)`, `midiInputs()` | hardware MIDI input, one or several devices, kept connected; see [midi.md](midi.md#hardware-input) |
+| `sendMidi(device, bytes)` | MIDI output to a device; `false` when it isn't connected (see [midi.md](midi.md#output)) |
+| `listMidiDevices()`, `listMidiOutputs()`, `listAudioBackends()` | |
 
 | Property | |
 |---|---|
 | `currentTime` | the engine clock in seconds; schedule with `{ at: synth.currentTime + x }` |
-| `sampleRate`, `activeVoices`, `cpuLoad`, `isRunning` | |
+| `sampleRate`, `activeVoices`, `cpuLoad` | |
+| `isRunning` | real-time output is running (false once it stopped by itself) |
+| `realtime` | whether real-time output runs at real-time priority: `true`; `false` when the system refused it (see the README's [Real-time priority](../README.md#real-time-priority); supersynth then also warns once, in Node.js as a process warning `SUPERSYNTH_NO_REALTIME`); `null` with output stopped, before its first buffer, and in a browser |
+| `xruns` | xruns (buffers the audio system missed) reported since the synth was created. JACK reports them; the ALSA, CoreAudio, WASAPI and browser outputs don't, and stay at 0 |
 | `guardActive` | the overload guard (`overloadGuard`) is shedding load now |
 | `guardStats` | `{ active, voicesShed, partialsReduced }`: what the overload guard has done so far (released notes it ended early, partials it faded out); all zero while it never had to act |
 | `threads` | threads rendering audio (the audio thread included) |
 | `engineError` | the engine's internal error, or `null`; after one the engine is silent until a new `Synth` is created |
 
-Events: `'midi'` (`MidiEvent`) for every message once hardware MIDI is enabled; `'error'` for an
-organ preset that fails on a MIDI program change (see [organ.md](organ.md#midi-keyboards)) and
-for an organ's model that fails to load in the background (see [organ.md](organ.md#loading)).
+Events:
+
+| Event | |
+|---|---|
+| `'stopped'` | real-time output stopped: with no argument after `stop()` (or `close()`), with an `AudioBackendError` when it stopped by itself (its device went away, the JACK server shut down, the engine failed). `isRunning` is false by then; `start()` again to resume |
+| `'xrun'` | `{ count, total }`: the audio backend reported xruns (`count` since the last event, `total` as in `xruns`); at most one event a second. Nothing is printed for them |
+| `'midi'` | `MidiEvent`, for every message from the MIDI inputs, with the `device` it came from |
+| `'midiDevice'` | `{ device, name, connected }`: a MIDI input's device connected or went away (see [midi.md](midi.md#hardware-input)) |
+| `'error'` | an organ preset that fails on a MIDI program change (see [organ.md](organ.md#midi-keyboards)), and an organ's model that fails to load in the background (see [organ.md](organ.md#loading)); emitted only when something listens |
+
+```ts
+synth.on('stopped', (error) => { if (error) { console.error(error.message); setTimeout(() => synth.start(), 1000); } });
+synth.on('xrun', ({ count, total }) => console.warn(`${count} xruns (${total} in all)`));
+```
 
 ### The event queue
 
@@ -111,7 +127,7 @@ Returned by `synth.add`: one instrument on one channel.
 | `sustain(down \| 0…1)`, `sostenuto(down)`, `softPedal(down)`, `pitchBend(-1…1)`, `modulation(0…1)`, `expression(0…1)`, `controlChange(n, v)` | controllers. On pianos `sustain` takes a depth for half-pedalling (other instruments switch at 0.5); `sostenuto` (CC 66) keeps ringing only the notes held when it goes down; `softPedal` (una corda, CC 67) makes new notes softer and darker |
 | `set(parameters, { at })`, `get(name)`, `parameters()` | sound parameters, see [parameters.md](parameters.md) |
 | `preset(name \| preset, { at })`, `presets()`, `savePreset(name, preset?)`, `current()`, `activePreset()` | presets |
-| `midi(channel?)` | play it from a MIDI keyboard on channel 1–16 (every channel if left out) |
+| `midi(source?)` | play it from MIDI input: a channel 1–16 of any input (every channel if left out), `{ device, channel? }` for one device's input, an array of these, or `false` for none (see [midi.md](midi.md#hardware-input)) |
 
 | Property | |
 |---|---|

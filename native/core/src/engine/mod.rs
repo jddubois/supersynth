@@ -19,7 +19,7 @@ pub mod params;
 pub mod pool;
 
 use std::collections::BinaryHeap;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::dsp::denormal::FlushDenormals;
@@ -317,6 +317,10 @@ pub struct Status {
     pub guard_active: AtomicBool,
     pub guard_voices_shed: AtomicU64,
     pub guard_partials_reduced: AtomicU64,
+    /// Published by the engine: real-time rendering runs at real-time priority
+    /// ([`pool::RT_GRANTED`]), was refused it ([`pool::RT_REFUSED`]), or is not known
+    /// ([`pool::RT_UNKNOWN`]: not rendering for real-time output).
+    pub realtime: AtomicU8,
 }
 
 // ── controller (API side) ────────────────────────────────────────────────────
@@ -976,6 +980,7 @@ impl Engine {
         #[cfg(not(target_arch = "wasm32"))]
         let start = std::time::Instant::now();
         self.pool.set_hot(true);
+        self.status.realtime.store(self.pool.realtime_state(), Ordering::Relaxed);
         self.drain_queue();
         self.guard_step();
         let frames = left.len();
