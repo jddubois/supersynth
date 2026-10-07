@@ -75,7 +75,19 @@ pub struct InstLayer {
     /// Sounds when its own keyboard's key moves, never through a coupler, and plays to its
     /// end (key-action noise).
     pub direct_only: bool,
+    /// Sounds when the sustain pedal moves, never for a key: its model's key
+    /// [`PEDAL_DOWN_KEY`] (or the key after it) as the dampers lift off the strings,
+    /// [`PEDAL_UP_KEY`] (or the key after it) as they come back down. Takes alternate.
+    pub on_pedal: bool,
 }
+
+/// Keys of a pedal-noise layer's model ([`InstLayer::on_pedal`]): the dampers lifting off
+/// the strings (pedal pressed) and landing on them (pedal released). Each has a second take on
+/// the key after it, played on alternate pedal strokes.
+pub const PEDAL_DOWN_KEY: u8 = 60;
+pub const PEDAL_UP_KEY: u8 = 72;
+/// Velocity pedal noises play at (their model's layer is recorded at it).
+const PEDAL_VELOCITY: u8 = 100;
 
 impl InstLayer {
     pub fn new(model: Arc<Model>) -> Self {
@@ -91,6 +103,7 @@ impl InstLayer {
             on_release: false,
             speech_ms: 0.0,
             direct_only: false,
+            on_pedal: false,
         }
     }
 }
@@ -387,7 +400,7 @@ impl Controller {
                 }
                 // a piano's strings, for sympathetic resonance
                 if strings.is_none() {
-                    if let Some(l) = instrument.layers.iter().find(|l| !l.on_release && has_strings(&l.model)) {
+                    if let Some(l) = instrument.layers.iter().find(|l| !l.on_release && !l.on_pedal && has_strings(&l.model)) {
                         let m = Arc::clone(&l.model);
                         *strings = Some(Box::new(StringBank::new(sr, |note| m.damper_rate(note))));
                     }
@@ -449,6 +462,8 @@ struct Part {
     /// 0..1 (CC 64; values between 0 and 1 are half-pedalling).
     sustain: bool,
     lift: f32,
+    /// pedal strokes so far (pedal-noise layers alternate their takes)
+    pedal_strokes: u32,
     /// Sostenuto pedal (CC 66) down, and the keys whose dampers it holds up.
     sostenuto: bool,
     sost_hold: [bool; 128],
@@ -521,6 +536,7 @@ impl Part {
             swell_shelf_db: 0.0,
             sustain: false,
             lift: 0.0,
+            pedal_strokes: 0,
             sostenuto: false,
             sost_hold: [false; 128],
             soft: false,
@@ -1490,7 +1506,7 @@ impl Engine {
     fn key_noise(&mut self, src: usize, note: u8, velocity: u8, release: bool) {
         let n = self.parts[src].inst.as_ref().map(|i| i.layers.len()).unwrap_or(0);
         for li in 0..n {
-            let ok = self.parts[src].inst.as_ref().map(|i| i.layers[li].direct_only && i.layers[li].on_release == release).unwrap_or(false);
+            let ok = self.parts[src].inst.as_ref().map(|i| i.layers[li].direct_only && !i.layers[li].on_pedal && i.layers[li].on_release == release).unwrap_or(false);
             if ok {
                 self.start_voice_now(src, li, note, velocity, true);
             }
@@ -1613,7 +1629,7 @@ impl Engine {
 
     /// Start the release-triggered layers of a part for a note that was just damped.
     fn trigger_release_layers(&mut self, pi: usize, note: u8) {
-        let n = self.parts[pi].inst.as_ref().map(|i| i.layers.iter().filter(|l| l.on_release && !l.direct_only).count()).unwrap_or(0);
+        let n = self.parts[pi].inst.as_ref().map(|i| i.layers.iter().filter(|l| l.on_release && !l.direct_only && !l.on_pedal).count()).unwrap_or(0);
         if n == 0 {
             return;
         }
@@ -1627,7 +1643,7 @@ impl Engine {
     fn start_layer_voice_t(&mut self, pi: usize, li: usize, note: u8, velocity: u8, release_trigger: bool) {
         let speech = {
             let Some(layer) = self.parts[pi].inst.as_ref().and_then(|i| i.layers.get(li)) else { return };
-            if layer.direct_only || layer.on_release != release_trigger {
+            if layer.direct_only || layer.on_pedal || layer.on_release != release_trigger {
                 return;
             }
             layer.speech_ms
@@ -1836,6 +1852,11 @@ impl Engine {
                 // half-pedalling for instruments with dampers; any other part's sustain pedal
                 // is a switch (on from 64)
                 let lift = if self.part_has_dampers(pi) { pedal_lift(value) } else if value >= 64 { 1.0 } else { 0.0 };
+                // the dampers lifting off the strings, or landing on them
+                let was = self.parts[pi].lift;
+                if (was < 0.5) != (lift < 0.5) {
+                    self.pedal_noise(pi, lift >= 0.5);
+                }
                 let p = &mut self.parts[pi];
                 p.lift = lift;
                 p.sustain = lift >= 1.0;
@@ -1905,10 +1926,28 @@ impl Engine {
         }
     }
 
+    /// The pedal-noise layers of a part, for the dampers lifting off the strings (`down`: the
+    /// pedal pressed) or landing on them.
+    fn pedal_noise(&mut self, pi: usize, down: bool) {
+        let n = self.parts[pi].inst.as_ref().map(|i| i.layers.len()).unwrap_or(0);
+        if n == 0 {
+            return;
+        }
+        let p = &mut self.parts[pi];
+        let take = (p.pedal_strokes / 2 % 2) as u8;
+        p.pedal_strokes = p.pedal_strokes.wrapping_add(1);
+        let key = if down { PEDAL_DOWN_KEY } else { PEDAL_UP_KEY } + take;
+        for li in 0..n {
+            if self.parts[pi].inst.as_ref().is_some_and(|i| i.layers[li].on_pedal) {
+                self.start_voice_now(pi, li, key, PEDAL_VELOCITY, true);
+            }
+        }
+    }
+
     /// Whether a part plays an instrument whose strings have dampers (piano-like): only these
     /// take half-pedalling, sostenuto and the soft pedal.
     fn part_has_dampers(&self, pi: usize) -> bool {
-        self.parts[pi].inst.as_ref().is_some_and(|i| i.layers.iter().any(|l| !l.on_release && l.model.params.release_mode == ReleaseMode::Damper))
+        self.parts[pi].inst.as_ref().is_some_and(|i| i.layers.iter().any(|l| !l.on_release && !l.on_pedal && l.model.params.release_mode == ReleaseMode::Damper))
     }
 
     fn set_layer_enabled(&mut self, pi: usize, li: usize, enabled: bool) {
@@ -2698,6 +2737,39 @@ mod tests {
         ctl.send(0, Command::ControlChange { part: 0, controller: 64, value: 0 }).unwrap();
         render(&mut eng, 48000 * 3);
         assert_eq!(eng.active_voices(), 0, "pedal up damps it");
+    }
+
+    #[test]
+    fn pedal_noise_sounds_when_the_pedal_moves_never_for_a_key() {
+        let (Some(piano), Some(noise)) = (model("grand-piano"), model("grand-piano-release")) else { return };
+        let mut inst = Instrument::single(piano);
+        inst.layers.push(InstLayer { on_pedal: true, ..InstLayer::new(noise) });
+        let (mut eng, mut ctl) = Engine::new(EngineConfig::default());
+        ctl.send(0, Command::set_instrument(0, inst)).unwrap();
+        let pedal_voices = |eng: &Engine| eng.voices.iter().filter(|v| v.is_active() && v.layer_id == 1).map(|v| v.note).collect::<Vec<u8>>();
+        ctl.send(0, Command::NoteOn { part: 0, note: 48, velocity: 100 }).unwrap();
+        render(&mut eng, 480);
+        ctl.send(0, Command::NoteOff { part: 0, note: 48 }).unwrap();
+        render(&mut eng, 480);
+        assert!(pedal_voices(&eng).is_empty(), "no pedal noise for a key: {:?}", pedal_voices(&eng));
+        // down, up, down, up: the dampers lift off and land, the second stroke on the other takes
+        for (i, v) in [127u8, 0, 127, 0].into_iter().enumerate() {
+            ctl.send(0, Command::ControlChange { part: 0, controller: 64, value: v }).unwrap();
+            render(&mut eng, 480);
+            let now = pedal_voices(&eng);
+            assert_eq!(now.len(), i + 1, "one noise per pedal movement");
+        }
+        let mut want = vec![PEDAL_DOWN_KEY, PEDAL_DOWN_KEY + 1, PEDAL_UP_KEY, PEDAL_UP_KEY + 1];
+        want.sort_unstable();
+        let mut got = pedal_voices(&eng);
+        got.sort_unstable();
+        assert_eq!(got, want, "both takes of the dampers lifting and landing");
+        // a pedal held still (or moved within its half) makes no noise
+        ctl.send(0, Command::ControlChange { part: 0, controller: 64, value: 10 }).unwrap();
+        render(&mut eng, 480);
+        assert_eq!(pedal_voices(&eng).len(), 4);
+        // the pedal layer does not make the instrument's strings: half-pedalling still works
+        assert!(eng.part_has_dampers(0));
     }
 
     #[test]

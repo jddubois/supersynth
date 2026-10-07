@@ -15,6 +15,7 @@ export interface NativeLayer {
   onRelease?: boolean;
   speechMs?: number;
   directOnly?: boolean;
+  onPedal?: boolean;
 }
 
 /** @internal */

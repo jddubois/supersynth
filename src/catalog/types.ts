@@ -18,8 +18,12 @@ export interface LayerDefinition {
   keyHigh?: number;
   /** Cents. @default 0 */
   detune?: number;
-  /** `'release'`: sounds when the key is released (damper / jack noise). */
-  trigger?: 'release';
+  /**
+   * `'release'`: sounds when the key is released (damper / jack noise). `'pedal'`: sounds when
+   * the sustain pedal is pressed or released (the dampers lifting off and landing on the
+   * strings), never for a key.
+   */
+  trigger?: 'release' | 'pedal';
 }
 
 /** A preset: parameters (and optionally layers) applied together. */

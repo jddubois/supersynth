@@ -55,6 +55,8 @@ pub struct JsLayer {
     pub speech_ms: Option<f64>,
     /// Sound only when this part's own key moves, never through a coupler (key-action noise).
     pub direct_only: Option<bool>,
+    /// Sound when the sustain pedal moves, never for a key (pedal noise).
+    pub on_pedal: Option<bool>,
 }
 
 impl From<JsLayer> for LayerSpec {
@@ -71,6 +73,7 @@ impl From<JsLayer> for LayerSpec {
             on_release: l.on_release,
             speech_ms: l.speech_ms,
             direct_only: l.direct_only,
+            on_pedal: l.on_pedal,
         }
     }
 }

@@ -9,13 +9,15 @@
 //!   --mono                write a mono file
 //!   --bench               report real-time factor
 //!   --threads N           rendering threads (default: one per core but one)
+//!   --layer <model.ssm>[:release|:pedal]   another layer of the instrument (repeatable), played
+//!                         on key-down, on key-up (release) or by the sustain pedal (pedal)
 //!   cc:<controller>:<value>:<time>   a control change (e.g. cc:64:127:0 sustain pedal down)
 //! ```
 
 use std::sync::Arc;
 
 use supersynth_core::engine::params::{MasterParam, PartParam};
-use supersynth_core::engine::{Command, Engine, EngineConfig, Instrument};
+use supersynth_core::engine::{Command, Engine, EngineConfig, InstLayer, Instrument};
 use supersynth_core::fx::reverb::ReverbParams;
 use supersynth_core::model::Model;
 
@@ -36,6 +38,7 @@ fn main() {
     let mut mono = false;
     let mut bench = false;
     let mut threads = supersynth_core::engine::default_threads();
+    let mut layers: Vec<(String, String)> = vec![];
     let mut i = 3;
     while i < args.len() {
         match args[i].as_str() {
@@ -60,6 +63,15 @@ fn main() {
                 threads = args[i + 1].parse().unwrap();
                 i += 1;
             }
+            "--layer" => {
+                let a = &args[i + 1];
+                let (path, trig) = match a.rsplit_once(':') {
+                    Some((p, t)) if t == "release" || t == "pedal" => (p.to_string(), t.to_string()),
+                    _ => (a.clone(), String::new()),
+                };
+                layers.push((path, trig));
+                i += 1;
+            }
             "--mono" => mono = true,
             "--bench" => bench = true,
             s if s.starts_with("cc:") => {
@@ -81,7 +93,12 @@ fn main() {
         .and_then(ReverbParams::preset)
         .unwrap_or_else(|| ReverbParams::preset("hall").unwrap());
     let (mut eng, mut ctl) = Engine::new(EngineConfig { sample_rate: sr, max_voices: 256, reverb: rp, threads });
-    ctl.send(0, Command::set_instrument(0, Instrument::single(model))).unwrap();
+    let mut inst = Instrument::single(model);
+    for (path, trig) in &layers {
+        let m = Arc::new(Model::from_bytes(&std::fs::read(path).expect("read layer model")).expect("parse layer model"));
+        inst.layers.push(InstLayer { on_release: trig == "release", on_pedal: trig == "pedal", ..InstLayer::new(m) });
+    }
+    ctl.send(0, Command::set_instrument(0, inst)).unwrap();
     ctl.send(0, Command::SetMasterParam { param: MasterParam::Volume, value: 0.0 }).unwrap();
     if reverb.as_deref().map(|r| r == "off").unwrap_or(true) {
         ctl.send(0, Command::SetPartParam { part: 0, param: PartParam::ReverbSend, value: 0.0 }).unwrap();

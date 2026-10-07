@@ -1203,6 +1203,7 @@ export class Synth extends EventEmitter {
       enabled: true,
       detuneCents: finite(l.detune ?? 0, 'layer detune'),
       onRelease: l.trigger === 'release',
+      onPedal: l.trigger === 'pedal',
     };
     return { model: this._model(l.model, owner), ...layer };
   }

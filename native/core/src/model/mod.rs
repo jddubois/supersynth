@@ -344,6 +344,11 @@ pub struct ModelParams {
     /// Interpolate between neighbouring pitches (false: play the nearest recorded note,
     /// transposed — for inharmonic bars and bells, whose mode sets do not correspond).
     pub pitch_morph: bool,
+    /// Between two recorded notes (or layers), blend their whole envelopes: each zone's
+    /// smoothed decay, weighted, plus the dominant zone's own detail (beats). Otherwise the
+    /// dominant zone's envelope plays, offset by the zones' level difference early on (the
+    /// note decays as its nearest recording does).
+    pub blend_decay: bool,
     /// Loudness vs velocity: level(v) = top layer level + velocity_db · 40·log10(v/127).
     /// 1.0 ≈ piano (v=40 → −20 dB), 0 = not touch-sensitive (organ).
     pub velocity_db: f32,
@@ -366,6 +371,7 @@ impl Default for ModelParams {
             velocity_brightness: 0.0,
             recorded_tuning: false,
             pitch_morph: true,
+            blend_decay: false,
             velocity_db: 0.7,
         }
     }
@@ -514,6 +520,8 @@ struct HParams {
     tuning: Option<String>,
     #[serde(rename = "pitchMorph")]
     pitch_morph: Option<bool>,
+    #[serde(rename = "blendDecay")]
+    blend_decay: Option<bool>,
     #[serde(rename = "velocityDb")]
     velocity_db: Option<f32>,
 }
@@ -1015,6 +1023,7 @@ impl Model {
             velocity_brightness: p.velocity_brightness.unwrap_or(d.velocity_brightness),
             recorded_tuning: p.tuning.as_deref() == Some("recorded"),
             pitch_morph: p.pitch_morph.unwrap_or(true),
+            blend_decay: p.blend_decay.unwrap_or(false),
             velocity_db: p.velocity_db.unwrap_or(d.velocity_db),
         };
 
@@ -1367,8 +1376,8 @@ mod tests {
         }
         let mut h = Fnv(0xcbf2_9ce4_8422_2325);
         // (without the levels derived at load for morphing, added after the fingerprints
-        // were taken; the caller clears them)
-        let text = format!("{m:?}").replace("morph_ref: [], onset_db: [], onset_noise: [], ", "");
+        // were taken; the caller clears them. Nor `blend_decay`, a parameter added since.)
+        let text = format!("{m:?}").replace("morph_ref: [], onset_db: [], onset_noise: [], ", "").replace("blend_decay: false, ", "");
         std::fmt::Write::write_str(&mut h, &text).unwrap();
         h.0
     }

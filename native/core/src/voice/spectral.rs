@@ -165,6 +165,9 @@ pub struct SpectralVoice {
     any_fr: [bool; MAX_ZONES],
     /// harmonic slots without a morph offset (enveloped from every zone)
     n_nomorph: usize,
+    /// every harmonic plays the zones' blended envelopes (`blend_decay`), none the dominant
+    /// zone's offset by `morph_off`
+    blend: bool,
     /// tilt + even/odd offset per partial, recomputed when those parameters change
     stat_db: [f32; MAX_PARTIALS],
     stat_key: (f32, f32),
@@ -307,6 +310,7 @@ impl Default for SpectralVoice {
             look_ident: [false; MAX_ZONES],
             any_fr: [false; MAX_ZONES],
             n_nomorph: 0,
+            blend: false,
             stat_db: [0.0; MAX_PARTIALS],
             stat_key: (f32::NAN, f32::NAN),
             morph_off: [0.0; MAX_PARTIALS],
@@ -770,6 +774,8 @@ impl SpectralVoice {
             }
         }
         self.n_nomorph = self.morph_ok[..k].iter().filter(|&&ok| !ok).count();
+        // (the offsets still shape the onset's brightness: transient_eq)
+        self.blend = m.params.blend_decay && self.nz > 1 && !m.zones[self.zone[dzi]].amps_smooth.is_empty();
         for j in 0..self.nz {
             self.look_ident[j] = (0..k).all(|i| self.look_i[j][i] as usize == i && self.look_f[j][i] == 0.0);
             self.any_fr[j] = self.look_f[j][..k].iter().any(|&f| f > 0.0);
@@ -1696,8 +1702,9 @@ impl SpectralVoice {
         // stage below runs over all partials at once, branch-free, so that it vectorises; the
         // arithmetic and its order per partial are those of the scalar formulation.
         self.zone_envelope(dz, &rows, &mut sc.env, &mut sc.tmp, kh);
-        if self.n_nomorph > 0 {
-            // partials without a morph offset: every zone's envelope, weighted
+        if self.n_nomorph > 0 || self.blend {
+            // partials without a morph offset (all of them, blending decays): every zone's
+            // envelope, weighted
             let detail = self.nz > 1 && !srow0[dz].is_empty();
             sc.acc[..kh].fill(0.0);
             for j in 0..self.nz {
@@ -1726,7 +1733,7 @@ impl SpectralVoice {
             let (zg, ld) = (zgain[dz], &self.look_db[dz][..kh]);
             for i in 0..kh {
                 let a = sc.env[i] + ld[i] + zg + self.morph_off[i];
-                sc.db[i] = if self.morph_ok[i] { a } else { sc.acc[i] };
+                sc.db[i] = if self.morph_ok[i] && !self.blend { a } else { sc.acc[i] };
             }
         }
         // free (inharmonic) partials: their own zone's envelope

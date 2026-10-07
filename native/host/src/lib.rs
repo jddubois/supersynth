@@ -118,6 +118,8 @@ pub struct LayerSpec {
     pub speech_ms: Option<f64>,
     /// Sound only when this part's own key moves, never through a coupler (key-action noise).
     pub direct_only: Option<bool>,
+    /// Sound when the sustain pedal moves, never for a key (pedal noise).
+    pub on_pedal: Option<bool>,
 }
 
 /// One organ coupler: also play `part`, `shift` semitones away (±12: octave couplers).
@@ -552,6 +554,7 @@ impl Host {
             on_release: l.on_release.unwrap_or(false),
             speech_ms: finite_or(l.speech_ms, 0.0, "speechMs")?.clamp(0.0, 200.0),
             direct_only: l.direct_only.unwrap_or(false),
+            on_pedal: l.on_pedal.unwrap_or(false),
         })
     }
 
