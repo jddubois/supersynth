@@ -30,10 +30,18 @@ const PACKAGED = new Set<string>(ORGAN_MODEL_PACKAGES);
 /** @internal The package of the core instruments' models (every model that is not an organ's). */
 export const INSTRUMENTS_PACKAGE = '@supersynth/instruments';
 
-/** @internal The organ and npm package a model ships in, or `undefined` for a core model
- *  (in {@link INSTRUMENTS_PACKAGE}). `organ/<id>/<stop>` is in `@supersynth/organ-<id>`, `organ/<stop>`
- *  (the Bureå organ) in `@supersynth/organ-burea`. */
-export function modelPackage(name: string): { organ: string; pkg: string } | undefined {
+/** @internal Instruments whose models are in a package of their own (their recordings' license
+ *  is not the core models' CC0): the models whose names start with `prefix`. */
+export const INSTRUMENT_MODEL_PACKAGES = [
+  { prefix: 'grand-piano-salamander', pkg: '@supersynth/piano-salamander', instrument: 'Salamander Grand Piano' },
+] as const;
+
+/** @internal The npm package a model ships in (with the organ, or the instrument, it belongs to),
+ *  or `undefined` for a core model (in {@link INSTRUMENTS_PACKAGE}). `organ/<id>/<stop>` is in
+ *  `@supersynth/organ-<id>`, `organ/<stop>` (the Bureå organ) in `@supersynth/organ-burea`. */
+export function modelPackage(name: string): { organ?: string; instrument?: string; pkg: string } | undefined {
+  const own = INSTRUMENT_MODEL_PACKAGES.find((p) => name === p.prefix || name.startsWith(`${p.prefix}-`));
+  if (own) return { instrument: own.instrument, pkg: own.pkg };
   const parts = name.split('/');
   if (parts[0] !== 'organ') return undefined;
   const organ = parts.length === 2 ? 'burea' : parts.length === 3 ? parts[1]! : undefined;

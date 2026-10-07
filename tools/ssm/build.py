@@ -26,7 +26,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 import numpy as np
 
-from analysis import NOISE_EDGES, Zone, analyze_zone, hz_to_midi, note_name_to_midi
+from analysis import NOISE_EDGES, Zone, analyze_zone, hz_to_midi, midi_to_hz, note_name_to_midi
 from paths import PACKAGES_DIR, DATA_ROOT, existing_model_path, is_committed_location, model_package, model_path
 
 DATA = os.path.join(DATA_ROOT, 'samples')
@@ -193,10 +193,40 @@ def _worker_init():
         pass
 
 
+ANALYSIS_JOB_VERSION = '1'
+
+
 def _analyze_job(args) -> tuple[Zone | None, str | None]:
     """(zone, None), or (None, why) when the analysis of this recording failed. Alternative
     releases (recorded after shorter key presses: `[(longest press s, recording)]`, an optional
-    fifth item) are appended to the zone; one that fails only loses that release."""
+    fifth item) are appended to the zone; one that fails only loses that release.
+
+    With SSM_CACHE=<dir>, each result is kept there, keyed by the recording, the settings and
+    the analysis code: an interrupted build picks up where it stopped."""
+    cache = os.environ.get('SSM_CACHE')
+    if not cache:
+        return _analyze_uncached(args)
+    import hashlib
+    import pickle
+    path, note, layer, kw, *more = args
+    h = hashlib.sha256(repr((os.path.basename(path), os.path.getsize(path), note, layer, sorted(kw.items()), more)).encode())
+    # (the analysis code; bump ANALYSIS_JOB_VERSION when _analyze_uncached changes)
+    h.update(ANALYSIS_JOB_VERSION.encode())
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'analysis.py'), 'rb') as f:
+        h.update(f.read())
+    file = os.path.join(cache, h.hexdigest()[:32] + '.pkl')
+    if os.path.exists(file):
+        with open(file, 'rb') as f:
+            return pickle.load(f)
+    out = _analyze_uncached(args)
+    os.makedirs(cache, exist_ok=True)
+    with open(file + '.tmp', 'wb') as f:
+        pickle.dump(out, f)
+    os.replace(file + '.tmp', file)
+    return out
+
+
+def _analyze_uncached(args) -> tuple[Zone | None, str | None]:
     path, note, layer, kw, *more = args
     alts = more[0] if more else []
     try:
@@ -230,6 +260,8 @@ def _analyze_job(args) -> tuple[Zone | None, str | None]:
 # middle of a layer's range is lost (no other recording of that key and layer survives), or
 # when more than MAX_FAILED of all recordings are lost. "Middle" = every recorded key of the
 # layer except its lowest and highest 10 % (at least one at each end).
+LAYER_TUNING_MIN = 4       # layers of a key needed to judge one of them out of tune
+LAYER_TUNING_TOL = 0.3     # semitones
 MAX_FAILED = float(os.environ.get('SSM_MAX_FAILED', '0.08'))     # --max-failed
 ALLOW_GAPS = os.environ.get('SSM_ALLOW_GAPS') == '1'             # --allow-gaps
 
@@ -311,6 +343,13 @@ def collect(spec: dict) -> list[tuple[str, int, str]]:
                 continue
             out.append((f, int(m.group(1)) + spec.get('note_offset', 0), 'main'))
             continue
+        if spec.get('note_number_regex'):
+            # the MIDI key as a number in the file name (plus note_offset)
+            m = re.search(spec['note_number_regex'], base)
+            if not m:
+                continue
+            out.append((f, int(m.group(1)) + spec.get('note_offset', 0), 'main'))
+            continue
         if spec.get('note_regex'):
             m = re.search(spec['note_regex'], base)
             if not m:
@@ -320,6 +359,8 @@ def collect(spec: dict) -> list[tuple[str, int, str]]:
         if note is None:
             continue
         note += spec.get('note_offset', 0)
+        # recordings that sound at another pitch than their name says ({file name regex: semitones})
+        note += next((d for rx, d in spec.get('note_fix', {}).items() if re.search(rx, base)), 0)
         m = lay_re.search(base)
         layer = m.group(1) if m else 'main'
         out.append((f, note, layer))
@@ -436,7 +477,31 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), 
             continue
         good.append(z)
     zones = good
-    check_losses(inst_id, items, {z.source for z in zones}, lost)
+    # the layers of one key strike the same strings: a zone far out of tune with its key's other
+    # layers had its pitch measured wrong (keys with at least LAYER_TUNING_MIN layers)
+    by_key: dict[int, list] = {}
+    for z in zones:
+        by_key.setdefault(int(z.nominal_note), []).append(z)
+    drop = set()
+    for key, zs in by_key.items():
+        if len(zs) < LAYER_TUNING_MIN:
+            continue
+        med_dev = float(np.median([hz_to_midi(z.f0) - (z.nominal_note + med) for z in zs]))
+        for z in zs:
+            dev = hz_to_midi(z.f0) - (z.nominal_note + med)
+            if abs(dev - med_dev) > LAYER_TUNING_TOL:
+                print(f'  dropping {os.path.basename(z.source)}: {100 * (dev - med_dev):+.0f} cents from its key\'s other layers', flush=True)
+                lose(z.source, z.nominal_note, z.layer, f'tuning {100 * (dev - med_dev):+.0f} cents from the other layers of its key')
+                drop.add(id(z))
+    zones = [z for z in zones if id(z) not in drop]
+    # recordings whose tuning is no use where they play ({file name regex: MIDI pitch}): the zone
+    # is transposed to that pitch (partials are ratios to the fundamental; noise stays put)
+    for rx, pitch in spec.get('retune', {}).items():
+        for z in zones:
+            if re.search(rx, os.path.basename(z.source)):
+                z.f0 = float(midi_to_hz(pitch))
+                z.nominal_note = int(round(pitch)) - med
+    check_losses(inst_id, items, {z.source for z in zones}, lost, allow_gaps=spec.get("allow_gaps"))
 
     # dynamic layers ordered by loudness (peak level, robust to decay length)
     layer_names = sorted({z.layer for z in zones})
@@ -472,7 +537,9 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), 
     from analysis import make_time_grid
     grid = [round(float(t), 5) for t in make_time_grid(max(float(z.times[-1]) for z in zones) + 0.01)]
     params = dict(spec.get('params', {}))
-    params['gainDb'] = round(gain + params.get('gainDb', 0.0), 2)
+    # level_db: how much quieter the recordings are than the reference (a sample set that
+    # normalised them plays them back turned down by its own mapping)
+    params['gainDb'] = round(gain + params.get('gainDb', 0.0) + spec.get('level_db', 0.0), 2)
     header = {
         'format': 1,
         'name': inst_id,

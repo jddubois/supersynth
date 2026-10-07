@@ -13,7 +13,14 @@ VSCO = 'VSCO-2-CE'
 CC0_VCSL = 'Analysed from the Versilian Community Sample Library (CC0)'
 CC0_VSCO = 'Analysed from VSCO 2 Community Edition (CC0)'
 
-RR_EXTRA = r'(_rr[2-9]|_RR[2-9]|_0[2-9][_.]|_var[2-9])'
+SALAMANDER = 'SalamanderGrandPianoV3/SalamanderGrandPianoV3_48khz24bit/48khz24bit'
+CCBY_SALAMANDER = 'Analysed from the Salamander Grand Piano V3 by Alexander Holm (CC BY 3.0)'
+# the velocity each of its 16 layers (v1 … v16) stands for: the top of the layer's range in the
+# sample set's own SFZ mapping
+SALAMANDER_VELOCITIES = {str(i + 1): v for i, v in enumerate(
+    [26, 34, 36, 43, 46, 50, 56, 64, 72, 80, 88, 96, 104, 112, 120, 127])}
+
+RR_EXTRA =r'(_rr[2-9]|_RR[2-9]|_0[2-9][_.]|_var[2-9])'
 
 # Damper decay (dB/s) by key: a felt damper stops a mid-range string ~40 dB within about 0.2 s;
 # the bass dampers (heavier strings, wedge felts) take several times longer. Upper partials die
@@ -28,6 +35,17 @@ INSTRUMENTS: dict[str, dict] = {
         layer_regex=r'_vl(\d)_', exclude=RR_EXTRA, periods=4.0, transient=True, max_partials=512, free_partials=24, max_stiffness=0.05,
         params=dict(tuning='recorded', releaseMode='damper', damper=PIANO_DAMPER, undampedFrom=89, keyPan=0.55, spread=0.35,
                     reverb='hall', reverbSend=0.16, formant=0.0),
+    ),
+    'grand-piano-salamander': dict(
+        display='Concert Grand Piano (Yamaha C5)', family='keyboard', kind='decaying', source=CCBY_SALAMANDER,
+        files=[f'{SALAMANDER}/*v*.wav'], note_regex=r'^([A-G]#?\d)v\d+\.wav$', layer_regex=r'v(\d+)\.wav$',
+        layer_velocities=SALAMANDER_VELOCITIES,
+        # its top string sounds near C#8 (4433 Hz): analysed there, then played as C8 stretched like
+        # the keys below it (+38 cents, as the sample set's retuned SFZ has it)
+        note_fix={r'^C8v': 1}, retune={r'^C8v': 108.38},
+        periods=4.0, transient=True, max_partials=512, free_partials=24, max_stiffness=0.05,
+        params=dict(tuning='recorded', releaseMode='damper', damper=PIANO_DAMPER, undampedFrom=89, keyPan=0.55, spread=0.35,
+                    reverb='hall', reverbSend=0.16, formant=0.0, blendDecay=True),
     ),
     'upright-piano': dict(
         display='Upright Piano (Yamaha)', family='keyboard', kind='decaying', source=CC0_VCSL,
@@ -373,6 +391,15 @@ for _rid, _parent, _glob, _lre in [
         **({'layer_regex': _lre} if _lre else {}),
         params=dict(releaseMode='ringout', spread=0.3, releaseOf=_parent, tuning='recorded'),
     )
+
+INSTRUMENTS['grand-piano-salamander-release'] = dict(
+    display=f'{INSTRUMENTS["grand-piano-salamander"]["display"]} — release noise', family='keyboard', kind='decaying',
+    source=CCBY_SALAMANDER, files=[f'{SALAMANDER}/rel*.wav'], note_number_regex=r'^rel(\d+)\.wav$', note_offset=20,
+    level_db=-37.0,     # normalised recordings: the sample set's SFZ plays them 37 dB down
+    allow_gaps=True,    # a damper noise whose pitch can't be measured: its neighbours play it
+    periods=4.0, transient=True, transient_max_s=0.1, max_partials=48, fixed_gain_from='grand-piano-salamander',
+    params=dict(releaseMode='ringout', spread=0.3, releaseOf='grand-piano-salamander', tuning='recorded'),
+)
 
 # ── Piotr Grabowski's free sample sets — every stop as the sample set plays it ─────
 # (piotr.py: stop catalogues in piotr_organs/<organ>.json, recordings rendered per key)

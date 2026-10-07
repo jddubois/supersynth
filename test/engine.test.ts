@@ -9,8 +9,23 @@ import {
 import * as instrumentConfigs from '../src/catalog/index.js';
 import { BUREA_ORGAN, ORGANS, PIOTR_ORGANS } from '../src/organs/index.js';
 import { stopModel } from '../src/Organ.js';
+import { modelPackage } from '../src/models.js';
 import { resolveModelFile } from '../src/platform/node-models.js';
 import { midiFile } from './smf.js';
+
+/** Whether an instrument can be tested here: false only for an instrument whose models ship in an
+ *  optional package of their own (`INSTRUMENT_MODEL_PACKAGES`) that isn't installed or fetched yet. */
+const installed = (def: InstrumentDefinition): boolean =>
+  def.layers.every((l) => {
+    if (!modelPackage(l.model)?.instrument) return true;
+    try {
+      resolveModelFile(l.model);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+const testIfInstalled = (id: InstrumentId) => (installed(INSTRUMENTS[id]) ? test : test.skip);
 
 const peak = (a: Float32Array) => a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
 const rms = (a: Float32Array) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / Math.max(1, a.length));
@@ -35,6 +50,19 @@ describe('Synth offline rendering', () => {
     expect(peak(a.left)).toBeLessThanOrEqual(1.0);
     synth.render(4);
     expect(synth.activeVoices).toBe(0);
+  });
+
+  testIfInstalled('salamander-grand')('a pedal layer sounds when the sustain pedal moves, and only then', () => {
+    const synth = new Synth({ sampleRate: 48000, reverb: false });
+    const piano = synth.add('salamander-grand');
+    expect(rms(synth.render(0.3).left)).toBeLessThan(1e-9);
+    piano.sustain(true);
+    const down = rms(synth.render(0.3).left);
+    expect(down).toBeGreaterThan(1e-5);
+    // without the pedal layer, the same pedal is silent
+    const quiet = new Synth({ sampleRate: 48000, reverb: false });
+    quiet.add('salamander-grand', { preset: 'no-pedal-noise' }).sustain(true);
+    expect(rms(quiet.render(0.3).left)).toBeLessThan(1e-9);
   });
 
   test('velocity changes loudness and timbre', () => {
@@ -154,7 +182,7 @@ describe('Synth offline rendering', () => {
 });
 
 describe('instruments', () => {
-  test.each(Object.keys(INSTRUMENTS) as InstrumentId[])('%s loads and plays', (id) => {
+  test.each((Object.keys(INSTRUMENTS) as InstrumentId[]).filter((id) => installed(INSTRUMENTS[id])))('%s loads and plays', (id) => {
     const synth = new Synth({ sampleRate: 48000 });
     const part = synth.add(id);
     const mid = Math.round((part.definition.range[0] + part.definition.range[1]) / 2);
@@ -406,11 +434,12 @@ describe('configurations', () => {
 
   test("an instrument's range is covered by its models' recordings", () => {
     const off: string[] = [];
-    for (const def of Object.values(INSTRUMENTS) as InstrumentDefinition[]) {
+    for (const def of (Object.values(INSTRUMENTS) as InstrumentDefinition[]).filter(installed)) {
       const sets = { layers: def.layers, ...Object.fromEntries(Object.entries(def.presets).map(([k, p]) => [k, p.layers])) };
       for (const [set, layers] of Object.entries(sets)) {
         for (const l of layers ?? []) {
-          if (l.trigger === 'release') continue;
+          // (release noise follows whatever key; pedal noise plays for no key)
+          if (l.trigger === 'release' || l.trigger === 'pedal') continue;
           const lo = Math.max(def.range[0], l.keyLow ?? 0) + (l.transpose ?? 0);
           const hi = Math.min(def.range[1], l.keyHigh ?? 127) + (l.transpose ?? 0);
           const [min, max] = recorded(l.model);

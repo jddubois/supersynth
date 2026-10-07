@@ -131,7 +131,8 @@
     "@supersynth/organ-saint-jean-de-luz": "*",
     "@supersynth/organ-skrzatusz": "*",
     "@supersynth/organ-strassburg": "*",
-    "@supersynth/organ-szczecinek": "*"
+    "@supersynth/organ-szczecinek": "*",
+    "@supersynth/piano-salamander": "*"
   },
   "peerDependenciesMeta": {
     "@supersynth/organ-burea": {
@@ -180,6 +181,9 @@
       "optional": true
     },
     "@supersynth/organ-szczecinek": {
+      "optional": true
+    },
+    "@supersynth/piano-salamander": {
       "optional": true
     }
   },

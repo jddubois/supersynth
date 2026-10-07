@@ -37,7 +37,10 @@ def align(ref, syn, sr):
     return a[:n], b[:n]
 
 
-def metrics(ref, syn, sr, seconds=None):
+def metrics(ref, syn, sr, seconds=None, noise=None):
+    """`noise`: a stretch of the reference recording with no note in it (its room tone). With
+    it, `lsd_floor_db` and `env_floor_db` also compare the two only above that noise floor (per
+    mel band, and broadband): what the recording's room adds (rumble, hiss) is not the note's."""
     ref, syn = align(ref, syn, sr)
     if seconds:
         n = int(seconds * sr)
@@ -71,8 +74,19 @@ def metrics(ref, syn, sr, seconds=None):
     cb, _ = centroid(syn)
     w = wa / wa.sum()
     cent_err = float(np.sum(w * np.abs(np.log2((cb + 1) / (ca + 1)))) * 1200)  # cents
-    return {'gain_db': gain_db, 'lsd_db': lsd, 'lsd_attack_db': lsd_attack, 'env_err_db': env_err,
-            'centroid_err_cents': cent_err}
+    out = {'gain_db': gain_db, 'lsd_db': lsd, 'lsd_attack_db': lsd_attack, 'env_err_db': env_err,
+           'centroid_err_cents': cent_err}
+    if noise is not None and len(noise) >= 4096:
+        _, N = logmel(noise, sr)
+        nf = np.median(N, axis=1, keepdims=True) + 3.0        # per band, 3 dB above the room
+        A3, B3 = np.maximum(A2, nf), np.maximum(B2, nf)
+        m3 = (A2 > nf) | (B2 > nf)
+        out['lsd_floor_db'] = float(np.mean(np.abs(A3 - B3)[m3])) if m3.any() else 0.0
+        out['attack_floor_db'] = float(np.mean(np.abs(A3[:, :na] - B3[:, :na])))
+        en = 10 * np.log10(np.mean(noise ** 2) + 1e-20) + 3.0
+        ka = ea > en
+        out['env_floor_db'] = float(np.mean(np.abs(np.maximum(ea, en) - np.maximum(eb, en)))) if ka.any() else 0.0
+    return out
 
 
 def plot_pair(ref, syn, sr, path, title='', labels=('A', 'B'), seconds=None):

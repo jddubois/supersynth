@@ -57,7 +57,8 @@ export function resolveModelFile(name: string, modelsDirectory?: string, findPac
   const owner = modelPackage(name);
   if (owner) {
     const dir = findPackage(owner.pkg);
-    if (!dir) throw new SupersynthError(`The organ '${owner.organ}' needs its models: npm install ${owner.pkg}`);
+    const who = owner.organ ? `The organ '${owner.organ}'` : `The ${owner.instrument}`;
+    if (!dir) throw new SupersynthError(`${who} needs its models: npm install ${owner.pkg}`);
     const candidate = path.join(dir, 'models', file);
     if (existsSync(candidate)) return candidate;
     tried.push(candidate);

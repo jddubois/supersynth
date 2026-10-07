@@ -30,6 +30,33 @@ export const GRAND_PIANO: InstrumentDefinition = {
   },
 };
 
+/** Concert grand piano from the Salamander Grand Piano sample set. */
+export const SALAMANDER_GRAND: InstrumentDefinition = {
+  id: 'salamander-grand',
+  name: 'Salamander Grand Piano',
+  family: 'keyboard',
+  description:
+    'Yamaha C5 grand, sixteen dynamic layers in stereo (Salamander Grand Piano V3 by Alexander Holm, CC BY 3.0): recorded hammer attacks, string stretch, damper release noise and the sound of the sustain pedal.',
+  layers: [
+    { model: 'grand-piano-salamander' },
+    { model: 'grand-piano-salamander-release', trigger: 'release' },
+    { model: 'grand-piano-salamander-pedal', trigger: 'pedal' },
+  ],
+  range: [21, 108],
+  reverb: 'hall',
+  presets: {
+    default: { description: 'No adjustments' },
+    bright: { description: 'Harder hammers, pop/rock piano', parameters: { brightness: 1.2, eqHighGain: 2, eqHighFreq: 5000 } },
+    mellow: { description: 'Soft hammers, warm and dark', parameters: { brightness: -1.6, noise: -3 } },
+    concert: { description: 'Concert hall perspective', parameters: { reverbSend: 0.28, spread: 0.45 }, reverb: 'concert-hall' },
+    studio: { description: 'Close studio miking', parameters: { reverbSend: 0.05, spread: 0.5 }, reverb: 'studio' },
+    'no-pedal-noise': {
+      description: 'Without the sound of the sustain pedal',
+      layers: [{ model: 'grand-piano-salamander' }, { model: 'grand-piano-salamander-release', trigger: 'release' }],
+    },
+  },
+};
+
 /** Upright Piano. */
 export const UPRIGHT_PIANO: InstrumentDefinition = {
   id: 'upright-piano',

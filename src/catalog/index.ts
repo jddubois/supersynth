@@ -7,7 +7,7 @@
  * synth.add({ ...GRAND_PIANO, id: 'my-piano', parameters: { brightness: -1 } });
  * ```
  */
-import { GRAND_PIANO, UPRIGHT_PIANO, HARPSICHORD } from './keyboards.js';
+import { GRAND_PIANO, SALAMANDER_GRAND, UPRIGHT_PIANO, HARPSICHORD } from './keyboards.js';
 import { PIPE_ORGAN, CHAMBER_ORGAN } from './organs.js';
 import { HARP, VIOLIN_PIZZICATO, CELLO_PIZZICATO, CONTRABASS_PIZZICATO, VIOLIN, VIOLINS, VIOLAS, CELLOS, CONTRABASS, STRINGS } from './strings.js';
 import { FLUTE, OBOE, CLARINET, BASSOON, TENOR_SAX } from './woodwinds.js';
@@ -26,6 +26,7 @@ export type { InstrumentDefinition, InstrumentFamily, LayerDefinition, Instrumen
 /** Every built-in instrument, by id (`synth.add('grand-piano')`). */
 export const INSTRUMENTS = {
   'grand-piano': GRAND_PIANO,
+  'salamander-grand': SALAMANDER_GRAND,
   'upright-piano': UPRIGHT_PIANO,
   'harpsichord': HARPSICHORD,
   'pipe-organ': PIPE_ORGAN,

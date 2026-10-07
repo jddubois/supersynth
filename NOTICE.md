@@ -18,6 +18,13 @@ Models: violin, violins, violas, cellos, contrabass, violin-pizzicato, cello-piz
 contrabass-pizzicato, flute, flute-vibrato, piccolo, oboe, clarinet, bassoon, trumpet,
 trumpet-muted, french-horn, trombone, tuba.
 
+## Salamander Grand Piano V3
+Yamaha C5 grand piano sampled by **Alexander Holm** — https://freepats.zenvoid.org/Piano/acoustic-grand-piano.html —
+licensed under **Creative Commons Attribution 3.0** (http://creativecommons.org/licenses/by/3.0/).
+Models: grand-piano-salamander, grand-piano-salamander-release, grand-piano-salamander-pedal in
+the package `@supersynth/piano-salamander` (`packages/piano-salamander/`), distributed under the
+same license; none of them is in the `supersynth` package itself.
+
 ## Bureå Church organ
 Organ by Nils Hammarberg (1967), Bureå Church, Sweden. GrandOrgue sample set recorded by
 **Lars Palo** (2010, updated 2023) — https://familjenpalo.se/vpo/ — licensed under

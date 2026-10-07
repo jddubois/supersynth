@@ -17,6 +17,9 @@ INSTRUMENTS_PACKAGE = 'instruments'
 MODELS_DIR = os.path.join(PACKAGES_DIR, INSTRUMENTS_PACKAGE, 'models')
 LEGACY_MODELS_DIR = os.path.join(REPO, 'models')
 BUREA_PACKAGE = 'organ-burea'
+# instruments whose models are in a package of their own (their recordings' license is not CC0):
+# model name prefix → package (as INSTRUMENT_MODEL_PACKAGES in src/models.ts)
+OWN_PACKAGES = {'grand-piano-salamander': 'piano-salamander'}
 
 
 def model_package(name: str) -> str | None:
@@ -26,6 +29,9 @@ def model_package(name: str) -> str | None:
       organ/<stop>            → organ-burea         (the Bureå organ)
       organ/<organ>/<stop>    → organ-<organ>       (Piotr Grabowski's organs)
     """
+    for prefix, pkg in OWN_PACKAGES.items():
+        if name == prefix or name.startswith(prefix + '-'):
+            return pkg
     parts = name.split('/')
     if parts[0] != 'organ' or len(parts) < 2:
         return None

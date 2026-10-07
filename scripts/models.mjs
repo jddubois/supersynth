@@ -3,7 +3,8 @@
 // packages/organ-<id>) publishes its `models/` folder, and a clone downloads them back into the
 // same place, at the version its package.json pins.
 //
-//   npm run models:fetch                  every model package (skips ones already fetched)
+//   npm run models:fetch                  every model package (skips ones already fetched, and
+//                                         ones not on npm yet)
 //   npm run models:fetch -- organ-burea   only these (folder names under packages/)
 //   npm run models:publish -- organ-burea publish these: bump the package's version first; a
 //                                         version already on npm is skipped, never overwritten
@@ -43,13 +44,23 @@ function select(names) {
   });
 }
 
-function fetch(pkgs) {
+/** Whether a package version is on npm. */
+function published(want) {
+  return Boolean(spawnSync('npm', ['view', want, 'version'], { encoding: 'utf8', shell: process.platform === 'win32' }).stdout.trim());
+}
+
+function fetch(pkgs, named) {
   for (const p of pkgs) {
     const models = path.join(packagesDir, p.dir, 'models');
     const marker = path.join(packagesDir, p.dir, MARKER);
     const want = `${p.name}@${p.version}`;
     if (existsSync(marker) && readFileSync(marker, 'utf8').trim() === want) {
       console.log(`${want}: already fetched`);
+      continue;
+    }
+    if (!named && !published(want)) {
+      // (a new model package, published later: its instrument is skipped by the tests until then)
+      console.log(`${want}: not on npm yet, skipped`);
       continue;
     }
     const tmp = mkdtempSync(path.join(tmpdir(), 'supersynth-models-'));
@@ -69,7 +80,7 @@ function fetch(pkgs) {
 function publish(pkgs) {
   for (const p of pkgs) {
     const want = `${p.name}@${p.version}`;
-    if (spawnSync('npm', ['view', want, 'version'], { encoding: 'utf8', shell: process.platform === 'win32' }).stdout.trim()) {
+    if (published(want)) {
       console.log(`${want} is already on npm: bump packages/${p.dir}/package.json's version to publish new models`);
       continue;
     }
@@ -81,7 +92,7 @@ function publish(pkgs) {
 }
 
 const [command, ...names] = process.argv.slice(2);
-if (command === 'fetch') fetch(select(names));
+if (command === 'fetch') fetch(select(names), names.length > 0);
 else if (command === 'publish') {
   if (!names.length) throw new Error('name the packages to publish (e.g. organ-burea); bump their versions first');
   publish(select(names));

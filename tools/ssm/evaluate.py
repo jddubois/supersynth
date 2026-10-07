@@ -115,7 +115,8 @@ def evaluate(model_id, holdout=False, plots=6, notes=None, sets=(), baseline=Tru
             tail = 0.2
         y = render(model_path, note, vel, dur, tail, sr, sets)
         seconds = min(len(x) / sr, dur + tail, 6.0)
-        m = metrics(x, y, sr, seconds=seconds)
+        # the recording's last half second: its room tone, once the note has died away
+        m = metrics(x, y, sr, seconds=seconds, noise=x[-int(0.5 * sr):] if hdr['kind'] == 'decaying' else None)
         if holdout and baseline:
             # sampler baseline: nearest kept recording of the same layer, resampled to pitch
             bm = sampler_baseline(f, x, sr, nominal, layer, keep_files, all_items, seconds)
@@ -126,16 +127,19 @@ def evaluate(model_id, holdout=False, plots=6, notes=None, sets=(), baseline=Tru
         results.append(m)
         base = os.path.splitext(os.path.basename(f))[0]
         # loudness-match for listening comparisons
-        sf.write(os.path.join(out_dir, base + '__ref.wav'), x[find_onset(x, sr):][:int(seconds * sr)], sr)
-        sf.write(os.path.join(out_dir, base + '__syn.wav'), y[find_onset(y, sr):][:int(seconds * sr)], sr)
+        sf.write(os.path.join(out_dir, base + '__ref.wav'), x[find_onset(x, sr):][:int(seconds * sr)], sr, subtype='FLOAT')
+        sf.write(os.path.join(out_dir, base + '__syn.wav'), y[find_onset(y, sr):][:int(seconds * sr)], sr, subtype='FLOAT')
         if plots > 0:
             plot_pair(x, y, sr, os.path.join(out_dir, base + '.png'), title=f'{model_id} {base}',
                       labels=('real', 'synth'), seconds=seconds)
             plots -= 1
         print(f"  {base:48s} note={note:3d} v={vel:5.1f} lsd={m['lsd_db']:5.2f} attack={m['lsd_attack_db']:5.2f} "
-              f"gain={m['gain_db']:+5.1f} env={m['env_err_db']:5.2f} centroid={m['centroid_err_cents']:6.1f}c", flush=True)
+              f"gain={m['gain_db']:+5.1f} env={m['env_err_db']:5.2f} centroid={m['centroid_err_cents']:6.1f}c"
+              + (f" lsd_floor={m['lsd_floor_db']:5.2f} attack_floor={m['attack_floor_db']:5.2f} env_floor={m['env_floor_db']:5.2f}" if 'lsd_floor_db' in m else ''), flush=True)
     if results:
         keys = ['lsd_db', 'lsd_attack_db', 'env_err_db', 'centroid_err_cents']
+        if all('lsd_floor_db' in r for r in results):
+            keys += ['lsd_floor_db', 'attack_floor_db', 'env_floor_db']
         if all('base_lsd_db' in r for r in results):
             keys += ['base_lsd_db', 'base_centroid_err_cents']
         summ = {k: float(np.mean([r[k] for r in results])) for k in keys}

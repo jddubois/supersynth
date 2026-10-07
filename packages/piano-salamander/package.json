@@ -1,0 +1,26 @@
+{
+  "name": "@supersynth/piano-salamander",
+  "version": "0.1.0",
+  "description": "The Salamander Grand Piano for supersynth: spectral models of Alexander Holm's Yamaha C5 sample set (16 dynamic layers, stereo, release and pedal noise; CC BY 3.0)",
+  "license": "CC-BY-3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jddubois/supersynth.git",
+    "directory": "packages/piano-salamander"
+  },
+  "homepage": "https://github.com/jddubois/supersynth#readme",
+  "bugs": {
+    "url": "https://github.com/jddubois/supersynth/issues"
+  },
+  "files": [
+    "models",
+    "NOTICE.md"
+  ],
+  "keywords": [
+    "supersynth",
+    "piano",
+    "grand-piano",
+    "spectral-model",
+    "salamander"
+  ]
+}

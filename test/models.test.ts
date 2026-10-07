@@ -25,6 +25,8 @@ describe('model packages', () => {
     expect(modelPackage('organ/friesach/great-principal-8')).toEqual({ organ: 'friesach', pkg: '@supersynth/organ-friesach' });
     expect(modelPackage('organ/saint-jean-de-luz/x')).toEqual({ organ: 'saint-jean-de-luz', pkg: '@supersynth/organ-saint-jean-de-luz' });
     expect(modelPackage('organ/unknown/x')).toBeUndefined();
+    expect(modelPackage('grand-piano-salamander-release')).toEqual({ instrument: 'Salamander Grand Piano', pkg: '@supersynth/piano-salamander' });
+    expect(modelPackage('grand-piano-salamanderx')).toBeUndefined();
   });
 });
 
