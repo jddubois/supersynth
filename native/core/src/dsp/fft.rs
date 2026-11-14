@@ -36,8 +36,8 @@ impl Fft {
     /// the caller applies the 1/N scale where needed.
     pub fn process(&self, re: &mut [f32], im: &mut [f32], inverse: bool) {
         let n = self.n;
-        for i in 0..n {
-            let j = self.rev[i] as usize;
+        for (i, &r) in self.rev.iter().enumerate().take(n) {
+            let j = r as usize;
             if j > i {
                 re.swap(i, j);
                 im.swap(i, j);

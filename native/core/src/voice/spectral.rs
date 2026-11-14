@@ -528,11 +528,11 @@ fn start_draws(m: &Model, p: &SpectralParams, pitch: f32, velocity: u8, sr: f32)
         if zs.w[j] < 0.02 || z.harmonic >= z.partials {
             continue;
         }
-        for i in z.harmonic..z.partials {
+        for &ratio in &z.ratios[z.harmonic..z.partials] {
             if k >= MAX_PARTIALS {
                 break;
             }
-            let f = f_target * z.ratios[i];
+            let f = f_target * ratio;
             if f >= nyq || f <= 0.0 {
                 continue;
             }
@@ -1024,9 +1024,7 @@ impl SpectralVoice {
             // felt stops the upper partials faster: the rate doubles by the 31st harmonic
             self.damp_w[i] = 0.75 + 0.25 * (1.0 + self.harm[i]).log2().min(6.0);
         }
-        for b in 0..MAX_BANDS {
-            self.noise_pow[b] = 0.0;
-        }
+        self.noise_pow[..MAX_BANDS].fill(0.0);
     }
 
     /// Legato: move this sounding voice to a new note without a new attack. Oscillator

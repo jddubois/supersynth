@@ -1,6 +1,6 @@
 {
   "name": "@supersynth/core",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Acoustic instrument sounds for Node.js and browsers: spectral models analysed from freely licensed recordings (piano, 16 pipe organs and a harmonium, a rock organ, strings, winds, brass, mallets; and an analog-style rock synth), played by a Rust engine, native or WebAssembly",
   "type": "module",
   "main": "./dist/index.js",
@@ -186,12 +186,12 @@
     }
   },
   "optionalDependencies": {
-    "@supersynth/darwin-arm64": "0.5.0",
-    "@supersynth/darwin-x64": "0.5.0",
-    "@supersynth/linux-arm64-gnu": "0.5.0",
-    "@supersynth/linux-x64-gnu": "0.5.0",
-    "@supersynth/linux-x64-musl": "0.5.0",
-    "@supersynth/win32-x64-msvc": "0.5.0"
+    "@supersynth/darwin-arm64": "0.5.1",
+    "@supersynth/darwin-x64": "0.5.1",
+    "@supersynth/linux-arm64-gnu": "0.5.1",
+    "@supersynth/linux-x64-gnu": "0.5.1",
+    "@supersynth/linux-x64-musl": "0.5.1",
+    "@supersynth/win32-x64-msvc": "0.5.1"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

@@ -1544,8 +1544,9 @@ impl Engine {
         if pi >= self.parts.len() || note > 127 {
             return;
         }
-        let mono = self.parts[pi].mono;
         let legato = self.parts[pi].legato;
+        // legato implies mono while it is on: turning it off leaves `mono` as it was set
+        let mono = self.parts[pi].mono || legato;
         // legato: a held note of this part glides to the new one (per layer)
         if legato {
             let held = self.voices.iter().any(|v| v.is_active() && v.part == pi && !v.is_released());
@@ -1971,12 +1972,7 @@ impl Engine {
             BendRange => p.bend_range = v,
             ModDepth => p.mod_depth_cents = v,
             Mono => p.mono = v >= 0.5,
-            Legato => {
-                p.legato = v >= 0.5;
-                if p.legato {
-                    p.mono = true;
-                }
-            }
+            Legato => p.legato = v >= 0.5,
             Glide => p.glide = v,
             TremDepth => p.trem_db = v,
             TremPitch => p.trem_cents = v,
@@ -2789,6 +2785,17 @@ mod tests {
         assert_eq!(eng.active_voices(), 1, "legato keeps one voice");
         let max_step = l.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max);
         assert!(max_step < 0.2, "discontinuity {max_step}");
+    }
+
+    #[test]
+    fn legato_off_is_polyphonic_again() {
+        let Some((mut eng, mut ctl)) = engine_with("violin") else { return };
+        ctl.send(0, Command::SetPartParam { part: 0, param: PartParam::Legato, value: 1.0 }).unwrap();
+        ctl.send(0, Command::SetPartParam { part: 0, param: PartParam::Legato, value: 0.0 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 69, velocity: 100 }).unwrap();
+        ctl.send(0, Command::NoteOn { part: 0, note: 72, velocity: 100 }).unwrap();
+        render(&mut eng, 24000);
+        assert_eq!(eng.active_voices(), 2, "two held notes, two voices");
     }
 
     #[test]

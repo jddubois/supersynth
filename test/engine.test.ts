@@ -249,6 +249,12 @@ describe('instruments', () => {
     keys.preset('pad');
     expect(keys.get('legato')).toBe(false);
     expect(keys.get('attack')).toBeGreaterThan(1);
+    // … and plays chords again after the lead (legato no longer leaves the engine monophonic)
+    keys.preset('single');
+    keys.play(60, { duration: 2 });
+    keys.play(67, { duration: 2 });
+    synth.render(1);
+    expect(synth.activeVoices).toBe(2);
   });
 
   test('parameters given with the preset at creation keep it active', () => {
