@@ -755,8 +755,8 @@ impl MidiRouter {
         let mut held = lock(&shared.held[source]);
         let mut cmds = Vec::new();
         for ch in 0..16 {
-            for note in 0..128 {
-                let part = std::mem::replace(&mut held.notes[ch][note], NO_ROUTE);
+            for (note, slot) in held.notes[ch].iter_mut().enumerate() {
+                let part = std::mem::replace(slot, NO_ROUTE);
                 if part != NO_ROUTE {
                     cmds.push(Command::NoteOff { part: part as u16, note: note as u8 });
                 }
