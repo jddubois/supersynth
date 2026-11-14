@@ -1,7 +1,7 @@
 {
   "name": "@supersynth/instruments",
   "version": "0.5.0",
-  "description": "The core instrument models for supersynth: piano, harpsichord, strings, winds, brass, mallets, the VCSL organs and a rock organ, analysed from CC0 recordings (installed with supersynth)",
+  "description": "The core instrument models for supersynth: piano, harpsichord, strings, winds, brass, mallets, the VCSL organs and a rock organ, analysed from CC0 recordings, and a rock synth (installed with supersynth)",
   "license": "CC0-1.0",
   "repository": {
     "type": "git",

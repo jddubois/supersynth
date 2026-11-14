@@ -20,7 +20,7 @@ cd tools/ssm && .venv/bin/python build.py <instrument-id>
 ## Recordings
 
 The recordings aren't in the repository, and nothing downloads them for you (but for the rock
-organ's, below). Get the libraries
+organ's and the rock synth's, below). Get the libraries
 below and unpack them under `data/samples/` (or under `$SUPERSYNTH_DATA_ROOT/samples/`):
 
 | Folder | Source |
@@ -29,6 +29,7 @@ below and unpack them under `data/samples/` (or under `$SUPERSYNTH_DATA_ROOT/sam
 | `VSCO-2-CE/` | [VSCO 2 Community Edition](https://github.com/sgossner/VSCO-2-CE) (CC0) |
 | `grandorgue/Burea_wav/` | Bureå Church organ GrandOrgue sample set by Lars Palo (CC BY-SA 2.5) |
 | `piotr/<organ>/` | Piotr Grabowski's GrandOrgue sample sets ([piotrgrabowski.pl](https://piotrgrabowski.pl/instruments/)) |
+| `rocksynth/` | Nothing to get: the rock synth's tones are computed (`python rocksynth.py model`) |
 | `freepats/` | The [FreePats](https://freepats.zenvoid.org/Organ/electric-organ.html) rock organ (CC0). This one does download itself: `python freepats.py model` |
 
 `instruments.py` lists the recordings each model is analysed from. Anything that renders through
@@ -43,6 +44,7 @@ with `cargo build --release` in `native/`.
 | `build_all.py [--orchestra \| --organ \| id …]` | every model, continuing past failures (`npm run models`) |
 | `piotr.py survey \| catalog \| build \| ts <organ>` | Piotr Grabowski's organs: read the organ definition, write `piotr_organs/<organ>.json`, analyse its stops, print the TypeScript stop list |
 | `freepats.py model \| fetch \| dry` | the rock organ: download its recordings, measure the organ's steady tone in them, calibrate it against the engine's rotary speaker and build `rock-organ` (needs `ssrender`) |
+| `rocksynth.py model \| tones \| eval` | the rock synth: compute its tones (no recordings) and build `rock-synth`; `eval` compares the engine with the computed tones, also on notes and velocities between the ones in the model (needs `ssrender`) |
 | `rotary_eval.py` | the engine's rock organ against those recordings: long-term spectrum and the movement of each harmonic |
 | `noises.py <organ>` | an organ's machinery noises (key and stop action, blower, church) |
 | `evaluate.py <id> [--holdout]`, `eval_all.py` | render notes through `ssrender` and compare them with the recordings; with `--holdout`, on notes left out of the model |

@@ -20,7 +20,7 @@ function material(id: string, family: string): { steps: Step[]; bpm: number; cho
   if (family === 'keyboard' || id === 'harp') return { steps: BWV846, bpm: 104 };
   if (id === 'tubular-bells') return { steps: WESTMINSTER, bpm: 66 };
   if (family === 'percussion') return { steps: ODE_TO_JOY, bpm: 132 };
-  if (id === 'strings' || id === 'brass' || family === 'organ') return { steps: [], bpm: 60, chords: true };
+  if (id === 'strings' || id === 'brass' || family === 'organ' || family === 'synth') return { steps: [], bpm: 60, chords: true };
   if (id.includes('pizzicato')) return { steps: ODE_TO_JOY, bpm: 120 };
   if (['cellos', 'contrabass', 'bassoon', 'tuba', 'trombone', 'french-horn', 'tenor-sax'].includes(id)) {
     return { steps: AMAZING_GRACE, bpm: 72 };

@@ -13,6 +13,7 @@ import { HARP, VIOLIN_PIZZICATO, CELLO_PIZZICATO, CONTRABASS_PIZZICATO, VIOLIN, 
 import { FLUTE, OBOE, CLARINET, BASSOON, TENOR_SAX } from './woodwinds.js';
 import { TRUMPET, FRENCH_HORN, TROMBONE, TUBA, BRASS } from './brass.js';
 import { MARIMBA, VIBRAPHONE, XYLOPHONE, GLOCKENSPIEL, TUBULAR_BELLS } from './percussion.js';
+import { ROCK_SYNTH } from './synths.js';
 import type { InstrumentDefinition } from './types.js';
 
 export * from './keyboards.js';
@@ -21,6 +22,7 @@ export * from './strings.js';
 export * from './woodwinds.js';
 export * from './brass.js';
 export * from './percussion.js';
+export * from './synths.js';
 export type { InstrumentDefinition, InstrumentFamily, LayerDefinition, InstrumentPreset } from './types.js';
 
 /** Every built-in instrument, by id (`synth.add('grand-piano')`). */
@@ -56,6 +58,7 @@ export const INSTRUMENTS = {
   'xylophone': XYLOPHONE,
   'glockenspiel': GLOCKENSPIEL,
   'tubular-bells': TUBULAR_BELLS,
+  'rock-synth': ROCK_SYNTH,
 } satisfies Record<string, InstrumentDefinition>;
 
 /** Id of a built-in instrument. */

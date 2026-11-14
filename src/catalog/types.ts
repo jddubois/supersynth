@@ -1,6 +1,6 @@
 import type { InstrumentParameters, ReverbPreset } from '../parameters.js';
 
-export type InstrumentFamily = 'keyboard' | 'organ' | 'strings' | 'woodwind' | 'brass' | 'percussion';
+export type InstrumentFamily = 'keyboard' | 'organ' | 'strings' | 'woodwind' | 'brass' | 'percussion' | 'synth';
 
 /** One sound layer: a spectral model played at an offset, optionally over a key range. */
 export interface LayerDefinition {

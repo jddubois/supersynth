@@ -208,6 +208,49 @@ describe('instruments', () => {
     expect(organ.get('leslie')).toBe('off');
   });
 
+  test('the rock synth: detuned oscillators, a filter that opens with velocity, mono leads', () => {
+    const band = (x: Float32Array, lo: number, hi: number) => {
+      // power between lo and hi Hz of a 48 kHz signal (Goertzel on a 25 Hz grid)
+      let p = 0;
+      for (let f = lo; f < hi; f += 25) {
+        const w = (2 * Math.PI * f) / 48000;
+        let re = 0, im = 0;
+        for (let i = 0; i < x.length; i += 1) { re += x[i]! * Math.cos(w * i); im += x[i]! * Math.sin(w * i); }
+        p += re * re + im * im;
+      }
+      return p;
+    };
+    const held = (preset: string, velocity: number) => {
+      const synth = new Synth({ sampleRate: 48000, reverb: false });
+      const keys = synth.add('rock-synth', { preset, parameters: { humanize: 0, chorus: 0 } });
+      keys.play(57, { duration: 4, velocity });
+      const a = synth.render(3.5);
+      const levels: number[] = [];
+      for (let i = 2 * 48000; i + 2400 <= a.left.length; i += 2400) levels.push(rms(a.left.subarray(i, i + 2400)));
+      const tail = a.left.subarray(2 * 48000, 2.2 * 48000);
+      return { swing: 20 * Math.log10(Math.max(...levels) / Math.min(...levels)), bright: band(tail, 3000, 6000) / band(tail, 150, 600),
+               wide: rms(a.left.subarray(2 * 48000).map((v, i) => v - a.right[2 * 48000 + i]!)) / rms(a.left.subarray(2 * 48000)) };
+    };
+    // one oscillator is steady and centred; two, 12 cents apart and panned, beat and are wide
+    const single = held('single', 100);
+    const two = held('default', 100);
+    expect(single.swing).toBeLessThan(0.5);
+    expect(single.wide).toBeLessThan(1e-3);
+    expect(two.swing).toBeGreaterThan(1);
+    expect(two.wide).toBeGreaterThan(0.2);
+    // playing harder opens the filter
+    expect(held('single', 120).bright).toBeGreaterThan(4 * held('single', 50).bright);
+    // presets: the lead is monophonic, the pad is not
+    const synth = new Synth({ sampleRate: 22050 });
+    const keys = synth.add('rock-synth');
+    expect(keys.get('legato')).toBe(false);
+    keys.preset('lead');
+    expect(keys.get('legato')).toBe(true);
+    keys.preset('pad');
+    expect(keys.get('legato')).toBe(false);
+    expect(keys.get('attack')).toBeGreaterThan(1);
+  });
+
   test('parameters given with the preset at creation keep it active', () => {
     const synth = new Synth({ sampleRate: 22050 });
     const p = synth.add('grand-piano', { preset: 'mellow', parameters: { volume: -3 } });

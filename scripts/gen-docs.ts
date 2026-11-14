@@ -8,8 +8,8 @@ const constName = new Map<InstrumentDefinition, string>(
   Object.entries(configs).filter(([, v]) => typeof v === 'object' && v !== null && 'layers' in v).map(([k, v]) => [v as InstrumentDefinition, k]),
 );
 
-const fam: Record<string, string> = { keyboard: 'Keyboards', organ: 'Organs', strings: 'Strings', woodwind: 'Woodwinds', brass: 'Brass', percussion: 'Mallets & bells' };
-let md = '# Instruments\n\nEvery instrument is a spectral model analysed from real recordings (see NOTICE.md).\n' +
+const fam: Record<string, string> = { keyboard: 'Keyboards', organ: 'Organs', strings: 'Strings', woodwind: 'Woodwinds', brass: 'Brass', percussion: 'Mallets & bells', synth: 'Synthesizers' };
+let md = '# Instruments\n\nEvery instrument is a spectral model analysed from real recordings (see NOTICE.md), but for the\nrock synth, whose model is analysed from computed tones.\n' +
   'Add one with `synth.add(id, { preset })`; `INSTRUMENTS` holds them all, by id.\n\n' +
   'Every instrument is also a plain configuration object (`InstrumentDefinition`) exported under the name\n' +
   'shown with it, from `@supersynth/core` and from `@supersynth/core/instruments`. Pass it to `synth.add`, or\n' +

@@ -515,7 +515,8 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
                  max_loop_s: float | None = None, locked: bool | None = None,
                  max_stiffness: float = 2e-3, keep_release_tail: bool = True,
                  stereo: bool = False, steady_smooth_s: float = 0.0, phase_smooth_s: float = 0.0,
-                 pitch_smooth_s: float = 0.0, weak_after_attack: bool = False) -> Zone:
+                 pitch_smooth_s: float = 0.0, weak_after_attack: bool = False,
+                 loop_min_start_s: float = 0.0) -> Zone:
     if locked is None:
         locked = kind == 'sustained'
     x, sr = load_mono(path, channel_mix)
@@ -953,7 +954,9 @@ def analyze_zone(path: str, nominal_note: int, layer: str, *, kind: str,
     rel_noise_rate = 0.0
     # Recorded phase trajectories (stereo image) still move fast while the tone settles
     # after its attack; a ping-pong loop reversing there turns that into frequency spikes.
-    loop_min_start = 0.6 if stereo_t is not None else 0.0
+    # (`loop_min_start_s`: a tone that keeps changing after its attack, like a synthesizer's
+    # filter closing, says when it has settled)
+    loop_min_start = max(0.6 if stereo_t is not None else 0.0, loop_min_start_s)
     if kind == 'sustained':
         if release_at_s is not None:
             # release point known (e.g. GrandOrgue cue marker, relative to the file start)

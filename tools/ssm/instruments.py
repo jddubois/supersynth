@@ -8,12 +8,14 @@ Sources (all freely licensed):
               (familjenpalo.se/vpo/download)
   FreePats  — electric organ sound banks, CC0 (freepats.zenvoid.org/Organ/electric-organ.html;
               `python freepats.py fetch`, then `dry`)
+  computed  — the rock synth has no recordings: rocksynth.py computes its tones
 """
 
 VCSL = 'VCSL'
 VSCO = 'VSCO-2-CE'
 CC0_VCSL = 'Analysed from the Versilian Community Sample Library (CC0)'
 CC0_VSCO = 'Analysed from VSCO 2 Community Edition (CC0)'
+COMPUTED_ROCKSYNTH = 'Analysed from tones computed by tools/ssm/rocksynth.py (no recordings)'
 CC0_FREEPATS = 'Analysed from the FreePats rock organ emulation by the Strix SoundFont Team (CC0)'
 
 RR_EXTRA = r'(_rr[2-9]|_RR[2-9]|_0[2-9][_.]|_var[2-9])'
@@ -105,6 +107,18 @@ INSTRUMENTS: dict[str, dict] = {
         files=['freepats/rock-dry/*.wav'],
         octave_search=False, transient=False, max_partials=24, zone_hook='freepats.tune_zone', target_rms_db=-16.0,
         params=dict(releaseMode='natural', spread=0.0, reverb='room', reverbSend=0.08, formant=0.0, minReleaseDbS=100.0),
+    ),
+    # ── synthesizers ───────────────────────────────────────────────────────
+    # One oscillator of an analog-style polysynth (a sawtooth through an enveloped low-pass
+    # filter, three hardnesses), computed by rocksynth.py, which writes the tones analysed
+    # here. The detuned oscillators of the fat sound are layers of the instrument definition.
+    'rock-synth': dict(
+        display='Rock Synth (analog-style polysynth)', family='synth', kind='sustained', source=COMPUTED_ROCKSYNTH,
+        files=['rocksynth/*.wav'], layer_regex=r'_v(\d)\.',
+        octave_search=False, transient=False, max_partials=256, target_rms_db=-14.0,
+        # the filter has settled 1.6 s after the key press; the key is released at 3 s (rocksynth.HOLD_S)
+        loop_min_start_s=1.6, release_at_s=3.0,
+        params=dict(releaseMode='natural', spread=0.0, reverb='room', reverbSend=0.1, formant=0.0, minReleaseDbS=100.0),
     ),
     # ── plucked / struck strings ───────────────────────────────────────────
     'harp': dict(

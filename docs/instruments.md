@@ -1,6 +1,7 @@
 # Instruments
 
-Every instrument is a spectral model analysed from real recordings (see NOTICE.md).
+Every instrument is a spectral model analysed from real recordings (see NOTICE.md), but for the
+rock synth, whose model is analysed from computed tones.
 Add one with `synth.add(id, { preset })`; `INSTRUMENTS` holds them all, by id.
 
 Every instrument is also a plain configuration object (`InstrumentDefinition`) exported under the name
@@ -409,5 +410,25 @@ Config: `TUBULAR_BELLS`. Suggested room: `church`.
 | Preset | Description |
 |---|---|
 | `default` | No adjustments |
+
+## Synthesizers
+
+### `rock-synth` — Rock Synth
+
+An analog-style polysynth: detuned sawtooth oscillators through a low-pass filter that opens at each key press and falls back, the brassy chord sound of arena-rock keyboard riffs. Playing harder opens the filter further. The model is computed, not recorded: one oscillator, which the layers play two or three times a few cents apart.
+
+Config: `ROCK_SYNTH`. Suggested room: `room`.
+
+| Preset | Description |
+|---|---|
+| `default` | Polysynth brass: two detuned oscillators and a little chorus. Chords and riffs |
+| `arena` | Brighter, three oscillators, in a big hall: the stadium riff |
+| `pad` | Slow and dark, three oscillators, long release: held chords under a band |
+| `strings` | String machine: an octave added above, heavy ensemble chorus, slow attack |
+| `lead` | Mono lead: overlapping notes glide into each other, the mod wheel adds vibrato; lightly driven |
+| `square-lead` | Hollow square-wave mono lead (the even harmonics taken out), with a delayed vibrato |
+| `power` | Power chords from one key: a fifth and an octave above each note, the amplifier driven hard |
+| `bass` | Mono synth bass: an oscillator an octave below added, no chorus |
+| `single` | One oscillator, no chorus: the model as computed |
 
 The church organs (`synth.add('burea')`, …) have four divisions with drawable stops, and their models come in separate packages (`npm install @supersynth/organ-burea`); see [organ.md](organ.md).

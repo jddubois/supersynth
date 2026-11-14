@@ -1,7 +1,7 @@
 {
   "name": "@supersynth/core",
   "version": "0.5.0",
-  "description": "Acoustic instrument sounds for Node.js and browsers: spectral models analysed from freely licensed recordings (piano, 16 pipe organs and a harmonium, a rock organ, strings, winds, brass, mallets), played by a Rust engine, native or WebAssembly",
+  "description": "Acoustic instrument sounds for Node.js and browsers: spectral models analysed from freely licensed recordings (piano, 16 pipe organs and a harmonium, a rock organ, strings, winds, brass, mallets; and an analog-style rock synth), played by a Rust engine, native or WebAssembly",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -71,6 +71,7 @@
     "example:piano": "node --import tsx examples/piano.ts",
     "example:organ": "node --import tsx examples/organ.ts",
     "example:rock": "node --import tsx examples/rock-organ.ts",
+    "example:synth": "node --import tsx examples/rock-synth.ts",
     "example:orchestra": "node --import tsx examples/orchestra.ts",
     "example:midi": "node --import tsx examples/midi-file.ts examples/jsbwv532.mid",
     "example:browser": "node examples/browser/serve.mjs",

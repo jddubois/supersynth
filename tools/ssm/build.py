@@ -338,6 +338,8 @@ def analysis_kw(spec: dict) -> dict:
               max_stiffness=spec.get('max_stiffness', 2e-3), stereo=spec.get('stereo', False),
               steady_smooth_s=spec.get('steady_smooth_s', 0.0), phase_smooth_s=spec.get('phase_smooth_s', 0.0),
               weak_after_attack=spec.get('weak_after_attack', False),
+              loop_min_start_s=spec.get('loop_min_start_s', 0.0),
+              **({'release_at_s': spec['release_at_s']} if spec.get('release_at_s') is not None else {}),
               pitch_smooth_s=spec.get('pitch_smooth_s', 0.1 if spec.get('family') == 'organ' and spec['kind'] == 'sustained' else 0.0))
 
 

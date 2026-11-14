@@ -46,3 +46,8 @@ Strix SoundFont Team, for the FreePats project — https://freepats.zenvoid.org/
 — **CC0 1.0** (public domain). Recorded from the setBfree tonewheel organ synthesizer.
 Model: rock-organ (the organ's steady tone; the rotary speaker is supersynth's own, fitted to
 the same recordings).
+
+## Rock synth
+No third-party material: the tones the model `rock-synth` is analysed from are computed by
+supersynth's own `tools/ssm/rocksynth.py` (a sawtooth through an enveloped low-pass filter),
+not recorded, and are covered by supersynth's license.

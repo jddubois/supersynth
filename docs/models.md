@@ -1,7 +1,7 @@
 # How the instruments are made
 
 Each instrument is an `.ssm` spectral model, analysed from recordings by the Python tools in
-`tools/ssm/`.
+`tools/ssm/` (the rock synth's from computed tones, [below](#the-rock-synth)).
 
 ## Analysis (`analysis.py`)
 
@@ -110,6 +110,54 @@ These are medians over the harmonics in each band. What they don't show:
   to change speed, are the engine's own.
 - No listening test has been recorded.
 
+## The rock synth
+
+`rock-synth` has no recordings (`tools/ssm/rocksynth.py`). Its source is computed: one
+oscillator of an analog-style polysynth, a sawtooth through a resonant low-pass filter
+(12 dB/octave, one more pole an octave and a half higher) whose cutoff an envelope opens in
+15 ms at the key press and lets fall back with a 0.22 s time constant while the key is held.
+Playing harder opens the filter further (held cutoff 1.1 to 3.2 kHz at middle C, 1.2 to 2
+octaves more at the peak) and is louder. The tones are computed additively, each harmonic of the
+sawtooth times the filter's gain at its frequency at that moment, so they have no aliasing.
+29 notes (every minor third, C1 to C8) at three hardnesses are written as 3.7 s recordings and
+analysed like any other, without a stored attack: the whole note is partial envelopes, so
+`brightness`, `evenHarmonics` and the like act on the attack as well.
+
+The detuned oscillators that make such a synth fat are not in the model. The instrument
+definition (`src/catalog/synths.ts`) plays the model in two or three layers a few cents apart,
+panned left and right, so they beat in the engine as oscillators do, at a rate that follows
+the pitch, and no recorded beat loops. The presets differ in those layers and in the engine's
+effects (chorus, drive, legato, vibrato).
+
+`rocksynth.py eval` compares the engine (one layer, no effects) with the source. Because the
+source is computed, it can be computed for notes and velocities that are not in the model as
+well, which recorded instruments don't allow. Per note, the level of every harmonic below
+16 kHz and within 40 dB of the strongest is followed in 5 ms steps, and the common level of
+the note is removed:
+
+| Engine − source | the notes in the model (24) | notes between them (24) | velocities between the layers (16) |
+|---|---|---|---|
+| Held tone, 1.5 s on: mean, 95th percentile | 0.02 dB, 0.04 dB | 0.02 dB, 0.04 dB | 0.4 dB, 1.5 dB |
+| Filter decay, 0.1–1 s | 0.02 dB, 0.04 dB | 0.07 dB, 0.3 dB | 0.6 dB, 2.1 dB |
+| Attack, 20–100 ms | 0.2 dB, 1.0 dB | 0.4 dB, 1.3 dB | 2.5 dB, 6.0 dB |
+| Rise to 6 dB below the held level (source 2 ms) | 3 ms later (worst 9 ms) | 3 ms later (worst 8 ms) | 3 ms later (worst 9 ms) |
+| Fall by 20 dB after the release (source 120 ms) | 11 ms later (worst 43 ms) | 11 ms later (worst 41 ms) | 10 ms later (worst 43 ms) |
+
+(The percentiles are means over the notes of each note's 95th percentile.) What this shows and
+what it doesn't:
+
+- The engine reproduces the computed voice closely at the three velocities in the model, also
+  between the notes. Between those velocities it blends two layers' levels in dB and takes
+  the envelope's timing from the nearer one, where the source moves its filter: the attack is
+  off by a few dB there, as a difference in how far the filter has opened at a given moment.
+- The attack is softened, most in the bass: the analysis window is 3 to 4 periods long, so the
+  4 ms rise takes up to 9 ms longer, and the release starts late by up to 40 ms.
+- It says nothing about any real synthesizer. The source is this script's idea of one: no
+  oscillator drift but the layers' detuning and `humanize`, an idealised filter, no noise.
+- It measures one layer without effects. The presets' sound (detuned layers, chorus, drive)
+  is the engine's own and has nothing to be compared with.
+- No listening test has been recorded.
+
 ## Evaluation
 
 The scripts below compare the engine's output with the recordings. They write their results to
@@ -158,4 +206,5 @@ The recordings are not in the repository and no script downloads them: get the s
 libraries named in [NOTICE.md](../NOTICE.md) and place them under `data/samples` (or set
 `SUPERSYNTH_DATA_ROOT`); `instruments.py` gives the folder each model reads. The rock organ is
 the exception: `python freepats.py model` downloads its recordings and builds it (after
-`cargo build --release` in `native/`, for the calibration renders).
+`cargo build --release` in `native/`, for the calibration renders). The rock synth needs no
+recordings: `python rocksynth.py model` computes its tones and builds it.

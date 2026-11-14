@@ -3,7 +3,8 @@
 Acoustic instrument sounds for Node.js and browsers, played by a Rust engine (native in Node.js,
 WebAssembly on several cores in a browser): piano, harpsichord, sixteen pipe organs and a
 harmonium, a rock organ with its rotary speaker, strings, winds, brass and mallets. Each
-instrument is a spectral model analysed from freely licensed recordings.
+instrument is a spectral model analysed from freely licensed recordings. There is also one
+synthesizer, an analog-style polysynth for rock, whose model is analysed from computed tones.
 
 ```ts
 import { Synth } from '@supersynth/core';
@@ -61,7 +62,7 @@ nearest recording, resampled to the new pitch.
 - There's no published comparison with the recordings. `tools/ssm/` has scripts that compare
   synthesised notes with the recordings and with a simple pitch-shifting sampler
   ([docs/models.md](docs/models.md#evaluation)), but none of their results are in the repository
-  (the rock organ's are, in [docs/models.md](docs/models.md#the-rock-organ)) and there have been
+  (the rock organ's and the rock synth's are, in [docs/models.md](docs/models.md#the-rock-organ)) and there have been
   no recorded listening tests. So this README makes no claim about how close the instruments
   come to the real thing, or to a sampler.
 - Between recorded notes, the attack and envelope come from one of the two neighbouring
@@ -83,6 +84,12 @@ nearest recording, resampled to the new pitch.
   [docs/models.md](docs/models.md#the-rock-organ), not sample for sample. The slow and stopped
   speeds, the overdrive presets, key click and percussion aren't in the recordings: the first
   three are the engine's own, the last two are missing.
+- Rock synth: nothing was recorded. The model is one oscillator (a sawtooth through an enveloped
+  low-pass filter) computed by `tools/ssm/rocksynth.py`, and the engine reproduces those tones
+  closely ([docs/models.md](docs/models.md#the-rock-synth)). It imitates the kind of sound an
+  analog polysynth makes, not any particular instrument, and has not been compared with one.
+  The filter is in the model, so there's no cutoff or resonance to turn: `brightness` tilts the
+  spectrum, and `attack` slows the filter's envelope and the amplitude's together.
 - Live MIDI is applied at the start of the next audio buffer, so its timing can be off by up to
   one buffer (2.7 ms at 128 frames).
 - The largest organs at full registration probably need more CPU than a Raspberry Pi 5 has, at
@@ -98,6 +105,7 @@ nearest recording, resampled to the new pitch.
 | Woodwinds | `flute`, `oboe`, `clarinet`, `bassoon`, `tenor-sax` |
 | Brass | `trumpet`, `french-horn`, `trombone`, `tuba`, `brass` (section) |
 | Percussion | `marimba`, `vibraphone`, `xylophone`, `glockenspiel`, `tubular-bells` |
+| Synthesizers | `rock-synth` (an analog-style polysynth: brass chords, pad, string machine, mono leads, power chords) |
 
 Every instrument has presets (`synth.add('grand-piano', { preset: 'felt' })`). `INSTRUMENTS` and
 `ORGANS` hold the whole catalog with presets and descriptions, also listed in
@@ -313,6 +321,7 @@ npm run example:tour          # piano, harpsichord, strings, winds, brass, harp 
 npm run example:piano         # pedal, dynamics, presets
 npm run example:organ         # hymn in four parts across presets
 npm run example:rock          # the rock organ: a riff, the rotary speaker changing speed, overdrive
+npm run example:synth         # the rock synth: a chord riff, a mono lead over it, pad, power chords
 npm run example:orchestra     # strings, harp, oboe, horn, pizzicato bass
 npm run example:midi          # Bach's BWV 532 from a MIDI file, on the piano
 npm run demos -- demos/       # render every instrument × preset to WAV

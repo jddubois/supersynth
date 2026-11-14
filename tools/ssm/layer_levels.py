@@ -6,7 +6,7 @@ import sys
 
 import numpy as np
 
-FAMILY_VELOCITY_DB = {'keyboard': 1.0, 'percussion': 0.9, 'strings': 0.75, 'woodwind': 0.6, 'brass': 0.7, 'organ': 0.0}
+FAMILY_VELOCITY_DB = {'keyboard': 1.0, 'percussion': 0.9, 'strings': 0.75, 'woodwind': 0.6, 'brass': 0.7, 'organ': 0.0, 'synth': 0.6}
 OVERRIDE = {'harpsichord': 0.2, 'harpsichord-flemish': 0.2, 'harp': 0.9, 'violin-pizzicato': 0.9,
             'cello-pizzicato': 0.9, 'contrabass-pizzicato': 0.9}
 
