@@ -93,6 +93,23 @@ Config: `CHAMBER_ORGAN`. Suggested room: `chamber`.
 | `8-4` | 8' + 4' |
 | `full` | Full organ |
 
+### `rock-organ` — Rock Organ
+
+A tonewheel organ with all nine drawbars out, through a rotary speaker: the classic rock organ. The tone is steady; the swirl is the speaker, shared by every note that sounds (`leslie`: fast, slow or stopped).
+
+Config: `ROCK_ORGAN`. Suggested room: `room`.
+
+| Preset | Description |
+|---|---|
+| `default` | Rotary speaker fast (tremolo), as recorded |
+| `slow` | Rotary speaker slow (chorale) |
+| `brake` | Rotary speaker stopped: the cabinet alone |
+| `overdrive` | The amplifier driven hard into the fast speaker |
+| `overdrive-slow` | Driven hard, speaker slow |
+| `mellow` | Darker, with the speaker slow: ballad organ |
+| `arena` | Fast speaker in a big hall |
+| `direct` | No speaker: the organ straight into the desk |
+
 ## Strings
 
 ### `harp` — Concert Harp

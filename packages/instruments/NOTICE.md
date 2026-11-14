@@ -1,7 +1,7 @@
 # Third-party material
 
 The models in `models/` are spectral analyses (partial envelopes, noise spectra and short attack
-excerpts) of the following recordings, both public domain.
+excerpts) of the following recordings, all public domain.
 
 ## Versilian Community Sample Library (VCSL)
 Versilian Studios LLC — https://github.com/sgossner/VCSL — **CC0 1.0** (public domain).
@@ -14,3 +14,9 @@ Versilian Studios LLC — https://github.com/sgossner/VSCO-2-CE — **CC0 1.0** 
 Models: violin, violins, violas, cellos, contrabass, violin-pizzicato, cello-pizzicato,
 contrabass-pizzicato, flute, flute-vibrato, piccolo, oboe, clarinet, bassoon, trumpet,
 trumpet-muted, french-horn, trombone, tuba.
+
+## FreePats rock organ emulation
+Strix SoundFont Team, for the FreePats project — https://freepats.zenvoid.org/Organ/electric-organ.html
+— **CC0 1.0** (public domain). Recorded from the setBfree tonewheel organ synthesizer.
+Model: rock-organ (the organ's steady tone; the rotary speaker is supersynth's own, fitted to
+the same recordings).

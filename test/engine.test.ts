@@ -180,6 +180,34 @@ describe('instruments', () => {
     expect(p.get('reverbSend')).toBeUndefined(); // the instrument's own
   });
 
+  test('the rock organ: a steady tone that its rotary speaker sets in motion', () => {
+    // level of the left channel in 10 ms steps, over the last second
+    const levels = (parameters: { leslie: 'off' | 'fast' }) => {
+      const synth = new Synth({ sampleRate: 48000, reverb: false });
+      const organ = synth.add('rock-organ', { parameters });
+      organ.play(72, { duration: 12 });
+      const a = synth.render(11);
+      const out: number[] = [];
+      for (let i = 10 * 48000; i + 480 <= a.left.length; i += 480) out.push(rms(a.left.subarray(i, i + 480)));
+      const stereo = rms(a.left.subarray(10 * 48000).map((v, i) => v - a.right[10 * 48000 + i]!));
+      return { swing: 20 * Math.log10(Math.max(...out) / Math.min(...out)), stereo, level: rms(a.left.subarray(10 * 48000)) };
+    };
+    const direct = levels({ leslie: 'off' });
+    const fast = levels({ leslie: 'fast' });
+    expect(direct.swing).toBeLessThan(1.5);
+    expect(direct.stereo).toBeLessThan(1e-6);
+    expect(fast.swing).toBeGreaterThan(3);
+    expect(fast.stereo).toBeGreaterThan(0.2 * fast.level);
+    // the speaker is on unless a preset says otherwise, and presets change its speed
+    const synth = new Synth({ sampleRate: 22050 });
+    const organ = synth.add('rock-organ');
+    expect(organ.get('leslie')).toBe('fast');
+    organ.preset('slow');
+    expect(organ.get('leslie')).toBe('slow');
+    organ.preset('direct');
+    expect(organ.get('leslie')).toBe('off');
+  });
+
   test('parameters given with the preset at creation keep it active', () => {
     const synth = new Synth({ sampleRate: 22050 });
     const p = synth.add('grand-piano', { preset: 'mellow', parameters: { volume: -3 } });

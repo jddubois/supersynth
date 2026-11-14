@@ -437,6 +437,12 @@ def build(inst_id: str, spec: dict, workers: int = min(4, os.cpu_count() or 4), 
         good.append(z)
     zones = good
     check_losses(inst_id, items, {z.source for z in zones}, lost)
+    if spec.get('zone_hook'):
+        # (e.g. freepats.tune_zone: partials the analysis took as harmonics, at their own tuning)
+        import importlib
+        mod, fn = spec['zone_hook'].rsplit('.', 1)
+        hook = getattr(importlib.import_module(mod), fn)
+        zones = [hook(z) for z in zones]
 
     # dynamic layers ordered by loudness (peak level, robust to decay length)
     layer_names = sorted({z.layer for z in zones})

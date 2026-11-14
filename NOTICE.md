@@ -40,3 +40,9 @@ whole or in part, to be sold, or to be included in computers or products intende
 (e.g. a MIDI console with a built-in system); the same restriction applies to these models.
 Recordings made with them may be distributed, for commercial and non-commercial purposes; note
 that such recordings were made on a virtual instrument, not on the real organ.
+
+## FreePats rock organ emulation
+Strix SoundFont Team, for the FreePats project — https://freepats.zenvoid.org/Organ/electric-organ.html
+— **CC0 1.0** (public domain). Recorded from the setBfree tonewheel organ synthesizer.
+Model: rock-organ (the organ's steady tone; the rotary speaker is supersynth's own, fitted to
+the same recordings).

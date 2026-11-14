@@ -1,7 +1,7 @@
 {
   "name": "@supersynth/core",
-  "version": "0.4.0",
-  "description": "Acoustic instrument sounds for Node.js and browsers: spectral models analysed from freely licensed recordings (piano, 16 pipe organs and a harmonium, strings, winds, brass, mallets), played by a Rust engine, native or WebAssembly",
+  "version": "0.5.0",
+  "description": "Acoustic instrument sounds for Node.js and browsers: spectral models analysed from freely licensed recordings (piano, 16 pipe organs and a harmonium, a rock organ, strings, winds, brass, mallets), played by a Rust engine, native or WebAssembly",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -70,6 +70,7 @@
     "example:tour": "node --import tsx examples/tour.ts",
     "example:piano": "node --import tsx examples/piano.ts",
     "example:organ": "node --import tsx examples/organ.ts",
+    "example:rock": "node --import tsx examples/rock-organ.ts",
     "example:orchestra": "node --import tsx examples/orchestra.ts",
     "example:midi": "node --import tsx examples/midi-file.ts examples/jsbwv532.mid",
     "example:browser": "node examples/browser/serve.mjs",
@@ -113,7 +114,7 @@
     "url": "https://github.com/jddubois/supersynth/issues"
   },
   "dependencies": {
-    "@supersynth/instruments": "^0.4.0"
+    "@supersynth/instruments": "^0.5.0"
   },
   "peerDependencies": {
     "@supersynth/organ-azzio": "*",
@@ -184,12 +185,12 @@
     }
   },
   "optionalDependencies": {
-    "@supersynth/darwin-arm64": "0.4.0",
-    "@supersynth/darwin-x64": "0.4.0",
-    "@supersynth/linux-arm64-gnu": "0.4.0",
-    "@supersynth/linux-x64-gnu": "0.4.0",
-    "@supersynth/linux-x64-musl": "0.4.0",
-    "@supersynth/win32-x64-msvc": "0.4.0"
+    "@supersynth/darwin-arm64": "0.5.0",
+    "@supersynth/darwin-x64": "0.5.0",
+    "@supersynth/linux-arm64-gnu": "0.5.0",
+    "@supersynth/linux-x64-gnu": "0.5.0",
+    "@supersynth/linux-x64-musl": "0.5.0",
+    "@supersynth/win32-x64-msvc": "0.5.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

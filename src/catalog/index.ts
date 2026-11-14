@@ -8,7 +8,7 @@
  * ```
  */
 import { GRAND_PIANO, UPRIGHT_PIANO, HARPSICHORD } from './keyboards.js';
-import { PIPE_ORGAN, CHAMBER_ORGAN } from './organs.js';
+import { PIPE_ORGAN, CHAMBER_ORGAN, ROCK_ORGAN } from './organs.js';
 import { HARP, VIOLIN_PIZZICATO, CELLO_PIZZICATO, CONTRABASS_PIZZICATO, VIOLIN, VIOLINS, VIOLAS, CELLOS, CONTRABASS, STRINGS } from './strings.js';
 import { FLUTE, OBOE, CLARINET, BASSOON, TENOR_SAX } from './woodwinds.js';
 import { TRUMPET, FRENCH_HORN, TROMBONE, TUBA, BRASS } from './brass.js';
@@ -30,6 +30,7 @@ export const INSTRUMENTS = {
   'harpsichord': HARPSICHORD,
   'pipe-organ': PIPE_ORGAN,
   'chamber-organ': CHAMBER_ORGAN,
+  'rock-organ': ROCK_ORGAN,
   'harp': HARP,
   'violin-pizzicato': VIOLIN_PIZZICATO,
   'cello-pizzicato': CELLO_PIZZICATO,

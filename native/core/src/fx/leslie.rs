@@ -8,15 +8,24 @@
 //!   follows the selected speed with separate acceleration / deceleration
 //!   time constants (the light horn spins up in under a second, the heavy
 //!   drum takes several seconds).
-//! * Two virtual microphones (left / right, 135° apart around the cabinet).
-//!   For each mic the path length to the rotating source is modelled as a
-//!   modulated delay `D - R cos(phi - theta_mic)` read with cubic
-//!   interpolation (Doppler), combined with directivity amplitude modulation
-//!   and, for the horn, a directivity low-pass that closes when the horn mouth
-//!   faces away from the mic.
-//! * The horn also reaches each mic via a cabinet reflection (opposite side,
-//!   longer path, attenuated) which gives the characteristic complex,
-//!   "swirling" phase pattern instead of a plain vibrato.
+//! * Two virtual microphones per rotor (left / right, around the cabinet).
+//!   Each rotor reaches each mic by two paths: directly, with a path length
+//!   `D - R cos(phi - theta_mic)` read as a modulated delay with cubic
+//!   interpolation (Doppler), and by a cabinet reflection from its far side
+//!   (longer, and lengthening while the direct path shortens). Each path has
+//!   its own directivity (loudest when the rotor's mouth faces it), and the
+//!   horn's direct path a low-pass that closes when the mouth faces away.
+//! * The two paths are nearly as loud as each other, so they interfere: every
+//!   partial of the tone passes through its own notches twice (or more) per
+//!   turn. That, more than the Doppler shift, is the swirl of a rotary
+//!   speaker: per partial the level swings 12–17 dB while the level of the
+//!   whole tone moves far less.
+//!
+//! The speeds, path lengths, gains and mic angles below were fitted to
+//! recordings of a tonewheel organ through its rotary speaker at the fast
+//! speed (the FreePats rock organ, `tools/ssm/freepats.py`): per partial, the
+//! swing of the level, its rate, the swing of the pitch and the likeness of
+//! the two channels, below and above the crossover (`tools/ssm/rotary_eval.py`).
 //!
 //! Rotor phases advance at audio rate, delay / gain / filter targets are
 //! computed every 16 samples and ramped linearly in between.
@@ -35,8 +44,6 @@ pub enum LeslieSpeed {
 
 const SUB: usize = 16;
 const CROSSOVER_HZ: f32 = 800.0;
-/// Mic angles (radians) around the cabinet.
-const MIC_THETA: [f32; 2] = [-0.375 * PI, 0.375 * PI];
 
 #[derive(Clone, Copy)]
 struct RotorSpec {
@@ -47,38 +54,62 @@ struct RotorSpec {
     /// Static mic distance (ms) and rotation radius (ms of path length).
     base_ms: f32,
     radius_ms: f32,
-    /// Amplitude modulation depth (0..1).
+    /// Directivity of the direct path: its level falls by this share (0..1) when the
+    /// rotor's mouth faces away from the mic.
     am_depth: f32,
+    /// Cabinet reflection: extra path (ms), gain, and the share its level falls by when
+    /// the mouth faces the mic (and so away from the reflecting side).
+    refl_ms: f32,
+    refl_gain: f32,
+    refl_am: f32,
+    /// Mic angles around the cabinet: ± this many half turns from the front.
+    mic: f32,
+}
+
+impl RotorSpec {
+    /// Gain that keeps the rotor's long-term power at the input's: the two paths add as
+    /// powers over a turn (their interference averages out), each with its directivity.
+    fn norm(&self) -> f32 {
+        let mean_sq = |depth: f32| 1.0 - depth + 0.375 * depth * depth;
+        (mean_sq(self.am_depth) + self.refl_gain * self.refl_gain * mean_sq(self.refl_am)).sqrt().recip()
+    }
+
+    fn max_ms(&self) -> f32 {
+        self.base_ms + self.refl_ms + self.radius_ms
+    }
 }
 
 const HORN: RotorSpec = RotorSpec {
     slow_hz: 0.80,
-    fast_hz: 6.75,
+    fast_hz: 7.05,
     accel_tau_s: 0.45,
     decel_tau_s: 0.65,
     base_ms: 1.2,
-    radius_ms: 0.50,
-    am_depth: 0.55,
+    radius_ms: 0.759,
+    am_depth: 0.751,
+    refl_ms: 2.345,
+    refl_gain: 0.967,
+    refl_am: 0.154,
+    mic: 0.375,
 };
 
 const DRUM: RotorSpec = RotorSpec {
     slow_hz: 0.66,
-    fast_hz: 5.90,
+    fast_hz: 5.95,
     accel_tau_s: 2.2,
     decel_tau_s: 1.8,
-    base_ms: 1.2,
-    radius_ms: 0.28,
-    am_depth: 0.3,
+    base_ms: 2.0,
+    radius_ms: 0.856,
+    am_depth: 0.51,
+    refl_ms: 5.306,
+    refl_gain: 0.81,
+    refl_am: 0.22,
+    mic: 0.305,
 };
 
-/// Horn cabinet reflection: extra path (ms) and gain.
-const REFL_MS: f32 = 1.35;
-const REFL_GAIN: f32 = 0.32;
 /// Horn directivity low-pass corner when facing toward / away from the mic.
 const HORN_LP_OPEN_HZ: f32 = 16000.0;
 const HORN_LP_CLOSED_HZ: f32 = 3500.0;
-/// Output gain normalization.
-const OUT_GAIN: f32 = 1.0;
 
 struct Rotor {
     spec: RotorSpec,
@@ -151,14 +182,16 @@ pub struct Leslie {
     drum: Rotor,
     horn_buf: DelayBuf,
     drum_buf: DelayBuf,
-    /// Per mic: horn direct delay, horn reflection delay, drum delay (samples).
+    /// Per mic: delays (samples) of the horn's direct path and reflection, and the drum's.
     horn_d: [Ramp; 2],
     refl_d: [Ramp; 2],
     drum_d: [Ramp; 2],
+    drum_refl_d: [Ramp; 2],
     /// Per mic gains and horn LP coefficient.
     horn_g: [Ramp; 2],
     refl_g: [Ramp; 2],
     drum_g: [Ramp; 2],
+    drum_refl_g: [Ramp; 2],
     horn_lp_a: [Ramp; 2],
     horn_lp: [f32; 2],
     lp_open: f32,
@@ -173,8 +206,7 @@ impl Leslie {
         let q = std::f32::consts::FRAC_1_SQRT_2;
         let lp = Biquad::new(Coeffs::low_pass(CROSSOVER_HZ, q, sr));
         let hp = Biquad::new(Coeffs::high_pass(CROSSOVER_HZ, q, sr));
-        let max_ms = HORN.base_ms + HORN.radius_ms + REFL_MS + 1.0;
-        let max = (max_ms * 1e-3 * sr) as usize + 8;
+        let max = |spec: &RotorSpec| ((spec.max_ms() + 1.0) * 1e-3 * sr) as usize + 8;
         let onepole = |hz: f32| 1.0 - (-TAU * hz.min(0.45 * sr) / sr).exp();
         let mut l = Self {
             sr,
@@ -182,14 +214,16 @@ impl Leslie {
             xo_hp: [hp, hp],
             horn: Rotor::new(HORN, sr, 0.0),
             drum: Rotor::new(DRUM, sr, 0.37),
-            horn_buf: DelayBuf::new(max),
-            drum_buf: DelayBuf::new(max),
+            horn_buf: DelayBuf::new(max(&HORN)),
+            drum_buf: DelayBuf::new(max(&DRUM)),
             horn_d: [Ramp::default(); 2],
             refl_d: [Ramp::default(); 2],
             drum_d: [Ramp::default(); 2],
+            drum_refl_d: [Ramp::default(); 2],
             horn_g: [Ramp::default(); 2],
             refl_g: [Ramp::default(); 2],
             drum_g: [Ramp::default(); 2],
+            drum_refl_g: [Ramp::default(); 2],
             horn_lp_a: [Ramp::default(); 2],
             horn_lp: [0.0; 2],
             lp_open: onepole(HORN_LP_OPEN_HZ),
@@ -224,9 +258,11 @@ impl Leslie {
             .iter_mut()
             .chain(self.refl_d.iter_mut())
             .chain(self.drum_d.iter_mut())
+            .chain(self.drum_refl_d.iter_mut())
             .chain(self.horn_g.iter_mut())
             .chain(self.refl_g.iter_mut())
             .chain(self.drum_g.iter_mut())
+            .chain(self.drum_refl_g.iter_mut())
             .chain(self.horn_lp_a.iter_mut())
         {
             r.v += r.d * SUB as f32;
@@ -239,18 +275,23 @@ impl Leslie {
         let ms = self.sr * 1e-3;
         let ph = self.horn.advance(dt);
         let pd = self.drum.advance(dt);
-        for (m, theta) in MIC_THETA.iter().enumerate() {
-            let ch = (ph - theta).cos(); // +1: horn mouth faces the mic
-            let cd = (pd - theta).cos();
-            // Doppler: path shortens as the source points toward the mic.
+        let (hn, dn) = (HORN.norm(), DRUM.norm());
+        for (m, side) in [-1.0f32, 1.0].into_iter().enumerate() {
+            let ch = (ph - side * HORN.mic * PI).cos(); // +1: horn mouth faces the mic
+            let cd = (pd - side * DRUM.mic * PI).cos();
+            // Doppler: the direct path shortens as the source points toward the mic, the
+            // reflection from the far side lengthens.
             self.horn_d[m].set((HORN.base_ms - HORN.radius_ms * ch) * ms);
-            self.refl_d[m].set((HORN.base_ms + REFL_MS + HORN.radius_ms * ch) * ms);
+            self.refl_d[m].set((HORN.base_ms + HORN.refl_ms + HORN.radius_ms * ch) * ms);
             self.drum_d[m].set((DRUM.base_ms - DRUM.radius_ms * cd) * ms);
+            self.drum_refl_d[m].set((DRUM.base_ms + DRUM.refl_ms + DRUM.radius_ms * cd) * ms);
             // Directivity AM.
             let toward = 0.5 * (1.0 + ch);
-            self.horn_g[m].set(1.0 - HORN.am_depth * (1.0 - toward));
-            self.refl_g[m].set(REFL_GAIN * (1.0 - HORN.am_depth * toward));
-            self.drum_g[m].set(1.0 - DRUM.am_depth * 0.5 * (1.0 - cd));
+            let toward_d = 0.5 * (1.0 + cd);
+            self.horn_g[m].set(hn * (1.0 - HORN.am_depth * (1.0 - toward)));
+            self.refl_g[m].set(hn * HORN.refl_gain * (1.0 - HORN.refl_am * toward));
+            self.drum_g[m].set(dn * (1.0 - DRUM.am_depth * (1.0 - toward_d)));
+            self.drum_refl_g[m].set(dn * DRUM.refl_gain * (1.0 - DRUM.refl_am * toward_d));
             self.horn_lp_a[m].set(self.lp_closed + (self.lp_open - self.lp_closed) * toward);
         }
     }
@@ -287,10 +328,11 @@ impl StereoEffect for Leslie {
                     self.horn_lp[m] += a * (direct - self.horn_lp[m]);
                     let refl = self.horn_buf.read_cubic(self.refl_d[m].tick());
                     let drum = self.drum_buf.read_cubic(self.drum_d[m].tick());
-                    *o = OUT_GAIN
-                        * (self.horn_lp[m] * self.horn_g[m].tick()
-                            + refl * self.refl_g[m].tick()
-                            + drum * self.drum_g[m].tick());
+                    let drum_refl = self.drum_buf.read_cubic(self.drum_refl_d[m].tick());
+                    *o = self.horn_lp[m] * self.horn_g[m].tick()
+                        + refl * self.refl_g[m].tick()
+                        + drum * self.drum_g[m].tick()
+                        + drum_refl * self.drum_refl_g[m].tick();
                 }
                 let mix = self.mix.next();
                 left[j] = dl + mix * (out[0] - dl);
@@ -360,6 +402,27 @@ mod tests {
             .collect();
         let (mn, mx) = blocks.iter().fold((f32::MAX, 0.0f32), |(a, b), &v| (a.min(v), b.max(v)));
         assert!(mx / mn > 1.3, "AM ratio {}", mx / mn);
+    }
+
+    /// What the rotors were fitted for: a single partial swings by many dB as it
+    /// passes through the notches of the two paths, below the crossover as well as above
+    /// it, while its long-term power stays close to the input's.
+    #[test]
+    fn partials_swing_through_notches_at_unity_power() {
+        for f in [196.0f32, 392.0, 1568.0, 3136.0] {
+            let mut les = Leslie::new(SR);
+            les.set_speed(LeslieSpeed::Fast);
+            let (l, _) = run(&mut les, 14.0, f);
+            let tail = &l[l.len() - 4 * SR as usize..];
+            let rms = |c: &[f32]| (c.iter().map(|v| v * v).sum::<f32>() / c.len() as f32).sqrt();
+            let mut blocks: Vec<f32> = tail.chunks(480).map(rms).collect();
+            blocks.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let swing = 20.0 * (blocks[blocks.len() * 95 / 100] / blocks[blocks.len() * 5 / 100]).log10();
+            let power = 20.0 * (rms(tail) / (0.5 * std::f32::consts::FRAC_1_SQRT_2)).log10();
+            println!("leslie fast, {f} Hz: level swing {swing:.1} dB, long-term level {power:+.1} dB");
+            assert!(swing > 5.0, "{f} Hz: swing {swing} dB");
+            assert!(power.abs() < 3.5, "{f} Hz: long-term level {power} dB");
+        }
     }
 
     #[test]

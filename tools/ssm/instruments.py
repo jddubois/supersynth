@@ -6,12 +6,15 @@ Sources (all freely licensed):
               (github.com/sgossner/VSCO-2-CE)
   Bureå     — Bureå Church organ GrandOrgue sample set by Lars Palo, CC BY-SA 2.5
               (familjenpalo.se/vpo/download)
+  FreePats  — electric organ sound banks, CC0 (freepats.zenvoid.org/Organ/electric-organ.html;
+              `python freepats.py fetch`, then `dry`)
 """
 
 VCSL = 'VCSL'
 VSCO = 'VSCO-2-CE'
 CC0_VCSL = 'Analysed from the Versilian Community Sample Library (CC0)'
 CC0_VSCO = 'Analysed from VSCO 2 Community Edition (CC0)'
+CC0_FREEPATS = 'Analysed from the FreePats rock organ emulation by the Strix SoundFont Team (CC0)'
 
 RR_EXTRA = r'(_rr[2-9]|_RR[2-9]|_0[2-9][_.]|_var[2-9])'
 
@@ -93,6 +96,15 @@ INSTRUMENTS: dict[str, dict] = {
         files=[f"{VCSL}/Aerophones/Edge-blown Aerophones/Renaissance Organ/Full/*.wav"],
         exclude=RR_EXTRA, stereo=True, transient=True, transient_max_s=0.09, max_partials=512, locked=False, free_partials=12,
         params=dict(tuning='recorded', releaseMode='natural', spread=0.4, reverb='chamber', reverbSend=0.15, minReleaseDbS=30.0),
+    ),
+    # A tonewheel organ's steady tone, measured from the FreePats rock organ's recordings
+    # (through its rotary speaker) by freepats.py, which writes it as the recordings analysed
+    # here; the engine's rotary speaker puts the movement back.
+    'rock-organ': dict(
+        display='Rock Organ (tonewheel)', family='organ', kind='sustained', source=CC0_FREEPATS,
+        files=['freepats/rock-dry/*.wav'],
+        octave_search=False, transient=False, max_partials=24, zone_hook='freepats.tune_zone', target_rms_db=-16.0,
+        params=dict(releaseMode='natural', spread=0.0, reverb='room', reverbSend=0.08, formant=0.0, minReleaseDbS=100.0),
     ),
     # ── plucked / struck strings ───────────────────────────────────────────
     'harp': dict(

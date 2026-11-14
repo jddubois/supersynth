@@ -46,7 +46,7 @@ defaults. A value outside its range (`PARAMETER_RANGES`, listed below) throws a
 | `lowCut`, `highCut` | off | 0 (off) … 100000 Hz | 12 dB/oct filters |
 | `chorus`, `chorusRate`, `chorusDepth` | off | mix 0 … 1, 0 … 20 Hz, 0 … 50 ms | ensemble |
 | `drive`, `driveTone`, `driveLevel` | off | 1 (off) … 20, 0 … 100000 Hz, 0 … 4 × | 4× oversampled tube drive |
-| `leslie` | `'off'` | `'off'`, `'stop'`, `'slow'`, `'fast'` | rotary speaker |
+| `leslie` | `'off'` | `'off'`, `'stop'`, `'slow'`, `'fast'` | rotary speaker: a treble horn (0.8 / 7.05 turns a second) and a bass rotor (0.66 / 5.95) that take their time to change speed; fitted to recordings of a tonewheel organ ([models.md](models.md#the-rock-organ)) |
 
 ## Velocity
 

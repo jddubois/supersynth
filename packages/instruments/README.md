@@ -1,7 +1,7 @@
 # @supersynth/instruments
 
 The core instrument models for [supersynth](https://www.npmjs.com/package/@supersynth/core): pianos,
-harpsichords, strings, winds, brass, mallets and the VCSL organs, analysed from public-domain
+harpsichords, strings, winds, brass, mallets, the VCSL organs and a rock organ, analysed from public-domain
 (CC0) recordings. supersynth depends on this package, so `npm install @supersynth/core` installs it;
 you don't need to install it yourself.
 

@@ -2,8 +2,8 @@
 
 Acoustic instrument sounds for Node.js and browsers, played by a Rust engine (native in Node.js,
 WebAssembly on several cores in a browser): piano, harpsichord, sixteen pipe organs and a
-harmonium, strings, winds, brass and mallets. Each instrument is a spectral model analysed from
-freely licensed recordings.
+harmonium, a rock organ with its rotary speaker, strings, winds, brass and mallets. Each
+instrument is a spectral model analysed from freely licensed recordings.
 
 ```ts
 import { Synth } from '@supersynth/core';
@@ -61,8 +61,9 @@ nearest recording, resampled to the new pitch.
 - There's no published comparison with the recordings. `tools/ssm/` has scripts that compare
   synthesised notes with the recordings and with a simple pitch-shifting sampler
   ([docs/models.md](docs/models.md#evaluation)), but none of their results are in the repository
-  and there have been no recorded listening tests. So this README makes no claim about how close
-  the instruments come to the real thing, or to a sampler.
+  (the rock organ's are, in [docs/models.md](docs/models.md#the-rock-organ)) and there have been
+  no recorded listening tests. So this README makes no claim about how close the instruments
+  come to the real thing, or to a sampler.
 - Between recorded notes, the attack and envelope come from one of the two neighbouring
   recordings and switch over halfway between them, much like sampler zones. The attack is
   resampled with linear interpolation, which can alias when it's transposed a long way up.
@@ -76,6 +77,12 @@ nearest recording, resampled to the new pitch.
 - Organs: the Bureå and Piotr Grabowski sample sets record every pipe, so these models
   resynthesise those recordings rather than interpolating between them. Pipes don't interact,
   apart from a simple shared-wind model (`wind`).
+- Rock organ: the model is the organ's steady tone, and the rotary speaker is the engine's
+  (`leslie`), fitted to the same recordings at the fast speed. The engine's output has their
+  long-term spectrum, and its movement is close to theirs by the measures in
+  [docs/models.md](docs/models.md#the-rock-organ), not sample for sample. The slow and stopped
+  speeds, the overdrive presets, key click and percussion aren't in the recordings: the first
+  three are the engine's own, the last two are missing.
 - Live MIDI is applied at the start of the next audio buffer, so its timing can be off by up to
   one buffer (2.7 ms at 128 frames).
 - The largest organs at full registration probably need more CPU than a Raspberry Pi 5 has, at
@@ -86,7 +93,7 @@ nearest recording, resampled to the new pitch.
 | Family | Instruments (ids) |
 |---|---|
 | Keyboards | `grand-piano`, `upright-piano`, `harpsichord` |
-| Organs | `burea` (the Bureå church organ: 40 stops, 4 divisions); `vcsl` (the VCSL church organ plus a Renaissance chamber organ); 15 organs from Piotr Grabowski's free sample sets, such as `friesach`, `cracow` and `szczecinek` ([full list](docs/piotr-organs.md)); `pipe-organ` and `chamber-organ` (single sounds). Apart from `vcsl` and the single sounds, organs are installed separately ([Install](#install)) |
+| Organs | `burea` (the Bureå church organ: 40 stops, 4 divisions); `vcsl` (the VCSL church organ plus a Renaissance chamber organ); 15 organs from Piotr Grabowski's free sample sets, such as `friesach`, `cracow` and `szczecinek` ([full list](docs/piotr-organs.md)); `pipe-organ` and `chamber-organ` (single sounds); `rock-organ` (a tonewheel organ through a rotary speaker: `leslie: 'fast' | 'slow' | 'stop'`). Apart from `vcsl`, the single sounds and the rock organ, organs are installed separately ([Install](#install)) |
 | Strings | `violin`, `violins`, `violas`, `cellos`, `contrabass`, `strings` (full section), `harp`, `violin-pizzicato`, `cello-pizzicato`, `contrabass-pizzicato` |
 | Woodwinds | `flute`, `oboe`, `clarinet`, `bassoon`, `tenor-sax` |
 | Brass | `trumpet`, `french-horn`, `trombone`, `tuba`, `brass` (section) |
@@ -305,6 +312,7 @@ See [docs/midi.md](docs/midi.md#hardware-input).
 npm run example:tour          # piano, harpsichord, strings, winds, brass, harp and mallets
 npm run example:piano         # pedal, dynamics, presets
 npm run example:organ         # hymn in four parts across presets
+npm run example:rock          # the rock organ: a riff, the rotary speaker changing speed, overdrive
 npm run example:orchestra     # strings, harp, oboe, horn, pizzicato bass
 npm run example:midi          # Bach's BWV 532 from a MIDI file, on the piano
 npm run demos -- demos/       # render every instrument × preset to WAV

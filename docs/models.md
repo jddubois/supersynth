@@ -58,6 +58,58 @@ frames with clamped Catmull-Rom splines; with linear interpolation, the corners 
 rate came through as a faint 50–100 Hz flutter. The turning points of the sustain loop are
 picked at random on every pass, so a held chord never repeats with a fixed period.
 
+## The rock organ
+
+`rock-organ` is built differently (`tools/ssm/freepats.py`). Its recordings, the FreePats rock
+organ (CC0; 16 notes in stereo, recorded from the setBfree synthesizer), are a tonewheel organ
+through its rotary speaker at the fast speed. The organ's own tone is steady, a fixed set of sine
+waves per note, and all the movement is the speaker's. So the two are separated:
+
+1. **The tone.** For each recorded note, the long-term power of every harmonic of the 16'
+   drawbar, over both channels and whole rotations (the speaker spreads a harmonic over up to
+   ±100 Hz and moves its level by 20 dB, but its power over a turn stays). Harmonics within
+   42 dB of the strongest are kept. The partials are tuned as tonewheels are, in equal
+   temperament: the 5 1/3', 2 2/3' and 1 1/3' drawbars 2 cents above the harmonic, the 1 3/5'
+   14 cents. The tone is written as a recording without the speaker and analysed like any
+   other.
+2. **The speaker.** The engine's rotary speaker (`leslie`, `native/core/src/fx/leslie.rs`): two
+   rotors, each heard by two microphones along a direct path and a reflection. Its rotor
+   speeds, path lengths, gains and microphone angles were fitted to the recordings: per
+   harmonic, how far the level swings, how fast, how far the pitch swings, and how alike the
+   two channels are.
+3. **Calibration.** Each recorded note is rendered through the engine with the speaker
+   running, and every harmonic of the tone is moved by the difference between recording and
+   render, three times over. The model therefore holds the tone that, through the engine's
+   speaker, has the recordings' long-term spectrum.
+
+A model with the rotation in it would play each note of a chord through a speaker of its own,
+at whatever position that note's recording started in, and could not change speed. This way
+every note goes through the one speaker, and `leslie` switches it between fast, slow and
+stopped with the rotors' inertia.
+
+`rotary_eval.py` measures the result on the 16 recorded notes, engine against recording:
+
+| | recording | engine |
+|---|---|---|
+| Long-term level of each harmonic within 25 dB of the strongest | | within 0.1 dB (mean 0.02 dB) |
+| Level swing of a harmonic, 5th to 95th percentile: below 200 Hz / 200–800 Hz / 0.8–2 kHz / above 2 kHz | 12.5 / 16.2 / 17.5 / 16.2 dB | 12.9 / 16.2 / 14.8 / 15.2 dB |
+| Pitch swing of a harmonic (level-weighted), same bands | 39 / 34 / 32 / 32 cents | 32 / 28 / 33 / 32 cents |
+| Correlation of the left and right level swings, same bands | −0.70 / 0.03 / 0.00 / −0.07 | −0.38 / 0.08 / −0.15 / −0.01 |
+| Rotor speeds | 5.95 and 7.05 turns a second | the same |
+
+These are medians over the harmonics in each band. What they don't show:
+
+- The first row is what the calibration matches, on the notes it was calibrated with: it says
+  the fit converged, not how the 45 notes between the recordings sound (their tone is blended
+  from the two nearest recorded notes).
+- The other rows are statistics. The rotors' positions when a note starts are arbitrary, in
+  the recordings and in the engine, so the waveforms can't be compared, and two speakers with
+  the same statistics need not sound the same. The strongest modulation rate of a harmonic
+  (which multiple of the rotor speed) often differs between the two.
+- Only the fast speed was recorded. The slow and stopped speaker, and the time the rotors take
+  to change speed, are the engine's own.
+- No listening test has been recorded.
+
 ## Evaluation
 
 The scripts below compare the engine's output with the recordings. They write their results to
@@ -104,4 +156,6 @@ python build_all.py                  # everything (see instruments.py for source
 
 The recordings are not in the repository and no script downloads them: get the sample
 libraries named in [NOTICE.md](../NOTICE.md) and place them under `data/samples` (or set
-`SUPERSYNTH_DATA_ROOT`); `instruments.py` gives the folder each model reads.
+`SUPERSYNTH_DATA_ROOT`); `instruments.py` gives the folder each model reads. The rock organ is
+the exception: `python freepats.py model` downloads its recordings and builds it (after
+`cargo build --release` in `native/`, for the calibration renders).
